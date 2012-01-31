@@ -66,6 +66,7 @@
  *                their interrupt handlers.
  * IRQF_PERF_AFFINE - Interrupt is critical to the overall performance of the
  *		      system and should be processed on a big CPU.
+ * IRQF_NO_SOFTIRQ_CALL - Do not process softirqs in the irq thread context (RT)
  */
 #define IRQF_SHARED		0x00000080
 #define IRQF_PROBE_SHARED	0x00000100
@@ -80,6 +81,7 @@
 #define IRQF_EARLY_RESUME	0x00020000
 #define IRQF_COND_SUSPEND	0x00040000
 #define IRQF_PERF_AFFINE	0x00080000
+#define IRQF_NO_SOFTIRQ_CALL	0x00200000
 
 #define IRQF_TIMER		(__IRQF_TIMER | IRQF_NO_SUSPEND | IRQF_NO_THREAD)
 
