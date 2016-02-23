@@ -4130,7 +4130,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 
 	/* assert PCIe reset link to keep EP in reset */
 
-	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+	PCIE_DBG(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				dev->gpio[MSM_PCIE_GPIO_PERST].on);
@@ -4450,7 +4450,7 @@ static void msm_pcie_disable(struct msm_pcie_dev_t *dev, u32 options)
 	dev->power_on = false;
 	dev->link_turned_off_counter++;
 
-	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+	PCIE_DBG(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
 
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
