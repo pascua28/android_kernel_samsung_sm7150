@@ -205,7 +205,8 @@ unsigned long oom_badness(struct task_struct *p, struct mem_cgroup *memcg,
 	 * task's rss, pagetable and swap space use.
 	 */
 	points = get_mm_rss(p->mm) + get_mm_counter(p->mm, MM_SWAPENTS) +
-		atomic_long_read(&p->mm->nr_ptes) + mm_nr_pmds(p->mm);
+		atomic_long_read(&p->mm->nr_ptes) + mm_nr_pmds(p->mm) +
+		mm_nr_puds(p->mm);
 	task_unlock(p);
 
 	/* Normalize to oom_score_adj units */
@@ -385,7 +386,7 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 
 	swap_orig_nrpages = get_swap_orig_data_nrpages();
 	swap_comp_nrpages = get_swap_comp_pool_nrpages();
-	pr_info("[ pid ]   uid  tgid total_vm total_rss (   rss     swap  ) nr_ptes nr_pmds swapents oom_score_adj name\n");
+	pr_info("[ pid ]   uid  tgid total_vm      rss nr_ptes nr_pmds nr_puds swapents oom_score_adj name\n");
 #else
 	pr_info("[ pid ]   uid  tgid total_vm      rss nr_ptes nr_pmds swapents oom_score_adj name\n");
 #endif
@@ -409,7 +410,7 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 				swap_comp_nrpages / swap_orig_nrpages;
 		pr_info("[%5d] %5d %5d %8lu  %8lu (%8lu %8lu) %7ld %7ld %8lu         %5hd %s\n",
 #else
-		pr_info("[%5d] %5d %5d %8lu %8lu %7ld %7ld %8lu         %5hd %s\n",
+		pr_info("[%5d] %5d %5d %8lu %8lu %7ld %7ld %7ld %8lu         %5hd %s\n",
 #endif
 			task->pid, from_kuid(&init_user_ns, task_uid(task)),
 			task->tgid, task->mm->total_vm,
@@ -421,6 +422,7 @@ void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 #endif
 			atomic_long_read(&task->mm->nr_ptes),
 			mm_nr_pmds(task->mm),
+			mm_nr_puds(task->mm),
 			get_mm_counter(task->mm, MM_SWAPENTS),
 			task->signal->oom_score_adj, task->comm);
 		cur_rss_sum = get_mm_rss(task->mm) +
