@@ -70,7 +70,40 @@ static inline int timespec_compare(const struct timespec *lhs, const struct time
 	return lhs->tv_nsec - rhs->tv_nsec;
 }
 
-extern void set_normalized_timespec(struct timespec *ts, time_t sec, s64 nsec);
+/**
+ * set_normalized_timespec - set timespec sec and nsec parts and normalize
+ *
+ * @ts:		pointer to timespec variable to be set
+ * @sec:	seconds to set
+ * @nsec:	nanoseconds to set
+ *
+ * Set seconds and nanoseconds field of a timespec variable and
+ * normalize to the timespec storage format
+ *
+ * Note: The tv_nsec part is always in the range of
+ *	0 <= tv_nsec < NSEC_PER_SEC
+ * For negative values only the tv_sec field is negative !
+ */
+static inline void set_normalized_timespec(struct timespec *ts, time_t sec, s64 nsec)
+{
+	while (nsec >= NSEC_PER_SEC) {
+		/*
+		 * The following asm() prevents the compiler from
+		 * optimising this loop into a modulo operation. See
+		 * also __iter_div_u64_rem() in include/linux/time.h
+		 */
+		asm("" : "+rm"(nsec));
+		nsec -= NSEC_PER_SEC;
+		++sec;
+	}
+	while (nsec < 0) {
+		asm("" : "+rm"(nsec));
+		nsec += NSEC_PER_SEC;
+		--sec;
+	}
+	ts->tv_sec = sec;
+	ts->tv_nsec = nsec;
+}
 
 static inline struct timespec timespec_add(struct timespec lhs,
 						struct timespec rhs)
@@ -133,11 +166,27 @@ static inline s64 timespec_to_ns(const struct timespec *ts)
 
 /**
  * ns_to_timespec - Convert nanoseconds to timespec
- * @nsec:	the nanoseconds value to be converted
+ * @nsec:       the nanoseconds value to be converted
  *
  * Returns the timespec representation of the nsec parameter.
  */
-extern struct timespec ns_to_timespec(const s64 nsec);
+static inline struct timespec ns_to_timespec(const s64 nsec)
+{
+	struct timespec ts;
+	s32 rem;
+
+	if (!nsec)
+		return (struct timespec) {0, 0};
+
+	ts.tv_sec = div_s64_rem(nsec, NSEC_PER_SEC, &rem);
+	if (unlikely(rem < 0)) {
+		ts.tv_sec--;
+		rem += NSEC_PER_SEC;
+	}
+	ts.tv_nsec = rem;
+
+	return ts;
+}
 
 /**
  * timespec_add_ns - Adds nanoseconds to a timespec
@@ -187,7 +236,28 @@ static inline bool timeval_valid(const struct timeval *tv)
 	return true;
 }
 
-extern struct timespec timespec_trunc(struct timespec t, unsigned int gran);
+/**
+ * timespec_trunc - Truncate timespec to a granularity
+ * @t: Timespec
+ * @gran: Granularity in ns.
+ *
+ * Truncate a timespec to a granularity. Always rounds down. gran must
+ * not be 0 nor greater than a second (NSEC_PER_SEC, or 10^9 ns).
+ */
+static inline struct timespec timespec_trunc(struct timespec t, unsigned gran)
+{
+	/* Avoid division in the common cases 1 ns and 1 s. */
+	if (gran == 1) {
+		/* nothing */
+	} else if (gran == NSEC_PER_SEC) {
+		t.tv_nsec = 0;
+	} else if (gran > 1 && gran < NSEC_PER_SEC) {
+		t.tv_nsec -= t.tv_nsec % gran;
+	} else {
+		WARN(1, "illegal file time granularity: %u", gran);
+	}
+	return t;
+}
 
 /**
  * timeval_to_ns - Convert timeval to nanoseconds
@@ -204,12 +274,31 @@ static inline s64 timeval_to_ns(const struct timeval *tv)
 
 /**
  * ns_to_timeval - Convert nanoseconds to timeval
- * @nsec:	the nanoseconds value to be converted
+ * @nsec:       the nanoseconds value to be converted
  *
  * Returns the timeval representation of the nsec parameter.
  */
-extern struct timeval ns_to_timeval(const s64 nsec);
-extern struct __kernel_old_timeval ns_to_kernel_old_timeval(s64 nsec);
+static inline struct timeval ns_to_timeval(const s64 nsec)
+{
+	struct timespec ts = ns_to_timespec(nsec);
+	struct timeval tv;
+
+	tv.tv_sec = ts.tv_sec;
+	tv.tv_usec = (suseconds_t) ts.tv_nsec / 1000;
+
+	return tv;
+}
+
+static inline struct __kernel_old_timeval ns_to_kernel_old_timeval(const s64 nsec)
+{
+	struct timespec64 ts = ns_to_timespec64(nsec);
+	struct __kernel_old_timeval tv;
+
+	tv.tv_sec = ts.tv_sec;
+	tv.tv_usec = (suseconds_t)ts.tv_nsec / 1000;
+
+	return tv;
+}
 
 /*
  * New aliases for compat time functions. These will be used to replace
