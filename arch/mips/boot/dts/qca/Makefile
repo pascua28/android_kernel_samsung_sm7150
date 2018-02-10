@@ -6,7 +6,7 @@ dtb-$(CONFIG_ATH79)			+= ar9331_dragino_ms14.dtb
 dtb-$(CONFIG_ATH79)			+= ar9331_omega.dtb
 dtb-$(CONFIG_ATH79)			+= ar9331_tl_mr3020.dtb
 
-# Force kbuild to make empty built-in.o if necessary
+# Force kbuild to make empty built-in.a if necessary
 obj-				+= dummy.o
 
 always				:= $(dtb-y)
