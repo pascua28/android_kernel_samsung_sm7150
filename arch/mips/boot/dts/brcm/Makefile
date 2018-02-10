@@ -36,7 +36,7 @@ dtb-$(CONFIG_DT_NONE) += \
 
 obj-y				+= $(patsubst %.dtb, %.dtb.o, $(dtb-y))
 
-# Force kbuild to make empty built-in.o if necessary
+# Force kbuild to make empty built-in.a if necessary
 obj-				+= dummy.o
 
 always				:= $(dtb-y)

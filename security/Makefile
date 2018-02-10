@@ -42,4 +42,4 @@ obj-$(CONFIG_MST_LDO)	  += mstdrv/
 
 # Knox SDP
 obj-$(CONFIG_SDP) += sdp/
-obj-$(CONFIG_SDP) += sdp/built-in.o
+obj-$(CONFIG_SDP) += sdp/built-in.a
