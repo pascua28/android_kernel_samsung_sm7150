@@ -944,5 +944,6 @@ asmlinkage long sys_statx(int dfd, const char __user *path, unsigned flags,
 asmlinkage long sys_pidfd_send_signal(int pidfd, int sig,
 				       siginfo_t __user *info,
 				       unsigned int flags);
+ssize_t ksys_write(unsigned int fd, const char __user *buf, size_t count);
 
 #endif
