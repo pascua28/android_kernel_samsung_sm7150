@@ -945,5 +945,6 @@ asmlinkage long sys_pidfd_send_signal(int pidfd, int sig,
 				       siginfo_t __user *info,
 				       unsigned int flags);
 ssize_t ksys_write(unsigned int fd, const char __user *buf, size_t count);
+off_t ksys_lseek(unsigned int fd, off_t offset, unsigned int whence);
 
 #endif
