@@ -16,22 +16,7 @@
 #ifndef __ASM_SPINLOCK_TYPES_H
 #define __ASM_SPINLOCK_TYPES_H
 
-#include <linux/types.h>
-
-#define TICKET_SHIFT	16
-
-typedef struct {
-#ifdef __AARCH64EB__
-	u16 next;
-	u16 owner;
-#else
-	u16 owner;
-	u16 next;
-#endif
-} __aligned(4) arch_spinlock_t;
-
-#define __ARCH_SPIN_LOCK_UNLOCKED	{ 0 , 0 }
-
+#include <asm-generic/qspinlock_types.h>
 #include <asm-generic/qrwlock_types.h>
 
 #endif
