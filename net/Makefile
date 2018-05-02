@@ -87,4 +87,5 @@ obj-$(CONFIG_QRTR)		+= qrtr/
 obj-$(CONFIG_NET_NCSI)		+= ncsi/
 obj-$(CONFIG_RMNET_DATA) += rmnet_data/
 obj-$(CONFIG_RMNET_USB) += rmnet_usb/
+obj-$(CONFIG_XDP_SOCKETS)	+= xdp/
 obj-$(CONFIG_KNOX_NCM)	+= ncm/
