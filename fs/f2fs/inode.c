@@ -460,9 +460,9 @@ static int do_read_inode(struct inode *inode)
 		}
 	}
 
-	F2FS_I(inode)->i_disk_time[0] = inode->i_atime;
-	F2FS_I(inode)->i_disk_time[1] = inode->i_ctime;
-	F2FS_I(inode)->i_disk_time[2] = inode->i_mtime;
+	F2FS_I(inode)->i_disk_time[0] = timespec64_to_timespec(inode->i_atime);
+	F2FS_I(inode)->i_disk_time[1] = timespec64_to_timespec(inode->i_ctime);
+	F2FS_I(inode)->i_disk_time[2] = timespec64_to_timespec(inode->i_mtime);
 	F2FS_I(inode)->i_disk_time[3] = F2FS_I(inode)->i_crtime;
 
 	if (unlikely((inode->i_mode & S_IFMT) == 0)) {
@@ -651,9 +651,9 @@ void f2fs_update_inode(struct inode *inode, struct page *node_page)
 	if (inode->i_nlink == 0)
 		clear_inline_node(node_page);
 
-	F2FS_I(inode)->i_disk_time[0] = inode->i_atime;
-	F2FS_I(inode)->i_disk_time[1] = inode->i_ctime;
-	F2FS_I(inode)->i_disk_time[2] = inode->i_mtime;
+	F2FS_I(inode)->i_disk_time[0] = timespec64_to_timespec(inode->i_atime);
+	F2FS_I(inode)->i_disk_time[1] = timespec64_to_timespec(inode->i_ctime);
+	F2FS_I(inode)->i_disk_time[2] = timespec64_to_timespec(inode->i_mtime);
 	F2FS_I(inode)->i_disk_time[3] = F2FS_I(inode)->i_crtime;
 
 #ifdef CONFIG_F2FS_CHECK_FS
