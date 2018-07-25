@@ -181,6 +181,7 @@ void fpsimd_flush_thread(void)
 	if (!system_supports_fpsimd())
 		return;
 
+	preempt_disable();
 	local_bh_disable();
 
 	memset(&current->thread.fpsimd_state, 0, sizeof(struct fpsimd_state));
@@ -188,6 +189,7 @@ void fpsimd_flush_thread(void)
 	set_thread_flag(TIF_FOREIGN_FPSTATE);
 
 	local_bh_enable();
+	preempt_enable();
 }
 
 /*
@@ -199,12 +201,14 @@ void fpsimd_preserve_current_state(void)
 	if (!system_supports_fpsimd())
 		return;
 
+	preempt_disable();
 	local_bh_disable();
 
 	if (!test_thread_flag(TIF_FOREIGN_FPSTATE))
 		fpsimd_save_state(&current->thread.fpsimd_state);
 
 	local_bh_enable();
+	preempt_enable();
 }
 
 /*
@@ -228,6 +232,7 @@ void fpsimd_restore_current_state(void)
 		return;
 	}
 
+	preempt_disable();
 	local_bh_disable();
 
 	if (test_and_clear_thread_flag(TIF_FOREIGN_FPSTATE)) {
@@ -239,6 +244,7 @@ void fpsimd_restore_current_state(void)
 	}
 
 	local_bh_enable();
+	preempt_enable();
 }
 
 /*
@@ -251,6 +257,7 @@ void fpsimd_update_current_state(struct fpsimd_state *state)
 	if (WARN_ON(!system_supports_fpsimd()))
 		return;
 
+	preempt_disable();
 	local_bh_disable();
 
 	fpsimd_load_state(state);
@@ -262,6 +269,7 @@ void fpsimd_update_current_state(struct fpsimd_state *state)
 	}
 
 	local_bh_enable();
+	preempt_enable();
 }
 
 /*
@@ -301,6 +309,7 @@ void kernel_neon_begin(void)
 
 	BUG_ON(!may_use_simd());
 
+	preempt_disable();
 	local_bh_disable();
 
 	__this_cpu_write(kernel_neon_busy, true);
@@ -315,6 +324,7 @@ void kernel_neon_begin(void)
 	preempt_disable();
 
 	local_bh_enable();
+	preempt_enable();
 }
 EXPORT_SYMBOL(kernel_neon_begin);
 
