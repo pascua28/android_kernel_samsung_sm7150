@@ -799,6 +799,7 @@ struct __sk_buff {
 	__u32 local_ip6[4];	/* Stored in network byte order */
 	__u32 remote_port;	/* Stored in network byte order */
 	__u32 local_port;	/* stored in host byte order */
+	__u64 tstamp;
 };
 
 struct bpf_tunnel_key {
