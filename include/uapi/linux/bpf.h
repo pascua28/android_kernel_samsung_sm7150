@@ -1200,6 +1200,7 @@ struct __sk_buff {
 	/* ... here. */
 	__u32 data_meta;
 	__bpf_md_ptr(struct bpf_sock *, sk);
+	__u64 tstamp;
 };
 
 struct bpf_tunnel_key {
