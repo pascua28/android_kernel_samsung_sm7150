@@ -319,7 +319,7 @@ const struct cred *get_task_cred(struct task_struct *task)
 	do {
 		cred = __task_cred((task));
 		BUG_ON(!cred);
-	} while (!atomic_long_inc_not_zero(&((struct cred *)cred)->usage));
+	} while (!get_cred_rcu(cred));
 #endif
 
 	rcu_read_unlock();
