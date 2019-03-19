@@ -155,7 +155,7 @@ static int tsens2xxx_get_temp(struct tsens_sensor *sensor, int *temp)
 	sensor_addr = TSENS_TM_SN_STATUS(tmdev->tsens_tm_addr);
 	trdy = TSENS_TM_TRDY(tmdev->tsens_tm_addr);
 
-	code = readl_relaxed_no_log(trdy);
+	code = readl_relaxed(trdy);
 
 	if (!((code & TSENS_TM_TRDY_FIRST_ROUND_COMPLETE) >>
 		    TSENS_TM_TRDY_FIRST_ROUND_COMPLETE_SHIFT)) {
@@ -170,7 +170,7 @@ static int tsens2xxx_get_temp(struct tsens_sensor *sensor, int *temp)
 		/* Wait for 2.5 ms for tsens controller to recover */
 		do {
 			udelay(500);
-			code = readl_relaxed_no_log(trdy);
+			code = readl_relaxed(trdy);
 			if (code & TSENS_TM_TRDY_FIRST_ROUND_COMPLETE) {
 				TSENS_DUMP(tmdev, "%s",
 					"tsens controller recovered\n");
@@ -296,7 +296,7 @@ sensor_read:
 
 	tmdev->trdy_fail_ctr = 0;
 
-	code = readl_relaxed_no_log(sensor_addr +
+	code = readl_relaxed(sensor_addr +
 			(sensor->hw_id << TSENS_STATUS_ADDR_OFFSET));
 	last_temp = code & TSENS_TM_SN_LAST_TEMP_MASK;
 
@@ -305,7 +305,7 @@ sensor_read:
 		goto dbg;
 	}
 
-	code = readl_relaxed_no_log(sensor_addr +
+	code = readl_relaxed(sensor_addr +
 		(sensor->hw_id << TSENS_STATUS_ADDR_OFFSET));
 	last_temp2 = code & TSENS_TM_SN_LAST_TEMP_MASK;
 	if (code & TSENS_TM_SN_STATUS_VALID_BIT) {
@@ -314,7 +314,7 @@ sensor_read:
 		goto dbg;
 	}
 
-	code = readl_relaxed_no_log(sensor_addr +
+	code = readl_relaxed(sensor_addr +
 			(sensor->hw_id <<
 			TSENS_STATUS_ADDR_OFFSET));
 	last_temp3 = code & TSENS_TM_SN_LAST_TEMP_MASK;
