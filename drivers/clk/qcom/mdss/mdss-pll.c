@@ -179,6 +179,7 @@ static int mdss_pll_clock_register(struct platform_device *pdev,
 	case MDSS_DSI_PLL_10NM:
 		rc = dsi_pll_clock_register_10nm(pdev, pll_res);
 		break;
+#if 0
 	case MDSS_DP_PLL_10NM:
 		rc = dp_pll_clock_register_10nm(pdev, pll_res);
 		break;
@@ -204,6 +205,7 @@ static int mdss_pll_clock_register(struct platform_device *pdev,
 	case MDSS_DSI_PLL_12NM:
 		rc = dsi_pll_clock_register_12nm(pdev, pll_res);
 		break;
+#endif
 	case MDSS_UNKNOWN_PLL:
 	default:
 		rc = -EINVAL;
