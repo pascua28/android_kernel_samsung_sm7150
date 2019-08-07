@@ -1404,9 +1404,6 @@ static int cds_ol_mon_thread(void *arg)
 	}
 
 	set_user_nice(current, -1);
-#ifdef MSM_PLATFORM
-	set_wake_up_idle(true);
-#endif
 
 	/**
 	 * Find the available cpu core other than cpu 0 and
