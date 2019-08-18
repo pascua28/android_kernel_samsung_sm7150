@@ -440,7 +440,13 @@ void sec_debug_update_restart_reason(const char *cmd, const int in_panic,
 			RESTART_REASON_NORMAL, NULL},
 		{ "dram",
 			PON_RESTART_REASON_LIMITED_DRAM_SETTING,
-			RESTART_REASON_NORMAL, NULL}
+			RESTART_REASON_NORMAL, NULL},
+		{ "adb",
+			PON_RESTART_REASON_NORMALBOOT,
+			RESTART_REASON_NORMAL, NULL },
+		{ "shell",
+			PON_RESTART_REASON_NORMALBOOT,
+			RESTART_REASON_NORMAL, NULL },
 	};
 	enum pon_restart_reason pon_rr = PON_RESTART_REASON_UNKNOWN;
 	enum sec_restart_reason_t sec_rr = RESTART_REASON_NORMAL;
