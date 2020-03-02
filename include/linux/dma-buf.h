@@ -413,7 +413,9 @@ struct dma_buf {
 	unsigned vmapping_counter;
 	void *vmap_ptr;
 	const char *exp_name;
+#if defined(CONFIG_DEBUG_FS)
 	ktime_t ktime;
+#endif
 	const char *name;
 	spinlock_t name_lock;
 	struct module *owner;
