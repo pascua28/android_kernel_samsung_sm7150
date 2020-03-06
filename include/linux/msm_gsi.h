@@ -830,7 +830,7 @@ struct __packed gsi_wdi2_channel_scratch_new {
 * gsi_mhip_channel_scratch - MHI PRIME protocol SW config area of
 * channel scratch
 * @assert_bit_40: Valid only for non-host channels.
-* Set to 1 for MHI’ channels when running over PCIe.
+* Set to 1 for MHIï¿½ channels when running over PCIe.
 * @host_channel: Set to 1 for MHIP channel running on host.
 *
 */
@@ -1429,7 +1429,7 @@ int gsi_write_channel_scratch3_reg(unsigned long chan_hdl,
  * @Return gsi_status
  */
 int gsi_write_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
-		union __packed gsi_wdi3_channel_scratch2_reg val);
+		union gsi_wdi3_channel_scratch2_reg val);
 /**
  * gsi_write_channel_scratch2_reg - Peripheral should call this function to
  * write to the scratch2 reg area of the channel context
@@ -1467,7 +1467,7 @@ int gsi_read_channel_scratch(unsigned long chan_hdl,
  * @Return gsi_status
  */
 int gsi_read_wdi3_channel_scratch2_reg(unsigned long chan_hdl,
-		union __packed gsi_wdi3_channel_scratch2_reg *val);
+		union gsi_wdi3_channel_scratch2_reg *val);
 
 /**
  * gsi_update_mhi_channel_scratch - MHI Peripheral should call this
