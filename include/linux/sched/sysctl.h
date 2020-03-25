@@ -32,6 +32,9 @@ extern unsigned int sysctl_sched_child_runs_first;
 extern unsigned int sysctl_sched_energy_aware;
 extern unsigned int sysctl_sched_capacity_margin_up[MAX_MARGIN_LEVELS];
 extern unsigned int sysctl_sched_capacity_margin_down[MAX_MARGIN_LEVELS];
+extern unsigned int sysctl_sched_capacity_margin_up_boosted[MAX_MARGIN_LEVELS];
+extern unsigned int
+       sysctl_sched_capacity_margin_down_boosted[MAX_MARGIN_LEVELS];
 #ifdef CONFIG_SCHED_WALT
 extern unsigned int sysctl_sched_use_walt_cpu_util;
 extern unsigned int sysctl_sched_use_walt_task_util;
@@ -105,6 +108,10 @@ extern unsigned int sysctl_sched_autogroup_enabled;
 
 extern int sysctl_sched_rr_timeslice;
 extern int sched_rr_timeslice;
+
+extern unsigned int sysctl_sched_capacity_margin_up_boosted[MAX_MARGIN_LEVELS];
+extern unsigned int
+       sysctl_sched_capacity_margin_down_boosted[MAX_MARGIN_LEVELS];
 
 int sched_rr_handler(struct ctl_table *table, int write, void *buffer,
 		size_t *lenp, loff_t *ppos);
