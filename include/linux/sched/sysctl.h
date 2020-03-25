@@ -32,6 +32,9 @@ extern unsigned int sysctl_sched_child_runs_first;
 extern unsigned int sysctl_sched_energy_aware;
 extern unsigned int sysctl_sched_capacity_margin_up[MAX_MARGIN_LEVELS];
 extern unsigned int sysctl_sched_capacity_margin_down[MAX_MARGIN_LEVELS];
+extern unsigned int sysctl_sched_capacity_margin_up_boosted[MAX_MARGIN_LEVELS];
+extern unsigned int
+       sysctl_sched_capacity_margin_down_boosted[MAX_MARGIN_LEVELS];
 #ifdef CONFIG_SCHED_WALT
 extern unsigned int sysctl_sched_use_walt_cpu_util;
 extern unsigned int sysctl_sched_use_walt_task_util;
@@ -68,6 +71,10 @@ enum sched_tunable_scaling {
 	SCHED_TUNABLESCALING_END,
 };
 extern enum sched_tunable_scaling sysctl_sched_tunable_scaling;
+
+extern int sched_updown_migrate_handler_boosted(struct ctl_table *table,
+					int write, void __user *buffer,
+					size_t *lenp, loff_t *ppos);
 
 extern unsigned int sysctl_numa_balancing_scan_delay;
 extern unsigned int sysctl_numa_balancing_scan_period_min;
