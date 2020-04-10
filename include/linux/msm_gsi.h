@@ -1939,7 +1939,7 @@ static inline int gsi_write_channel_scratch3_reg(unsigned long chan_hdl,
 }
 
 static inline int gsi_write_channel_scratch2_reg(unsigned long chan_hdl,
-		union __packed gsi_wdi2_channel_scratch2_reg val)
+		union gsi_wdi2_channel_scratch2_reg val)
 {
 	return -GSI_STATUS_UNSUPPORTED_OP;
 }
