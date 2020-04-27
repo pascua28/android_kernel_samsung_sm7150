@@ -1490,7 +1490,7 @@ static void write_proc(struct seq_file *s, struct dma_proc *proc)
 
 		elapmstime = ktime_divns(elapmstime, MSEC_PER_SEC);
 		seq_printf(s, "%-8s\t%-8ld\t%-8lld\n",
-				dmabuf->buf_name,
+				dmabuf->name,
 				dmabuf->size / SZ_1K,
 				elapmstime);
 	}
