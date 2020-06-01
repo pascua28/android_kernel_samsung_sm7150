@@ -1475,7 +1475,9 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	success = psci_enter_sleep(cpu, idx, true);
 	sec_debug_sched_msg("-Idle(%s)", cluster->cpu->levels[idx].name);
 #else
+	cpuidle_set_idle_cpu(dev->cpu);
 	success = psci_enter_sleep(cpu, idx, true);
+	cpuidle_clear_idle_cpu(dev->cpu);
 #endif
 
 exit:
