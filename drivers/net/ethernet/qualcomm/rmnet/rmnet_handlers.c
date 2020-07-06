@@ -362,8 +362,8 @@ free_skb:
 	kfree_skb(skb);
 }
 
-int (*rmnet_perf_deag_entry)(struct sk_buff *skb,
-			     struct rmnet_port *port) __rcu __read_mostly;
+void (*rmnet_perf_deag_entry)(struct sk_buff *skb,
+			      struct rmnet_port *port) __rcu __read_mostly;
 EXPORT_SYMBOL(rmnet_perf_deag_entry);
 
 static void
@@ -371,7 +371,7 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 			  struct rmnet_port *port)
 {
 	struct sk_buff *skbn;
-	int (*rmnet_perf_core_deaggregate)(struct sk_buff *skb,
+	void (*rmnet_perf_core_deaggregate)(struct sk_buff *skb,
 					   struct rmnet_port *port);
 #if defined(CONFIG_ARGOS)
 	struct napi_struct *napi;
