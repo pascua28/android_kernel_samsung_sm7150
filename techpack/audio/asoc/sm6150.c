@@ -5954,42 +5954,6 @@ static struct snd_soc_ops sm6150_tdm_be_ops = {
 	.shutdown = sm6150_tdm_snd_shutdown
 };
 
-static int msm_fm_snd_startup(struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct msm_asoc_mach_data *pdata =
-		snd_soc_card_get_drvdata(rtd->card);
-
-	pr_info("%s: startup\n", __func__);
-
-	if (pdata->fm_lna_en > 0) {
-		gpio_direction_output(pdata->fm_lna_en, 1);
-	}
-
-	return 0;
-}
-
-static void msm_fm_snd_shutdown(struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct msm_asoc_mach_data *pdata =
-		snd_soc_card_get_drvdata(rtd->card);
-
-	pr_info("%s: shutdown\n", __func__);
-
-	if (pdata->fm_lna_en > 0) {
-		gpio_direction_output(pdata->fm_lna_en, 0);
-	}
-
-	return;
-}
-
-static struct snd_soc_ops msm_fm_wcn_ops = {
-	.startup = msm_fm_snd_startup,
-	.shutdown = msm_fm_snd_shutdown,
-	.hw_params = msm_wcn_hw_params,
-};
-
 static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
