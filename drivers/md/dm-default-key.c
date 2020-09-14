@@ -11,8 +11,6 @@
 
 #define DM_DEFAULT_KEY_MAX_WRAPPED_KEY_SIZE 128
 
-#define SECTOR_SIZE			(1 << SECTOR_SHIFT)
-
 static const struct dm_default_key_cipher {
 	const char *name;
 	enum blk_crypto_mode_num mode_num;
