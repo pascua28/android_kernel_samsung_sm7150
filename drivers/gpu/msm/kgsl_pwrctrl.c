@@ -964,6 +964,7 @@ static ssize_t kgsl_pwrctrl_pmqos_active_latency_store(struct device *dev,
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	int ret;
 
+	return count;
 	if (device == NULL)
 		return 0;
 
