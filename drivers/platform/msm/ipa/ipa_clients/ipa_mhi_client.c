@@ -175,7 +175,6 @@ struct ipa_mhi_client_ctx {
 static struct ipa_mhi_client_ctx *ipa_mhi_client_ctx;
 static DEFINE_MUTEX(mhi_client_general_mutex);
 
-
 static char *ipa_mhi_channel_state_str[] = {
 	__stringify(IPA_HW_MHI_CHANNEL_STATE_DISABLE),
 	__stringify(IPA_HW_MHI_CHANNEL_STATE_ENABLE),
@@ -519,6 +518,10 @@ fail:
 	debugfs_remove_recursive(dent);
 }
 
+static void ipa_mhi_debugfs_destroy(void)
+{
+	debugfs_remove_recursive(dent);
+}
 #else
 static void ipa_mhi_debugfs_init(void) {}
 static void ipa_mhi_debugfs_destroy(void) {}
