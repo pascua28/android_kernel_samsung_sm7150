@@ -2689,7 +2689,7 @@ static int dsi_panel_parse_cmd_sets_sub(struct dsi_panel_cmd_set *cmd,
 		pr_err("commands failed, rc=%d\n", rc);
 		goto error;
 	}
-	pr_debug("[%s] packet-count=%d, %d\n", cmd_set_prop_map[type],
+	pr_debug("[%s] packet-count=%d, %lu\n", cmd_set_prop_map[type],
 		packet_count, length);
 
 	rc = dsi_panel_alloc_cmd_packets(cmd, packet_count);
