@@ -1842,19 +1842,6 @@ int wlan_hdd_qmi_put_suspend(struct hdd_context *hdd_ctx,
 
 	return pld_qmi_send_put(dev);
 }
-#else
-static inline
-int wlan_hdd_qmi_get_sync_resume(struct hdd_context *hdd_ctx,
-				 struct device *dev)
-{
-	return 0;
-}
-
-static inline int wlan_hdd_qmi_put_suspend(struct hdd_context *hdd_ctx,
-					   struct device *dev)
-{
-	return 0;
-}
 #endif /* end if of WLAN_FEATURE_WMI_SEND_RECV_QMI */
 
 /**

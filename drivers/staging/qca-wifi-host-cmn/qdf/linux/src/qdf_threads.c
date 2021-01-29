@@ -182,12 +182,12 @@ int qdf_wake_up_process(qdf_thread_t *thread)
 }
 qdf_export_symbol(qdf_wake_up_process);
 
-/* save_stack_trace_tsk() is exported for:
+/* save_stack_trace_tsk() is exported in debug version for:
  * 1) non-arm architectures
  * 2) arm architectures in kernel versions >=4.14
  * 3) backported kernels defining BACKPORTED_EXPORT_SAVE_STACK_TRACE_TSK_ARM
  */
-#if defined(BUILD_DEBUG_VERSION)
+#if defined(WLAN_DEBUG) && defined(BUILD_DEBUG_VERSION)
 #define QDF_PRINT_TRACE_COUNT 32
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0))
@@ -226,7 +226,7 @@ void qdf_print_thread_trace(qdf_thread_t *thread)
 
 #else
 void qdf_print_thread_trace(qdf_thread_t *thread) { }
-#endif /* KERNEL_VERSION(4, 14, 0) */
+#endif
 qdf_export_symbol(qdf_print_thread_trace);
 
 qdf_thread_t *qdf_get_current_task(void)
