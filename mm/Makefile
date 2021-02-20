@@ -115,4 +115,4 @@ obj-$(CONFIG_PAGE_BOOST_RECORDING) += io_record.o
 # and that the conversions specified in the format string make sense.
 CFLAGS_backing-dev.o = -Wformat
 CFLAGS_page-writeback.o = -Wformat
-
+obj-$(CONFIG_OOM_SCORE_NOTIFIER) += oom_score_notifier.o
