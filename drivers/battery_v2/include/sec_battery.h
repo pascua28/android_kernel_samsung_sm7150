@@ -705,7 +705,14 @@ extern bool sec_bat_check_vf_adc(struct sec_battery_info *battery);
 #if defined(CONFIG_DIRECT_CHARGING)
 extern int sec_bat_get_direct_chg_temp_adc(struct sec_battery_info *battery, int adc_data, int count);
 #endif
+#if defined(CONFIG_SEC_BOOTSTAT)
 extern unsigned int is_boot_recovery(void);
+#else
+static inline unsigned int is_boot_recovery(void)
+{
+	return 0;
+}
+#endif
 extern void sec_bat_set_misc_event(struct sec_battery_info *battery, unsigned int misc_event_val, unsigned int misc_event_mask);
 extern void sec_bat_set_tx_event(struct sec_battery_info *battery, unsigned int tx_event_val, unsigned int tx_event_mask);
 extern void sec_bat_set_current_event(struct sec_battery_info *battery, unsigned int current_event_val, unsigned int current_event_mask);
