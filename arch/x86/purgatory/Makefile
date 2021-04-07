@@ -9,6 +9,7 @@ PURGATORY_OBJS = $(addprefix $(obj)/,$(purgatory-y))
 LDFLAGS_purgatory.ro := -e purgatory_start -r --no-undefined -nostdlib -z nodefaultlib
 targets += purgatory.ro
 
+PGO_PROFILE	:= n
 KASAN_SANITIZE	:= n
 KCOV_INSTRUMENT := n
 
