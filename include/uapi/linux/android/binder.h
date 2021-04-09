@@ -291,6 +291,7 @@ struct binder_frozen_status_info {
 #define BINDER_SET_SYSTEM_SERVER_PID		_IOW('b', 14, __u32)
 #define BINDER_FREEZE			_IOW('b', 15, struct binder_freeze_info)
 #define BINDER_GET_FROZEN_INFO		_IOWR('b', 16, struct binder_frozen_status_info)
+#define BINDER_ENABLE_ONEWAY_SPAM_DETECTION	_IOW('b', 17, __u32)
 
 /*
  * NOTE: Two special error codes you should check for when calling
@@ -482,6 +483,13 @@ enum binder_driver_return_protocol {
 	/*
 	 * The target of the last transaction (either a bcTRANSACTION or
 	 * a bcATTEMPT_ACQUIRE) is frozen.  No parameters.
+	 */
+
+	BR_ONEWAY_SPAM_SUSPECT = _IO('r', 19),
+	/*
+	 * Current process sent too many oneway calls to target, and the last
+	 * asynchronous transaction makes the allocated async buffer size exceed
+	 * detection threshold.  No parameters.
 	 */
 };
 
