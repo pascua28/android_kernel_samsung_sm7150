@@ -1702,6 +1702,7 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
 	return do_syslog(type, buf, len, SYSLOG_FROM_READER);
 }
 
+#ifndef CONFIG_PREEMPT_RT_FULL
 /*
  * Special console_lock variants that help to reduce the risk of soft-lockups.
  * They allow to pass console_lock to another printk() call using a busy wait.
@@ -1841,6 +1842,15 @@ static int console_trylock_spinning(void)
 
 	return 1;
 }
+
+#else
+
+static int console_trylock_spinning(void)
+{
+	return console_trylock();
+}
+
+#endif
 
 /*
  * Call the console drivers, asking them to write out
@@ -2992,6 +3002,7 @@ static int __init printk_late_init(void)
 	struct console *con;
 	int ret = 0;
 
+	migrate_disable();
 	for_each_console(con) {
 		if (!(con->flags & CON_BOOT))
 			continue;
@@ -3020,6 +3031,7 @@ static int __init printk_late_init(void)
 					console_cpu_notify, NULL);
 	WARN_ON(ret < 0);
 #endif
+	migrate_enable();
 	return ret;
 }
 late_initcall(printk_late_init);
