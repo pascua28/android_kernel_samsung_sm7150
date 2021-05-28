@@ -485,6 +485,21 @@ struct module {
 #ifndef MODULE_ARCH_INIT
 #define MODULE_ARCH_INIT {}
 #endif
+#ifdef CONFIG_PGO_CLANG
+	/*
+	 * Keep in sync with the PGO_CLANG_DATA sections
+	 * in include/asm-generic/vmlinux.lds.h
+	 * The prf_xxx_size is the section size in bytes.
+	 */
+	void *prf_data; /* struct llvm_prf_data */
+	int prf_data_size;
+	void *prf_cnts;
+	int prf_cnts_size;
+	const void *prf_names;
+	int prf_names_size;
+	void *prf_vnds; /* struct llvm_prf_value_node */
+	int prf_vnds_size;
+#endif
 
 extern struct mutex module_mutex;
 
