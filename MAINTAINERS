@@ -3425,6 +3425,19 @@ M:	Dave Goodell <dgoodell@cisco.com>
 S:	Supported
 F:	drivers/infiniband/hw/usnic/
 
+CLANG PROFILE GUIDED OPTIMIZATION SUPPORT
+M:	Sami Tolvanen <samitolvanen@google.com>
+M:	Bill Wendling <wcw@google.com>
+M:	Kees Cook <keescook@chromium.org>
+R:	Nathan Chancellor <nathan@kernel.org>
+R:	Nick Desaulniers <ndesaulniers@google.com>
+L:	clang-built-linux@googlegroups.com
+S:	Supported
+B:	https://github.com/ClangBuiltLinux/linux/issues
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kees/linux.git for-next/clang/features
+F:	Documentation/dev-tools/pgo.rst
+F:	kernel/pgo/
+
 CLEANCACHE API
 M:	Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
 L:	linux-kernel@vger.kernel.org
@@ -10612,15 +10625,6 @@ L:	linux-abi-devel@lists.sourceforge.net
 S:	Maintained
 F:	include/linux/personality.h
 F:	include/uapi/linux/personality.h
-
-PGO BASED KERNEL PROFILING
-M:	Sami Tolvanen <samitolvanen@google.com>
-M:	Bill Wendling <wcw@google.com>
-R:	Nathan Chancellor <natechancellor@gmail.com>
-R:	Nick Desaulniers <ndesaulniers@google.com>
-S:	Supported
-F:	Documentation/dev-tools/pgo.rst
-F:	kernel/pgo
 
 PHONET PROTOCOL
 M:	Remi Denis-Courmont <courmisch@gmail.com>
