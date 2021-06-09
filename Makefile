@@ -745,7 +745,7 @@ KBUILD_CFLAGS   += -O2
 endif
 
 ifeq ($(cc-name),clang)
-KBUILD_CFLAGS	+= -march=armv8.2-a+lse+fp16+dotprod -mcpu=cortex-a55+crypto+crc
+KBUILD_CFLAGS	+= -march=armv8.2-a+lse+fp16+dotprod -mcpu=cortex-a76+crypto+crc
 #Enable fast FMA optimizations
 KBUILD_CFLAGS   += -ffp-contract=fast
 # Enable hot cold split optimization
