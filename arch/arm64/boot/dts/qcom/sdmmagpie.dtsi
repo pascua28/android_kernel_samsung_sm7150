@@ -459,7 +459,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7 cgroup_disable=pressure";
+		bootargs = "rcu_nocbs=0-7 cgroup_disable=pressure";
 	};
 
 	soc: soc { };
