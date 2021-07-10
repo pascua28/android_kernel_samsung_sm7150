@@ -3057,9 +3057,9 @@ static int selinux_sb_kern_mount(struct super_block *sb, int flags, void *data)
 	struct common_audit_data ad;
 	int rc;
 
-    // [ SEC_SELINUX_PORTING_COMMON
-    if((strcmp(sb->s_type->name,"sdcardfs")) == 0)
-        mutex_lock(&selinux_sdcardfs_lock);
+	// [ SEC_SELINUX_PORTING_COMMON
+	if((strcmp(sb->s_type->name,"sdcardfs")) == 0)
+		mutex_lock(&selinux_sdcardfs_lock);
 
 	rc = superblock_doinit(sb, data);
 	if (rc)
@@ -3074,9 +3074,9 @@ static int selinux_sb_kern_mount(struct super_block *sb, int flags, void *data)
 	rc = superblock_has_perm(cred, sb, FILESYSTEM__MOUNT, &ad);
 
 out:
-    if((strcmp(sb->s_type->name,"sdcardfs")) == 0)
-        mutex_unlock(&selinux_sdcardfs_lock);
-    // ] SEC_SELINUX_PORTING_COMMON
+	if((strcmp(sb->s_type->name,"sdcardfs")) == 0)
+		mutex_unlock(&selinux_sdcardfs_lock);
+	// ] SEC_SELINUX_PORTING_COMMON
 
 	return rc;
 }
