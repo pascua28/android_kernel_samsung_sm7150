@@ -4134,6 +4134,7 @@ __alloc_pages_slowpath(gfp_t gfp_mask, unsigned int order,
 	int reserve_flags;
 	bool woke_kswapd = false;
 	bool woke_kshrinkd = false;
+	bool used_vmpressure = false;
 
 	unsigned long pages_reclaimed = 0;
 	int retry_loop_count = 0;
@@ -4184,6 +4185,8 @@ restart:
 			atomic_long_inc(&kshrinkd_waiters);
 			woke_kshrinkd = true;
 		}
+		if (!used_vmpressure)
+			used_vmpressure = vmpressure_inc_users(order);
 		wake_all_kswapds(order, ac);
 	}
 
@@ -4285,6 +4288,8 @@ retry:
 		wake_all_kshrinkds(ac);
 		woke_kshrinkd = true;
 	}
+	if (!used_vmpressure)
+		used_vmpressure = vmpressure_inc_users(order);
 	page = __alloc_pages_direct_reclaim(gfp_mask, order, alloc_flags, ac,
 							&did_some_progress);
 	pages_reclaimed += did_some_progress;
@@ -4432,6 +4437,8 @@ got_pg:
 		atomic_long_dec(&kswapd_waiters);
 	if (woke_kshrinkd)
 		atomic_long_dec(&kshrinkd_waiters);
+	if (used_vmpressure)
+		vmpressure_dec_users();
 	if (!page)
 		warn_alloc(gfp_mask, ac->nodemask,
 				"page allocation failure: order:%u", order);
