@@ -41,7 +41,7 @@
 
 	/* Start of performance-critical section  -- one 64B cache line.  */
 	.align 6
-WEAK(strcmp)
+SYM_FUNC_START_WEAK_PI(strcmp)
 	eor	tmp1, src1, src2
 	mov	zeroones, #REP8_01
 	tst	tmp1, #7
@@ -172,4 +172,5 @@ L(done):
 	sub	result, data1, data2
 	ret
 
-ENDPIPROC(strcmp)
+SYM_FUNC_END_PI(strcmp)
+EXPORT_SYMBOL_NOKASAN(strcmp)
