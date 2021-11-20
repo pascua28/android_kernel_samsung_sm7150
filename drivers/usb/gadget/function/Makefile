@@ -51,12 +51,12 @@ usb_f_printer-y			:= f_printer.o
 obj-$(CONFIG_USB_F_PRINTER)	+= usb_f_printer.o
 usb_f_tcm-y			:= f_tcm.o
 obj-$(CONFIG_USB_F_TCM)		+= usb_f_tcm.o
-ifeq ($(CONFIG_SEC_FACTORY),y)
-usb_f_mtp-y                     := f_mtp.o
-obj-$(CONFIG_USB_F_MTP)         += usb_f_mtp.o
-else
+ifeq ($(CONFIG_USB_ANDROID_SAMSUNG_MTP),y)
 usb_f_mtp_samsung-y	            := f_mtp_samsung.o
 obj-$(CONFIG_USB_F_MTP)         += usb_f_mtp_samsung.o
+else
+usb_f_mtp-y                     := f_mtp.o
+obj-$(CONFIG_USB_F_MTP)         += usb_f_mtp.o
 endif
 usb_f_ptp-y                     := f_ptp.o
 obj-$(CONFIG_USB_F_PTP)         += usb_f_ptp.o
