@@ -228,21 +228,13 @@ static unsigned long prf_buffer_size(void)
 
 /*
  * Serialize the profiling data into a format LLVM's tools can understand.
- * Returns actual buffer size in p->size.
  * Note: p->buffer must point into vzalloc()'d
  * area of at least prf_buffer_size() in size.
- * Note: caller *must* hold pgo_lock.
+ * Note: caller *must* take prf_lock_exclusive()
  */
-static int prf_serialize(struct prf_private_data *p, size_t buf_size)
+static void prf_serialize(struct prf_private_data *p)
 {
 	void *buffer;
-
-	/* get buffer size, again. */
-	p->size = prf_buffer_size();
-
-	/* check for unlikely overflow. */
-	if (p->size > buf_size)
-		return -EAGAIN;
 
 	buffer = p->buffer;
 
@@ -253,56 +245,47 @@ static int prf_serialize(struct prf_private_data *p, size_t buf_size)
 	buffer += prf_get_padding(prf_names_size());
 
 	prf_serialize_values(&buffer);
-
-	return 0;
 }
 
 /* open() implementation for PGO. Creates a copy of the profiling data set. */
 static int prf_open(struct inode *inode, struct file *file)
 {
 	struct prf_private_data *data;
-	unsigned long flags;
-	size_t buf_size;
-	int err = -EINVAL;
+	int err = 0;
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
-	/* Get initial buffer size. */
-	flags = prf_lock();
+	/* Stop the profiler and take exclusive lock */
+	prf_lock_exclusive();
+
+	/* allocate buffer for the profile data */
 	data->size = prf_buffer_size();
-	prf_unlock(flags);
+	data->buffer = vzalloc(data->size);
 
-	do {
-		vfree(data->buffer);
-
-		/* Allocate, round up to page size. */
-		buf_size = PAGE_ALIGN(data->size);
-		data->buffer = vzalloc(buf_size);
-
-		if (!data->buffer) {
-			err = -ENOMEM;
-			break;
-		}
-
-		/*
-		 * Try serialize and get actual
-		 * data length in data->size.
-		 */
-		flags = prf_lock();
-		err = prf_serialize(data, buf_size);
-		prf_unlock(flags);
-		/* In unlikely case, try again. */
-	} while (err == -EAGAIN);
-
-	if (err < 0) {
-		if (data)
-			vfree(data->buffer);
-		kfree(data);
-	} else {
-		file->private_data = data;
+	if (!data->buffer) {
+		err = -ENOMEM;
+		goto out_err;
 	}
+
+	/* serialize the profiler dataset */
+	prf_serialize(data);
+
+	file->private_data = data;
+
+out_err:
+	if (err) {
+		/* clean up on error */
+		if (data)
+			kfree(data->buffer);
+
+		kfree(data);
+
+		file->private_data = NULL;
+	}
+
+	prf_unlock_exclusive();
 
 	return err;
 }

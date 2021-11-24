@@ -175,9 +175,12 @@ extern char __llvm_prf_names_end[];
 extern struct llvm_prf_value_node __llvm_prf_vnds_start[];
 extern struct llvm_prf_value_node __llvm_prf_vnds_end[];
 
-/* Locking for vnodes */
-extern unsigned long prf_lock(void);
-extern void prf_unlock(unsigned long flags);
+/*
+ * Locking for the profiler data structures.
+ * This is needed to ensure exclusive access to profiler data.
+ */
+extern void prf_lock_exclusive(void);
+extern void prf_unlock_exclusive(void);
 
 #define __DEFINE_PRF_SIZE(s) \
 	static inline unsigned long prf_ ## s ## _size(void)		\

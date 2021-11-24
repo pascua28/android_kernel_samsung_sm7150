@@ -24,28 +24,54 @@
 #include <linux/export.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/mutex.h>
+#include <linux/atomic.h>
+#include <linux/rcupdate.h>
 #include "pgo.h"
 
 /*
- * This lock guards both profile count updating and serialization of the
- * profiling data. Keeping both of these activities separate via locking
- * ensures that we don't try to serialize data that's only partially updated.
+ * This lock guards profile count updating.
  */
 static DEFINE_SPINLOCK(pgo_lock);
 static int current_node;
 
-unsigned long prf_lock(void)
+/*
+ * This mutex protects the profile data serialization
+ */
+static DEFINE_MUTEX(pgo_mutex);
+static atomic_t prf_disable = ATOMIC_INIT(0);
+
+void prf_lock_exclusive(void)
 {
-	unsigned long flags;
+	/* take pgo_mutex */
+	mutex_lock(&pgo_mutex);
 
-	spin_lock_irqsave(&pgo_lock, flags);
+	/* disable profiler hook */
+	atomic_set(&prf_disable, 1);
 
-	return flags;
+	/*
+	 * wait for GP:
+	 * No cpu may be running with prf_disable == 0
+	 */
+	synchronize_rcu();
 }
 
-void prf_unlock(unsigned long flags)
+void prf_unlock_exclusive(void)
 {
-	spin_unlock_irqrestore(&pgo_lock, flags);
+	/* enable profiler hook again */
+	atomic_set(&prf_disable, 0);
+
+	/* unlock */
+	mutex_unlock(&pgo_mutex);
+}
+
+/*
+ * check if profiler hook is enabled.
+ * Must be used within RCU read side lock.
+ */
+static inline int prf_is_enabled(void)
+{
+	return atomic_read(&prf_disable) == 0;
 }
 
 /*
@@ -91,8 +117,14 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 	u8 values = 0;
 	unsigned long flags;
 
+	rcu_read_lock();
+
+	/* check if profiling is allowed */
+	if (!prf_is_enabled())
+		goto out_unlock;
+
 	if (!p || !p->values)
-		return;
+		goto out_unlock;
 
 	counters = (struct llvm_prf_value_node **)p->values;
 	curr = counters[index];
@@ -100,7 +132,7 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 	while (curr) {
 		if (target_value == curr->value) {
 			curr->count++;
-			return;
+			goto out_unlock;
 		}
 
 		if (curr->count < min_count) {
@@ -119,11 +151,12 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 			curr->value = target_value;
 			curr->count++;
 		}
-		return;
+		goto out_unlock;
 	}
 
 	/* Lock when updating the value node structure. */
-	flags = prf_lock();
+	if (!spin_trylock_irqsave(&pgo_lock, flags))
+		goto out_unlock;
 
 	curr = allocate_node(p, index, target_value);
 	if (!curr)
@@ -138,7 +171,9 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 		prev->next = curr;
 
 out:
-	prf_unlock(flags);
+	spin_unlock_irqrestore(&pgo_lock, flags);
+out_unlock:
+	rcu_read_unlock();
 }
 EXPORT_SYMBOL(__llvm_profile_instrument_target);
 
