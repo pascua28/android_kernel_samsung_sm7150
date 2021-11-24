@@ -19,6 +19,8 @@
 #ifndef _PGO_H
 #define _PGO_H
 
+#include <linux/rculist.h>
+
 /*
  * Note: These internal LLVM definitions must match the compiler version.
  * See llvm/include/llvm/ProfileData/InstrProfData.inc in LLVM's source code.
@@ -162,6 +164,60 @@ struct llvm_prf_value_record {
 	(prf_get_value_record_header_size() +		\
 	 prf_get_value_record_site_count_size((sites)))
 
+/*
+ * struct prf_cpu_object - per-cpu entry for prf_object
+ */
+struct prf_cpu_object {
+	/* work copy of llvm_prf_data */
+	struct llvm_prf_data *data;
+	/* vnode data */
+	struct llvm_prf_value_node *vnds;
+	/* index for next free vnode */
+	int current_node;
+
+	/* debugfs file of this profile data set */
+	int cpu;
+	struct dentry *file;
+	struct prf_object *obj;
+};
+
+/*
+ * struct prf_object - profiler data set object
+ * The prf_object maintains related information
+ * for the profiler hook to operate on and also
+ * the related information for serializing the data
+ */
+struct prf_object {
+	struct list_head link;
+	struct rcu_head rcu;
+
+	/*
+	 * name of this prf_object
+	 * refers to struct module->name
+	 * or "vmlinux"
+	 */
+	const char *name;
+
+	/* data provided by the compiler. read-only. */
+	struct llvm_prf_data *data;
+	int data_num;
+	u64 *cnts;
+	int cnts_num;
+	const char *names;
+	int names_num;
+	int vnds_num;
+
+	/* percpu profiler data */
+	struct prf_cpu_object *pcpu;
+};
+
+/*
+ * List of profiler objects.
+ * - readers must take rcu_read_lock()
+ * - updaters must take the prf_lock_exclusive()
+ */
+extern struct list_head prf_list;
+
 /* Data sections */
 extern struct llvm_prf_data __llvm_prf_data_start[];
 extern struct llvm_prf_data __llvm_prf_data_end[];
@@ -182,27 +238,30 @@ extern struct llvm_prf_value_node __llvm_prf_vnds_end[];
 extern void prf_lock_exclusive(void);
 extern void prf_unlock_exclusive(void);
 
-#define __DEFINE_PRF_SIZE(s) \
-	static inline unsigned long prf_ ## s ## _size(void)		\
-	{								\
-		unsigned long start =					\
-			(unsigned long)__llvm_prf_ ## s ## _start;	\
-		unsigned long end =					\
-			(unsigned long)__llvm_prf_ ## s ## _end;	\
-		return roundup(end - start,				\
-				sizeof(__llvm_prf_ ## s ## _start[0]));	\
-	}								\
-	static inline unsigned long prf_ ## s ## _count(void)		\
-	{								\
-		return prf_ ## s ## _size() /				\
-			sizeof(__llvm_prf_ ## s ## _start[0]);		\
+#define __DEFINE_PRF_OBJ_SIZE(s)                                           \
+	static inline unsigned long prf_##s##_size(struct prf_object *po)      \
+	{                                                                      \
+		return po->s##_num * sizeof(po->s[0]);                         \
+	}                                                                      \
+	static inline unsigned long prf_##s##_count(struct prf_object *po)     \
+	{                                                                      \
+		return po->s##_num;                                            \
 	}
 
-__DEFINE_PRF_SIZE(data);
-__DEFINE_PRF_SIZE(cnts);
-__DEFINE_PRF_SIZE(names);
-__DEFINE_PRF_SIZE(vnds);
+__DEFINE_PRF_OBJ_SIZE(data);
+__DEFINE_PRF_OBJ_SIZE(cnts);
+__DEFINE_PRF_OBJ_SIZE(names);
 
-#undef __DEFINE_PRF_SIZE
+#undef __DEFINE_PRF_OBJ_SIZE
+
+/* count number of items in range */
+static inline unsigned int prf_get_count(const void *_start, const void *_end,
+					 unsigned int objsize)
+{
+	unsigned long start = (unsigned long)_start;
+	unsigned long end = (unsigned long)_end;
+
+	return roundup(end - start, objsize) / objsize;
+}
 
 #endif /* _PGO_H */

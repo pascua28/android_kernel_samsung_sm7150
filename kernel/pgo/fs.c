@@ -32,7 +32,14 @@ static struct dentry *directory;
 struct prf_private_data {
 	void *buffer;
 	size_t size;
+	struct prf_cpu_object *link;
 };
+
+/* vmlinux's prf object */
+static struct prf_object prf_vmlinux;
+
+/* The prf_list */
+struct list_head prf_list;
 
 /*
  * Raw profile data format:
@@ -51,7 +58,7 @@ struct prf_private_data {
  *		...
  */
 
-static void prf_fill_header(void **buffer)
+static void prf_fill_header(struct prf_object *po, void **buffer)
 {
 	struct llvm_prf_header *header = *(struct llvm_prf_header **)buffer;
 
@@ -61,14 +68,14 @@ static void prf_fill_header(void **buffer)
 	header->magic = LLVM_INSTR_PROF_RAW_MAGIC_32;
 #endif
 	header->version = LLVM_VARIANT_MASK_IR_PROF | LLVM_INSTR_PROF_RAW_VERSION;
-	header->data_size = prf_data_count();
+	header->data_size = prf_data_count(po);
 	header->binary_ids_size = 0;
 	header->padding_bytes_before_counters = 0;
-	header->counters_size = prf_cnts_count();
+	header->counters_size = prf_cnts_count(po);
 	header->padding_bytes_after_counters = 0;
-	header->names_size = prf_names_count();
-	header->counters_delta = (u64)__llvm_prf_cnts_start - (u64)__llvm_prf_data_start;
-	header->names_delta = (u64)__llvm_prf_names_start;
+	header->names_size = prf_names_count(po);
+	header->counters_delta = (u64)po->cnts - (u64)po->data;
+	header->names_delta = (u64)po->names;
 	header->value_kind_last = LLVM_INSTR_PROF_IPVK_LAST;
 
 	*buffer += sizeof(*header);
@@ -78,7 +85,7 @@ static void prf_fill_header(void **buffer)
  * Copy the source into the buffer, incrementing the pointer into buffer in the
  * process.
  */
-static void prf_copy_to_buffer(void **buffer, void *src, unsigned long size)
+static void prf_copy_to_buffer(void **buffer, const void *src, unsigned long size)
 {
 	memcpy(*buffer, src, size);
 	*buffer += size;
@@ -130,12 +137,13 @@ static u32 __prf_get_value_size(struct llvm_prf_data *p, u32 *value_kinds)
 	return size;
 }
 
-static u32 prf_get_value_size(void)
+static u32 prf_get_value_size(struct prf_cpu_object *pco)
 {
 	u32 size = 0;
 	struct llvm_prf_data *p;
+	struct llvm_prf_data *end = pco->data + pco->obj->data_num;
 
-	for (p = __llvm_prf_data_start; p < __llvm_prf_data_end; p++)
+	for (p = pco->data; p < end; p++)
 		size += __prf_get_value_size(p, NULL);
 
 	return size;
@@ -202,11 +210,12 @@ static void prf_serialize_value(struct llvm_prf_data *p, void **buffer)
 	}
 }
 
-static void prf_serialize_values(void **buffer)
+static void prf_serialize_values(struct prf_cpu_object *pco, void **buffer)
 {
 	struct llvm_prf_data *p;
+	struct llvm_prf_data *end = pco->data + pco->obj->data_num;
 
-	for (p = __llvm_prf_data_start; p < __llvm_prf_data_end; p++)
+	for (p = pco->data; p < end; p++)
 		prf_serialize_value(p, buffer);
 }
 
@@ -215,15 +224,15 @@ static inline unsigned long prf_get_padding(unsigned long size)
 	return 7 & (sizeof(u64) - size % sizeof(u64));
 }
 
-/* Note: caller *must* hold pgo_lock */
-static unsigned long prf_buffer_size(void)
+/* Note: caller *must* take prf_lock_exclusive() */
+static unsigned long prf_buffer_size(struct prf_cpu_object *pco)
 {
 	return sizeof(struct llvm_prf_header) +
-			prf_data_size()	+
-			prf_cnts_size() +
-			prf_names_size() +
-			prf_get_padding(prf_names_size()) +
-			prf_get_value_size();
+			prf_data_size(pco->obj)	+
+			prf_cnts_size(pco->obj) +
+			prf_names_size(pco->obj) +
+			prf_get_padding(prf_names_size(pco->obj)) +
+			prf_get_value_size(pco);
 }
 
 /*
@@ -235,16 +244,17 @@ static unsigned long prf_buffer_size(void)
 static void prf_serialize(struct prf_private_data *p)
 {
 	void *buffer;
+	struct prf_cpu_object *pco = p->link;
 
 	buffer = p->buffer;
 
-	prf_fill_header(&buffer);
-	prf_copy_to_buffer(&buffer, __llvm_prf_data_start,  prf_data_size());
-	prf_copy_to_buffer(&buffer, __llvm_prf_cnts_start,  prf_cnts_size());
-	prf_copy_to_buffer(&buffer, __llvm_prf_names_start, prf_names_size());
-	buffer += prf_get_padding(prf_names_size());
+	prf_fill_header(pco->obj, &buffer);
+	prf_copy_to_buffer(&buffer, pco->data,  prf_data_size(pco->obj));
+	prf_copy_to_buffer(&buffer, pco->obj->cnts,  prf_cnts_size(pco->obj));
+	prf_copy_to_buffer(&buffer, pco->obj->names, prf_names_size(pco->obj));
+	buffer += prf_get_padding(prf_names_size(pco->obj));
 
-	prf_serialize_values(&buffer);
+	prf_serialize_values(pco, &buffer);
 }
 
 /* open() implementation for PGO. Creates a copy of the profiling data set. */
@@ -257,11 +267,14 @@ static int prf_open(struct inode *inode, struct file *file)
 	if (!data)
 		return -ENOMEM;
 
-	/* Stop the profiler and take exclusive lock */
+	/* stop the profiler and take exclusive lock */
 	prf_lock_exclusive();
 
+	/* get prf_cpu_object of this inode */
+	data->link = inode->i_private;
+
 	/* allocate buffer for the profile data */
-	data->size = prf_buffer_size();
+	data->size = prf_buffer_size(data->link);
 	data->buffer = vzalloc(data->size);
 
 	if (!data->buffer) {
@@ -281,8 +294,6 @@ out_err:
 			kfree(data->buffer);
 
 		kfree(data);
-
-		file->private_data = NULL;
 	}
 
 	prf_unlock_exclusive();
@@ -323,46 +334,69 @@ static const struct file_operations prf_fops = {
 	.release	= prf_release
 };
 
-/* write() implementation for resetting PGO's profile data. */
-static ssize_t reset_write(struct file *file, const char __user *addr,
-			   size_t len, loff_t *pos)
+static void pgo_percpu_free(struct prf_cpu_object *pco)
 {
-	struct llvm_prf_data *data;
+	int cpu;
 
-	memset(__llvm_prf_cnts_start, 0, prf_cnts_size());
-
-	for (data = __llvm_prf_data_start; data < __llvm_prf_data_end; data++) {
-		struct llvm_prf_value_node **vnodes;
-		u64 current_vsite_count;
-		u32 i;
-
-		if (!data->values)
-			continue;
-
-		current_vsite_count = 0;
-		vnodes = (struct llvm_prf_value_node **)data->values;
-
-		for (i = LLVM_INSTR_PROF_IPVK_FIRST; i <= LLVM_INSTR_PROF_IPVK_LAST; i++)
-			current_vsite_count += data->num_value_sites[i];
-
-		for (i = 0; i < current_vsite_count; i++) {
-			struct llvm_prf_value_node *current_vnode = vnodes[i];
-
-			while (current_vnode) {
-				current_vnode->count = 0;
-				current_vnode = current_vnode->next;
-			}
+	if (pco) {
+		for_each_possible_cpu(cpu) {
+			kfree(pco[cpu].data);
+			kfree(pco[cpu].vnds);
+			debugfs_remove(pco[cpu].file);
 		}
 	}
-
-	return len;
+	kfree(pco);
 }
 
-static const struct file_operations prf_reset_fops = {
-	.owner		= THIS_MODULE,
-	.write		= reset_write,
-	.llseek		= noop_llseek,
-};
+/*
+ * Take prf_object and initialize ->pcpu for it based
+ * on the set prf sections and name.
+ * This creates debugfs entries for the object:
+ * vmlinux.0.profraw, vmlinux.1.profraw, etc.
+ */
+static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
+{
+	int cpu;
+	struct prf_cpu_object *pco;
+	char fname[MODULE_NAME_LEN + 11]; /* +strlen("000.profraw") */
+
+	/* alloc percpu structures */
+	pco = kcalloc(num_possible_cpus(), sizeof(po->pcpu[0]), GFP_KERNEL);
+	if (!pco)
+		goto err_free;
+
+	for_each_possible_cpu(cpu) {
+		/* init per-cpu __llvm_prf_data data */
+		pco[cpu].data =
+			kmemdup(po->data, sizeof(po->data[0]) * po->data_num, GFP_KERNEL);
+		if (!pco[cpu].data)
+			goto err_free;
+
+		/* alloc per-cpu __llvm_prf_vnds memory */
+		pco[cpu].vnds =
+			kcalloc(po->vnds_num, sizeof(*pco[cpu].vnds), GFP_KERNEL);
+		if (!pco[cpu].vnds)
+			goto err_free;
+
+		/* create debugfs entry for the cpu */
+		fname[0] = 0;
+		snprintf(fname, sizeof(fname), "%s.%d.profraw", po->name, cpu);
+
+		pco[cpu].cpu = cpu;
+		pco[cpu].obj = po;
+		pco[cpu].file = debugfs_create_file(fname, 0600, directory, &pco[cpu], &prf_fops);
+		if (!pco[cpu].file) {
+			pr_err("Failed to setup pgo: %s", fname);
+			goto err_free;
+		}
+	}
+	return pco;
+
+err_free:
+	/* free pcpu array */
+	pgo_percpu_free(pco);
+	return NULL;
+}
 
 /* Create debugfs entries. */
 static int __init pgo_init(void)
@@ -371,13 +405,41 @@ static int __init pgo_init(void)
 	if (!directory)
 		goto err_remove;
 
-	if (!debugfs_create_file("vmlinux.profraw", 0600, directory, NULL,
-				 &prf_fops))
+	/* Setup vmlinux profiler object */
+	memset(&prf_vmlinux, 0, sizeof(prf_vmlinux));
+
+	prf_vmlinux.name = "vmlinux";
+	prf_vmlinux.data = __llvm_prf_data_start;
+	prf_vmlinux.data_num =
+		prf_get_count(__llvm_prf_data_start, __llvm_prf_data_end,
+			      sizeof(__llvm_prf_data_start[0]));
+
+	prf_vmlinux.cnts = __llvm_prf_cnts_start;
+	prf_vmlinux.cnts_num =
+		prf_get_count(__llvm_prf_cnts_start, __llvm_prf_cnts_end,
+			      sizeof(__llvm_prf_cnts_start[0]));
+
+	prf_vmlinux.names = __llvm_prf_names_start;
+	prf_vmlinux.names_num =
+		prf_get_count(__llvm_prf_names_start, __llvm_prf_names_end,
+			      sizeof(__llvm_prf_names_start[0]));
+
+	prf_vmlinux.vnds_num =
+		prf_get_count(__llvm_prf_vnds_start, __llvm_prf_vnds_end,
+			      sizeof(__llvm_prf_vnds_start[0]));
+
+	/* Init the vmlinux per-cpu entries */
+	prf_vmlinux.pcpu = pgo_percpu_init(&prf_vmlinux);
+	if (!prf_vmlinux.pcpu)
 		goto err_remove;
 
-	if (!debugfs_create_file("reset", 0200, directory, NULL,
-				 &prf_reset_fops))
-		goto err_remove;
+	/* Enable profiling. */
+	prf_lock_exclusive();
+	list_add_tail_rcu(&prf_vmlinux.link, &prf_list);
+	prf_unlock_exclusive();
+
+	/* Show notice why the system slower: */
+	pr_info("Clang PGO instrumentation is active");
 
 	return 0;
 

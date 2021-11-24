@@ -30,13 +30,8 @@
 #include "pgo.h"
 
 /*
- * This lock guards profile count updating.
- */
-static DEFINE_SPINLOCK(pgo_lock);
-static int current_node;
-
-/*
  * This mutex protects the profile data serialization
+ * and the prf_list structure.
  */
 static DEFINE_MUTEX(pgo_mutex);
 static atomic_t prf_disable = ATOMIC_INIT(0);
@@ -75,28 +70,37 @@ static inline int prf_is_enabled(void)
 }
 
 /*
- * Return a newly allocated profiling value node which contains the tracked
- * value by the value profiler.
- * Note: caller *must* hold pgo_lock.
+ * Return prf_object for the llvm_prf_data or NULL
+ * if we should not attempt any profiling.
  */
-static struct llvm_prf_value_node *allocate_node(struct llvm_prf_data *p,
-						 u32 index, u64 value)
+static struct prf_object *find_prf_object(struct llvm_prf_data *p)
 {
-	const int max_vnds = prf_vnds_count();
+	struct prf_object *po = NULL;
+	struct llvm_prf_data *data_end;
 
-	/*
-	 * Check that p is within vmlinux __llvm_prf_data section.
-	 * If not, don't allocate since we can't handle modules yet.
-	 */
-	if (!memory_contains(__llvm_prf_data_start,
-		__llvm_prf_data_end, p, sizeof(*p)))
-		return NULL;
+	list_for_each_entry_rcu(po, &prf_list, link) {
+		/*
+		 * Check that p is within:
+		 * [po->data, po->data + prf_data_count(po)] section.
+		 */
+		data_end = po->data + prf_data_count(po);
+		if (memory_contains(po->data, data_end, p, sizeof(*p)))
+			goto found;
+	}
+	/* not found */
+	po = NULL;
 
-	if (WARN_ON_ONCE(current_node >= max_vnds))
-		return NULL; /* Out of nodes */
+found:
+	return po;
+}
 
-	/* reserve vnode for vmlinux */
-	return &__llvm_prf_vnds_start[current_node++];
+static inline unsigned int prf_get_index(const void *_start, const void *_end,
+	unsigned int objsize)
+{
+	unsigned long start = (unsigned long)_start;
+	unsigned long end =	(unsigned long)_end;
+
+	return (end - start) / objsize;
 }
 
 /*
@@ -116,17 +120,34 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 	u64 min_count = U64_MAX;
 	u8 values = 0;
 	unsigned long flags;
+	struct prf_object *po;
+	struct prf_cpu_object *pco;
+	int cpu;
+	int bucket;
 
 	rcu_read_lock();
 
 	/* check if profiling is allowed */
 	if (!prf_is_enabled())
-		goto out_unlock;
+		goto out_rcu;
 
 	if (!p || !p->values)
-		goto out_unlock;
+		goto out_rcu;
 
-	counters = (struct llvm_prf_value_node **)p->values;
+	/* get prf_object */
+	po = find_prf_object(p);
+	if (!po)
+		goto out_rcu;
+
+	/* get index to p within po->pcpu[].data */
+	bucket = prf_get_index(po->data, data, sizeof(*p));
+
+	/* get prf_cpu_object */
+	preempt_disable();
+	cpu = smp_processor_id();
+	pco = &po->pcpu[cpu];
+
+	counters = (struct llvm_prf_value_node **)pco->data[bucket].values;
 	curr = counters[index];
 
 	while (curr) {
@@ -154,25 +175,26 @@ void __llvm_profile_instrument_target(u64 target_value, void *data, u32 index)
 		goto out_unlock;
 	}
 
-	/* Lock when updating the value node structure. */
-	if (!spin_trylock_irqsave(&pgo_lock, flags))
-		goto out_unlock;
+	if (WARN_ON_ONCE(pco->current_node >= po->vnds_num))
+		goto out_unlock; /* Out of nodes */
 
-	curr = allocate_node(p, index, target_value);
-	if (!curr)
-		goto out;
+	local_irq_save(flags);
+
+	/* reserve the vnode */
+	curr = &pco->vnds[pco->current_node++];
 
 	curr->value = target_value;
 	curr->count++;
 
 	if (!counters[index])
-		counters[index] = curr;
+		WRITE_ONCE(counters[index], curr);
 	else if (prev && !prev->next)
-		prev->next = curr;
+		WRITE_ONCE(prev->next, curr);
 
-out:
-	spin_unlock_irqrestore(&pgo_lock, flags);
+	local_irq_restore(flags);
 out_unlock:
+	preempt_enable_no_resched();
+out_rcu:
 	rcu_read_unlock();
 }
 EXPORT_SYMBOL(__llvm_profile_instrument_target);
