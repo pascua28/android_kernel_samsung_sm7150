@@ -34,7 +34,14 @@
  * and the prf_list structure.
  */
 static DEFINE_MUTEX(pgo_mutex);
-static atomic_t prf_disable = ATOMIC_INIT(0);
+
+/*
+ * Atomic flag to disable profiler hook.
+ * - the profiler hook is disabled during boot
+ *   to keep the profiler state consistent until
+ *   pgo is fully initialized.
+ */
+static atomic_t prf_disable = ATOMIC_INIT(1);
 
 void prf_lock_exclusive(void)
 {

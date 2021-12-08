@@ -39,7 +39,7 @@ struct prf_private_data {
 static struct prf_object prf_vmlinux;
 
 /* The prf_list */
-struct list_head prf_list;
+LIST_HEAD(prf_list);
 
 /*
  * Raw profile data format:
@@ -267,7 +267,7 @@ static int prf_open(struct inode *inode, struct file *file)
 	if (!data)
 		return -ENOMEM;
 
-	/* stop the profiler and take exclusive lock */
+	/* take exclusive lock and stop the profiler. */
 	prf_lock_exclusive();
 
 	/* get prf_cpu_object of this inode */
@@ -340,6 +340,7 @@ static void pgo_percpu_free(struct prf_cpu_object *pco)
 
 	if (pco) {
 		for_each_possible_cpu(cpu) {
+			kfree(pco[cpu].nodes);
 			kfree(pco[cpu].data);
 			kfree(pco[cpu].vnds);
 			debugfs_remove(pco[cpu].file);
@@ -348,9 +349,44 @@ static void pgo_percpu_free(struct prf_cpu_object *pco)
 	kfree(pco);
 }
 
+/* Count number of value sites of prf_object. */
+static unsigned long pgo_num_value_sites(struct prf_object *po)
+{
+	u32 num_sites = 0;
+	struct llvm_prf_data *p;
+	struct llvm_prf_data *end = po->data + po->data_num;
+	int kind;
+
+	for (p = po->data; p < end; ++p) {
+		if (p->values) {
+			for (kind = 0; kind < ARRAY_SIZE(p->num_value_sites); kind++)
+				num_sites += p->num_value_sites[kind];
+		}
+	}
+	return num_sites;
+}
+
+/* Patch pco->data[].values to point into per-cpu area */
+static void pgo_percpu_init_site_ptrs(struct prf_cpu_object *pco)
+{
+	struct llvm_prf_data *p = pco->data;
+	struct llvm_prf_data *end = p + pco->obj->data_num;
+	struct llvm_prf_value_node **pcurr = pco->nodes;
+	int kind;
+
+	for (; p < end; ++p) {
+		if (p->values) {
+			p->values = pcurr;
+			/* advance the ptr */
+			for (kind = 0; kind < ARRAY_SIZE(p->num_value_sites); kind++)
+				pcurr += p->num_value_sites[kind];
+		}
+	}
+}
+
 /*
- * Take prf_object and initialize ->pcpu for it based
- * on the set prf sections and name.
+ * Take prf_object and initialize ->pcpu array
+ * based on the set prf sections and name.
  * This creates debugfs entries for the object:
  * vmlinux.0.profraw, vmlinux.1.profraw, etc.
  */
@@ -359,6 +395,7 @@ static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
 	int cpu;
 	struct prf_cpu_object *pco;
 	char fname[MODULE_NAME_LEN + 11]; /* +strlen("000.profraw") */
+	int num_value_sites = pgo_num_value_sites(po);
 
 	/* alloc percpu structures */
 	pco = kcalloc(num_possible_cpus(), sizeof(po->pcpu[0]), GFP_KERNEL);
@@ -366,11 +403,23 @@ static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
 		goto err_free;
 
 	for_each_possible_cpu(cpu) {
+		pco[cpu].cpu = cpu;
+		pco[cpu].obj = po;
+
+		/* alloc per-cpu site ptr table */
+		pco[cpu].nodes =
+			kcalloc(num_value_sites, sizeof(pco[0].nodes), GFP_KERNEL);
+		if (!pco[cpu].nodes)
+			goto err_free;
+
 		/* init per-cpu __llvm_prf_data data */
 		pco[cpu].data =
 			kmemdup(po->data, sizeof(po->data[0]) * po->data_num, GFP_KERNEL);
 		if (!pco[cpu].data)
 			goto err_free;
+
+		/* assign site ptr table to pco[cpu].data */
+		pgo_percpu_init_site_ptrs(&pco[cpu]);
 
 		/* alloc per-cpu __llvm_prf_vnds memory */
 		pco[cpu].vnds =
@@ -382,8 +431,6 @@ static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
 		fname[0] = 0;
 		snprintf(fname, sizeof(fname), "%s.%d.profraw", po->name, cpu);
 
-		pco[cpu].cpu = cpu;
-		pco[cpu].obj = po;
 		pco[cpu].file = debugfs_create_file(fname, 0600, directory, &pco[cpu], &prf_fops);
 		if (!pco[cpu].file) {
 			pr_err("Failed to setup pgo: %s", fname);

@@ -170,6 +170,8 @@ struct llvm_prf_value_record {
 struct prf_cpu_object {
 	/* work copy of llvm_prf_data */
 	struct llvm_prf_data *data;
+	/* site ptr table */
+	struct llvm_prf_value_node **nodes;
 	/* vnode data */
 	struct llvm_prf_value_node *vnds;
 	/* index for next free vnode */
