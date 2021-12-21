@@ -445,6 +445,117 @@ err_free:
 	return NULL;
 }
 
+static void pgo_module_init(struct module *mod)
+{
+	struct prf_object *po;
+
+	/* Alloc prf_object entry for the module */
+	po = kzalloc(sizeof(*po), GFP_KERNEL);
+	if (!po)
+		return; /* -ENOMEM */
+
+	/* Setup prf_object instance */
+	po->name = mod->name;
+
+	po->data = mod->prf_data;
+	po->data_num = prf_get_count(mod->prf_data,
+					(char *)mod->prf_data + mod->prf_data_size,
+					sizeof(po->data[0]));
+
+	po->cnts = mod->prf_cnts;
+	po->cnts_num = prf_get_count(mod->prf_cnts,
+					(char *)mod->prf_cnts + mod->prf_cnts_size,
+					sizeof(po->cnts[0]));
+
+	po->names = mod->prf_names;
+	po->names_num = prf_get_count(mod->prf_names,
+					(char *)mod->prf_names + mod->prf_names_size,
+					sizeof(po->names[0]));
+
+	po->vnds_num = prf_get_count(mod->prf_vnds,
+					(char *)mod->prf_vnds + mod->prf_vnds_size,
+					sizeof(struct llvm_prf_value_node));
+
+	/* Initialize rest of the structure */
+	po->pcpu = pgo_percpu_init(po);
+	if (!po->pcpu)
+		return;
+
+	/* Enable profiling for the module */
+	prf_lock_exclusive();
+	list_add_tail_rcu(&po->link, &prf_list);
+	prf_unlock_exclusive();
+}
+
+static void pgo_module_free(struct rcu_head *rp)
+{
+	struct prf_object *po = container_of(rp, struct prf_object, rcu);
+
+	pgo_percpu_free(po->pcpu);
+	kfree(po);
+}
+
+static int pgo_module_notifier(struct notifier_block *nb, unsigned long event,
+			       void *pdata)
+{
+	struct module *mod = pdata;
+	struct prf_object *po;
+	int cpu;
+
+	if (event == MODULE_STATE_LIVE) {
+		/* Can we enable profiling for the module? */
+		if (mod->prf_data && mod->prf_cnts && mod->prf_names &&
+		    mod->prf_vnds && mod->prf_vnds_size > 0) {
+			/* Setup module profiling */
+			pgo_module_init(mod);
+
+			pr_info("%s: Enabled", mod->name);
+		} else {
+			pr_warn("%s: Disabled, no counters", mod->name);
+		}
+	}
+
+	if (event == MODULE_STATE_GOING) {
+		/* Find the prf_object from the list */
+		rcu_read_lock();
+
+		list_for_each_entry_rcu(po, &prf_list, link) {
+			if (strcmp(po->name, mod->name) == 0)
+				goto mod_found;
+		}
+		/* No such module */
+		po = NULL;
+
+mod_found:
+		rcu_read_unlock();
+
+		if (po) {
+			/* Remove from profiled modules */
+			prf_lock_exclusive();
+			list_del_rcu(&po->link);
+
+			/* Unlink debugfs entries now */
+			for_each_possible_cpu(cpu) {
+				debugfs_remove(po->pcpu[cpu].file);
+				po->pcpu[cpu].file = NULL;
+			}
+
+			prf_unlock_exclusive();
+
+			/* Cleanup memory */
+			call_rcu(&po->rcu, pgo_module_free);
+
+			pr_debug("%s: Unregister", mod->name);
+		}
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block pgo_module_nb = {
+	.notifier_call = pgo_module_notifier
+};
+
 /* Create debugfs entries. */
 static int __init pgo_init(void)
 {
@@ -487,6 +598,9 @@ static int __init pgo_init(void)
 
 	/* Show notice why the system slower: */
 	pr_info("Clang PGO instrumentation is active");
+
+	/* Register module notifer. */
+	register_module_notifier(&pgo_module_nb);
 
 	return 0;
 
