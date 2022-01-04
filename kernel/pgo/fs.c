@@ -398,11 +398,11 @@ static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
 	int num_value_sites = pgo_num_value_sites(po);
 
 	/* alloc percpu structures */
-	pco = kcalloc(num_possible_cpus(), sizeof(po->pcpu[0]), GFP_KERNEL);
+	pco = kcalloc(num_online_cpus(), sizeof(po->pcpu[0]), GFP_KERNEL);
 	if (!pco)
 		goto err_free;
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		pco[cpu].cpu = cpu;
 		pco[cpu].obj = po;
 
@@ -511,6 +511,7 @@ static int pgo_module_notifier(struct notifier_block *nb, unsigned long event,
 
 			pr_info("%s: Enabled", mod->name);
 		} else {
+			/* Some modules can't be profiled */
 			pr_warn("%s: Disabled, no counters", mod->name);
 		}
 	}
