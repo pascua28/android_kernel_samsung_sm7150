@@ -440,6 +440,7 @@ static struct prf_cpu_object *pgo_percpu_init(struct prf_object *po)
 	return pco;
 
 err_free:
+	pr_err("-ENOMEM");
 	/* free pcpu array */
 	pgo_percpu_free(pco);
 	return NULL;
