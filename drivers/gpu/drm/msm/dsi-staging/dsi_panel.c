@@ -301,7 +301,7 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 	if (gpio_is_valid(r_config->reset_gpio)) {
 		rc = gpio_request(r_config->reset_gpio, "reset_gpio");
 		if (rc) {
-			pr_err("request for reset_gpio failed, rc=%d\n", rc);
+			pr_debug("request for reset_gpio failed, rc=%d\n", rc);
 			goto error;
 		}
 	}
@@ -309,7 +309,7 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 	if (gpio_is_valid(r_config->disp_en_gpio)) {
 		rc = gpio_request(r_config->disp_en_gpio, "disp_en_gpio");
 		if (rc) {
-			pr_err("request for disp_en_gpio failed, rc=%d\n", rc);
+			pr_debug("request for disp_en_gpio failed, rc=%d\n", rc);
 			goto error_release_reset;
 		}
 	}
@@ -317,7 +317,7 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 	if (gpio_is_valid(panel->bl_config.en_gpio)) {
 		rc = gpio_request(panel->bl_config.en_gpio, "bklt_en_gpio");
 		if (rc) {
-			pr_err("request for bklt_en_gpio failed, rc=%d\n", rc);
+			pr_debug("request for bklt_en_gpio failed, rc=%d\n", rc);
 			goto error_release_disp_en;
 		}
 	}
@@ -1055,7 +1055,7 @@ static int dsi_panel_update_pwm_backlight(struct dsi_panel *panel,
 
 	bl = &panel->bl_config;
 	if (!bl->pwm_bl) {
-		pr_err("pwm device not found\n");
+		pr_debug("pwm device not found\n");
 		return -EINVAL;
 	}
 
@@ -1145,7 +1145,7 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		rc = dsi_panel_update_pwm_backlight(panel, bl_lvl);
 		break;
 	default:
-		pr_err("Backlight type(%d) not supported\n", bl->type);
+		pr_debug("Backlight type(%d) not supported\n", bl->type);
 		rc = -ENOTSUPP;
 	}
 
@@ -4918,7 +4918,7 @@ int dsi_panel_update_pps(struct dsi_panel *panel)
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PPS);
 	if (rc) {
-		pr_err("[%s] failed to send DSI_CMD_SET_PPS cmds, rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_PPS cmds, rc=%d\n",
 			panel->name, rc);
 	}
 
@@ -5217,7 +5217,7 @@ int dsi_panel_send_qsync_on_dcs(struct dsi_panel *panel,
 	pr_debug("ctrl:%d qsync on\n", ctrl_idx);
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_QSYNC_ON);
 	if (rc)
-		pr_err("[%s] failed to send DSI_CMD_SET_QSYNC_ON cmds rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_QSYNC_ON cmds rc=%d\n",
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
@@ -5248,7 +5248,7 @@ int dsi_panel_send_qsync_off_dcs(struct dsi_panel *panel,
 	pr_debug("ctrl:%d qsync off\n", ctrl_idx);
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_QSYNC_OFF);
 	if (rc)
-		pr_err("[%s] failed to send DSI_CMD_SET_QSYNC_OFF cmds rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_QSYNC_OFF cmds rc=%d\n",
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
@@ -5446,7 +5446,7 @@ int dsi_panel_switch(struct dsi_panel *panel)
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_TIMING_SWITCH);
 	if (rc)
-		pr_err("[%s] failed to send DSI_CMD_SET_TIMING_SWITCH cmds, rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_TIMING_SWITCH cmds, rc=%d\n",
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
@@ -5475,7 +5475,7 @@ int dsi_panel_post_switch(struct dsi_panel *panel)
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_POST_TIMING_SWITCH);
 	if (rc)
-		pr_err("[%s] failed to send DSI_CMD_SET_POST_TIMING_SWITCH cmds, rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_POST_TIMING_SWITCH cmds, rc=%d\n",
 		       panel->name, rc);
 
 	mutex_unlock(&panel->panel_lock);
@@ -5589,7 +5589,7 @@ int dsi_panel_post_enable(struct dsi_panel *panel)
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_POST_ON);
 	if (rc) {
-		pr_err("[%s] failed to send DSI_CMD_SET_POST_ON cmds, rc=%d\n",
+		pr_debug("[%s] failed to send DSI_CMD_SET_POST_ON cmds, rc=%d\n",
 		       panel->name, rc);
 		goto error;
 	}
