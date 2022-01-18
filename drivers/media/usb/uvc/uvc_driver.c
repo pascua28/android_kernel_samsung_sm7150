@@ -1903,8 +1903,9 @@ static void uvc_unregister_video(struct uvc_device *dev)
 			continue;
 
 		video_unregister_device(&stream->vdev);
-
+#ifdef CONFIG_DEBUG_FS
 		uvc_debugfs_cleanup_stream(stream);
+#endif
 	}
 }
 
@@ -1928,9 +1929,9 @@ static int uvc_register_video(struct uvc_device *dev,
 			"(%d).\n", ret);
 		return ret;
 	}
-
+#ifdef CONFIG_DEBUG_FS
 	uvc_debugfs_init_stream(stream);
-
+#endif
 	/* Register the device with V4L. */
 
 	/* We already hold a reference to dev->udev. The video device will be
@@ -2786,12 +2787,14 @@ struct uvc_driver uvc_driver = {
 static int __init uvc_init(void)
 {
 	int ret;
-
+#ifdef CONFIG_DEBUG_FS
 	uvc_debugfs_init();
-
+#endif
 	ret = usb_register(&uvc_driver.driver);
 	if (ret < 0) {
+#ifdef CONFIG_DEBUG_FS
 		uvc_debugfs_cleanup();
+#endif
 		return ret;
 	}
 
@@ -2802,7 +2805,9 @@ static int __init uvc_init(void)
 static void __exit uvc_cleanup(void)
 {
 	usb_deregister(&uvc_driver.driver);
+#ifdef CONFIG_DEBUG_FS
 	uvc_debugfs_cleanup();
+#endif
 }
 
 module_init(uvc_init);
