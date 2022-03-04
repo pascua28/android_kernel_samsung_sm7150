@@ -366,6 +366,72 @@ static unsigned long pgo_num_value_sites(struct prf_object *po)
 	return num_sites;
 }
 
+/*
+ * Reset profiler data object.
+ * Note: caller *must* take prf_lock_exclusive()
+ */
+static void pgo_reset(struct prf_object *po)
+{
+	int cpu;
+	unsigned long num_value_sites;
+
+	/* zero all edge profile counters */
+	memset(po->cnts, 0, po->cnts_num * sizeof(po->cnts[0]));
+
+	/* get number of value sites */
+	num_value_sites = pgo_num_value_sites(po);
+
+	for_each_online_cpu(cpu) {
+		struct prf_cpu_object *pco = &po->pcpu[cpu];
+		struct llvm_prf_value_node **vnodes = pco->nodes;
+		u32 i;
+
+		/*
+		 * walk all vnodes and zero counters.
+		 */
+		for (i = 0; i < num_value_sites; i++) {
+			struct llvm_prf_value_node *curr = vnodes[i];
+
+			while (curr) {
+				curr->count = 0;
+				curr = curr->next;
+			}
+		}
+	}
+}
+
+/*
+ * write() implementation for resetting
+ * the entire profiler state.
+ * Todo: allow resetting single profiler objects
+ */
+static ssize_t reset_write(struct file *file, const char __user *addr,
+	size_t len, loff_t *pos)
+{
+	struct prf_object *po;
+
+	prf_lock_exclusive();
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(po, &prf_list, link) {
+
+		pgo_reset(po);
+	}
+
+	rcu_read_unlock();
+
+	prf_unlock_exclusive();
+
+	return len;
+}
+
+static const struct file_operations prf_reset_fops = {
+	.owner      = THIS_MODULE,
+	.write      = reset_write,
+	.llseek     = noop_llseek,
+};
+
 /* Patch pco->data[].values to point into per-cpu area */
 static void pgo_percpu_init_site_ptrs(struct prf_cpu_object *pco)
 {
@@ -484,6 +550,10 @@ static void pgo_module_init(struct module *mod)
 
 	/* Enable profiling for the module */
 	prf_lock_exclusive();
+
+	/* Ensure profiling counters are zeroed */
+	pgo_reset(po);
+
 	list_add_tail_rcu(&po->link, &prf_list);
 	prf_unlock_exclusive();
 }
@@ -595,8 +665,21 @@ static int __init pgo_init(void)
 
 	/* Enable profiling. */
 	prf_lock_exclusive();
+
+	/*
+	 * Ensure profiling counters are zeroed:
+	 * This especially important for vmlinux, because
+	 * the edge profile counters have likely changed
+	 * between boot and pgo_init()
+	 */
+	pgo_reset(&prf_vmlinux);
+
 	list_add_tail_rcu(&prf_vmlinux.link, &prf_list);
 	prf_unlock_exclusive();
+
+	/* add reset knob to debugfs */
+	if (!debugfs_create_file("reset", 0200, directory, NULL, &prf_reset_fops))
+		goto err_remove;
 
 	/* Show notice why the system slower: */
 	pr_info("Clang PGO instrumentation is active");
