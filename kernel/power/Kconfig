@@ -350,3 +350,8 @@ config CPU_FREQ_LIMIT_USERSPACE
 	  /sys/power/cpufreq_min_limit
 	  /sys/power/cpufreq_max_limit
 	  /sys/power/cpufreq_table
+
+config DEDUCE_WAKEUP_REASONS
+	bool
+	default n
+	depends on SUSPEND && !PREEMPT_RT_FULL
