@@ -2611,7 +2611,9 @@ skip:
 	if (retry && console_trylock())
 		goto again;
 
+#ifndef CONFIG_PREEMPT_RT_FULL
 out:
+#endif
 	if (wake_klogd)
 		wake_up_klogd();
 }
