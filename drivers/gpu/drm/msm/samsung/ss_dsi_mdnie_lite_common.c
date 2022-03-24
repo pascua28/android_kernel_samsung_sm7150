@@ -712,32 +712,29 @@ static ssize_t sensorRGB_store(struct device *dev,
 	sscanf(buf, "%d %d %d", &white_red, &white_green, &white_blue);
 
 	if (tune->ldu_mode_index == 0) {
-		if ((tune->mdnie_accessibility == ACCESSIBILITY_OFF) && (tune->mdnie_mode == AUTO_MODE) &&
-			((tune->mdnie_app == BROWSER_APP) || (tune->mdnie_app == eBOOK_APP))) {
 
-			tune->scr_white_red = (char)white_red;
-			tune->scr_white_green = (char)white_green;
-			tune->scr_white_blue = (char)white_blue;
+		tune->scr_white_red = (char)white_red;
+		tune->scr_white_green = (char)white_green;
+		tune->scr_white_blue = (char)white_blue;
 
-			DPRINT("%s: white_red = %d, white_green = %d, white_blue = %d, %d %d\n",
-				__func__,
-				white_red, white_green, white_blue,
-				mdnie_data->dsi_rgb_sensor_mdnie_1_size,
-				mdnie_data->dsi_rgb_sensor_mdnie_2_size);
+		DPRINT("%s: white_red = %d, white_green = %d, white_blue = %d, %d %d\n",
+			__func__,
+			white_red, white_green, white_blue,
+			mdnie_data->dsi_rgb_sensor_mdnie_1_size,
+			mdnie_data->dsi_rgb_sensor_mdnie_2_size);
 
-			tune_data_dsi = mdnie_data->DSI_RGB_SENSOR_MDNIE;
+		tune_data_dsi = mdnie_data->DSI_RGB_SENSOR_MDNIE;
 
-			data_dsi = mdnie_data->mdnie_tune_value_dsi[tune->mdnie_app][tune->mdnie_mode][tune->outdoor];
+		data_dsi = mdnie_data->mdnie_tune_value_dsi[tune->mdnie_app][tune->mdnie_mode][tune->outdoor];
 
-			if (data_dsi) {
-				memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_1, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP1]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_1_size);
-				memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_2, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP2]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_2_size);
-				memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_3, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP3]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_3_size);
+		if (data_dsi) {
+			memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_1, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP1]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_1_size);
+			memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_2, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP2]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_2_size);
+			memcpy(mdnie_data->DSI_RGB_SENSOR_MDNIE_3, data_dsi[mdnie_data->mdnie_step_index[MDNIE_STEP3]].msg.tx_buf, mdnie_data->dsi_rgb_sensor_mdnie_3_size);
 
-				mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = white_red;
-				mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = white_green;
-				mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = white_blue;
-			}
+			mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_RED_OFFSET]] = white_red;
+			mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_GREEN_OFFSET]] = white_green;
+			mdnie_data->DSI_RGB_SENSOR_MDNIE_SCR[mdnie_data->address_scr_white[ADDRESS_SCR_WHITE_BLUE_OFFSET]] = white_blue;
 		}
 	}
 
