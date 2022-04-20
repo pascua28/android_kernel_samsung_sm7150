@@ -166,9 +166,7 @@ void dsi_convert_to_drm_mode(const struct dsi_display_mode *dsi_mode,
 			dsi_mode->timing.sot_hs_mode ? ( dsi_mode->timing.phs_mode ? "PHS" : "HS") : "NS");
 #else
 	/* set mode name */
-	snprintf(drm_mode->name, DRM_DISPLAY_MODE_LEN, "%dx%dx%dx%d",
-			drm_mode->hdisplay, drm_mode->vdisplay,
-			drm_mode->vrefresh, drm_mode->clock);
+	*drm_mode->name = '\0';
 #endif
 }
 
