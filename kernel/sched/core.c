@@ -65,7 +65,7 @@ void summary_set_lpm_info_runqueues(struct sec_debug_summary_data_apss *apss)
  * Number of tasks to iterate in a single balance run.
  * Limited because this is done with IRQs disabled.
  */
-#ifndef CONFIG_PREEMPT_RT_FULL
+#if !defined(CONFIG_PREEMPT_RT_FULL) || defined(CONFIG_ANDROID)
 const_debug unsigned int sysctl_sched_nr_migrate = 32;
 #else
 const_debug unsigned int sysctl_sched_nr_migrate = 8;
