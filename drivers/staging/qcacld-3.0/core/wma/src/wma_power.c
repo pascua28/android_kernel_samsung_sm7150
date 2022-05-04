@@ -1207,7 +1207,7 @@ QDF_STATUS wma_process_tx_power_limits(WMA_HANDLE handle,
 	int32_t ret = 0;
 	uint32_t txpower_params2g = 0;
 	uint32_t txpower_params5g = 0;
-	struct pdev_params pdevparam;
+	struct pdev_params pdevparam = {};
 
 	if (!wma || !wma->wmi_handle) {
 		WMA_LOGE("%s: WMA is closed, can not issue tx power limit",
@@ -1567,7 +1567,7 @@ QDF_STATUS wma_set_idle_ps_config(void *wma_ptr, uint32_t idle_ps)
 {
 	int32_t ret;
 	tp_wma_handle wma = (tp_wma_handle) wma_ptr;
-	struct pdev_params pdevparam;
+	struct pdev_params pdevparam = {};
 
 	WMA_LOGD("WMA Set Idle Ps Config [1:set 0:clear] val %d", idle_ps);
 
