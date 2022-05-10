@@ -1976,14 +1976,14 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	VERIFY(err, cid >= ADSP_DOMAIN_ID && cid < NUM_CHANNELS);
 	if (err) {
 		err = -ECHRNG;
-		goto bail;
+		return err;
 	}
 
 	VERIFY(err, fl->sctx != NULL);
 
 	if (err) {
 		err = -EBADR;
-		goto bail;
+		return err;
 	}
 
 	perf_counter = getperfcounter(fl, PERF_COUNT);
