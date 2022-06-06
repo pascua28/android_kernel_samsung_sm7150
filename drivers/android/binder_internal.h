@@ -365,6 +365,12 @@ struct binder_priority {
 	int prio;
 };
 
+enum binder_prio_state {
+	BINDER_PRIO_SET,	/* desired priority set */
+	BINDER_PRIO_PENDING,	/* initiated a saved priority restore */
+	BINDER_PRIO_ABORT,	/* abort the pending priority restore */
+};
+
 /**
  * struct binder_proc - binder process bookkeeping
  * @proc_node:            element for binder_procs list
@@ -602,6 +608,12 @@ struct binder_proc_ext *proc_wrapper(struct binder_proc *proc)
  *                        when outstanding transactions are cleaned up
  *                        (protected by @proc->inner_lock)
  * @task:                 struct task_struct for this thread
+ * @prio_lock:            protects thread priority fields
+ * @prio_next:            saved priority to be restored next
+ *                        (protected by @prio_lock)
+ * @prio_state:           state of the priority restore process as
+ *                        defined by enum binder_prio_state
+ *                        (protected by @prio_lock)
  *
  * Bookkeeping structure for binder threads.
  */
@@ -624,6 +636,9 @@ struct binder_thread {
 	atomic_t tmp_ref;
 	bool is_dead;
 	struct task_struct *task;
+	spinlock_t prio_lock;
+	struct binder_priority prio_next;
+	enum binder_prio_state prio_state;
 };
 
 /**
@@ -661,6 +676,7 @@ struct binder_transaction {
 	struct binder_priority	saved_priority;
 	bool    set_priority_called;
 	kuid_t	sender_euid;
+	bool is_nested;
 	struct list_head fd_fixups;
 	binder_uintptr_t security_ctx;
 	/**
