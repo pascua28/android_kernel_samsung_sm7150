@@ -1702,11 +1702,18 @@ out:
 	return ret;
 }
 
+static void dwc3_gadget_wakeup_irq_work(struct irq_work *work)
+{
+	struct dwc3 *dwc = container_of(work, typeof(*dwc), wakeup_irq_work);
+
+	schedule_work(&dwc->wakeup_work);
+}
+
 static int dwc3_gadget_wakeup(struct usb_gadget *g)
 {
 	struct dwc3	*dwc = gadget_to_dwc(g);
 
-	schedule_work(&dwc->wakeup_work);
+	irq_work_queue(&dwc->wakeup_irq_work);
 	return 0;
 }
 
@@ -4302,6 +4309,7 @@ int dwc3_gadget_init(struct dwc3 *dwc)
 #if defined(CONFIG_USB_NOTIFY_LAYER_V34)
 	INIT_DELAYED_WORK(&dwc->usb_event_work, dwc3_gadget_usb_event_work);
 #endif
+	init_irq_work(&dwc->wakeup_irq_work, dwc3_gadget_wakeup_irq_work);
 
 	dwc->ep0_trb = dma_alloc_coherent(dwc->sysdev,
 					  sizeof(*dwc->ep0_trb) * 2,
