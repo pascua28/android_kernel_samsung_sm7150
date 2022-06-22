@@ -16837,7 +16837,7 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 				ndev->dev_addr[3] |= 0xF0;
 				memcpy(adapter->mac_addr.bytes, ndev->dev_addr,
 				       QDF_MAC_ADDR_SIZE);
-				pr_info("wlan: Generated HotSpot BSSID "
+				pr_debug("wlan: Generated HotSpot BSSID "
 					QDF_MAC_ADDR_STR "\n",
 					QDF_MAC_ADDR_ARRAY(ndev->dev_addr));
 			}
