@@ -459,7 +459,7 @@
 	};
 
 	chosen {
-		bootargs = "rcu_nocbs=0-7 cgroup_disable=pressure";
+		bootargs = "rcu_nocbs=0-7 cgroup_disable=pressure mitigations=off";
 	};
 
 	soc: soc { };
