@@ -408,7 +408,7 @@ enum hdd_dot11_mode {
  * gEnablefwlog - Enable FW log
  * @Min: 0
  * @Max: 2
- * @Default: 1
+ * @Default: 0
  *
  * </ini>
  */
@@ -416,7 +416,7 @@ enum hdd_dot11_mode {
 			"gEnablefwlog", \
 			0, \
 			2, \
-			1, \
+			0, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Enable FW log")
 
