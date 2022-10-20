@@ -53,7 +53,9 @@
 #include <linux/pagevec.h>
 #include <linux/shmem_fs.h>
 #include <linux/ctype.h>
+#ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
+#endif
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -4875,6 +4877,7 @@ static struct attribute_group lru_gen_attr_group = {
 	.attrs = lru_gen_attrs,
 };
 
+#ifdef CONFIG_DEBUG_FS
 /******************************************************************************
  *                          debugfs interface
  ******************************************************************************/
@@ -4978,11 +4981,7 @@ static void lru_gen_seq_show_full(struct seq_file *m, struct lruvec *lruvec,
 static int lru_gen_seq_show(struct seq_file *m, void *v)
 {
 	unsigned long seq;
-#ifdef CONFIG_DEBUG_FS
 	bool full = !debugfs_real_fops(m->file)->write;
-#else
-	bool full = false;
-#endif
 	struct lruvec *lruvec = v;
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 	int nid = lruvec_pgdat(lruvec)->node_id;
@@ -5221,6 +5220,7 @@ static const struct file_operations lru_gen_ro_fops = {
 	.llseek = seq_lseek,
 	.release = seq_release,
 };
+#endif
 
 /******************************************************************************
  *                          initialization
@@ -5280,8 +5280,10 @@ static int __init init_lru_gen(void)
 	if (sysfs_create_group(mm_kobj, &lru_gen_attr_group))
 		pr_err("lru_gen: failed to create sysfs group\n");
 
+#ifdef CONFIG_DEBUG_FS
 	debugfs_create_file("lru_gen", 0644, NULL, NULL, &lru_gen_rw_fops);
 	debugfs_create_file("lru_gen_full", 0444, NULL, NULL, &lru_gen_ro_fops);
+#endif
 
 	return 0;
 };
