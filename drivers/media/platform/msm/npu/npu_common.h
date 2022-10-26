@@ -270,8 +270,10 @@ struct npu_client {
  * Function Prototypes
  * -------------------------------------------------------------------------
  */
+#ifdef CONFIG_DEBUG_FS
 int npu_debugfs_init(struct npu_device *npu_dev);
 void npu_debugfs_deinit(struct npu_device *npu_dev);
+#endif
 
 int npu_enable_core_power(struct npu_device *npu_dev);
 void npu_disable_core_power(struct npu_device *npu_dev);
