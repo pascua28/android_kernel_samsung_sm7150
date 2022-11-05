@@ -929,6 +929,7 @@ LDFLAGS		+= --thinlto-cache-dir=.thinlto-cache
 else
 lto-clang-flags	:= -flto
 endif
+KBUILD_CFLAGS	+= -mllvm -unroll-threshold=1200
 lto-clang-flags += -fvisibility=default $(call cc-option, -fsplit-lto-unit)
 
 LD_FLAGS_LTO_CLANG := -mllvm -import-instr-limit=40
