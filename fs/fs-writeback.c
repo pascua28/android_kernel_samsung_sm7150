@@ -1504,10 +1504,10 @@ static int writeback_single_inode(struct inode *inode,
 	wb = inode_to_wb_and_lock_list(inode);
 	spin_lock(&inode->i_lock);
 	/*
-	 * If inode is clean, remove it from writeback lists. Otherwise don't
-	 * touch it. See comment above for explanation.
+	 * If inode is clean or freeing, remove it from writeback lists.
+	 * Otherwise don't touch it. See comment above for explanation.
 	 */
-	if (!(inode->i_state & I_DIRTY_ALL))
+	if (!(inode->i_state & I_DIRTY_ALL) || (inode->i_state & I_FREEING))
 		inode_io_list_del_locked(inode, wb);
 	spin_unlock(&wb->list_lock);
 	inode_sync_complete(inode);
@@ -2212,14 +2212,13 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 			else
 				dirty_list = &wb->b_dirty_time;
 
-			wakeup_bdi = inode_io_list_move_locked(inode, wb,
-							       dirty_list);
-
 			if (inode->i_state & (I_WILL_FREE | I_FREEING)) {
-				inode_io_list_del_locked(inode, wb);
 				spin_unlock(&wb->list_lock);
 				return;
 			}
+
+			wakeup_bdi = inode_io_list_move_locked(inode, wb,
+							       dirty_list);
 
 			spin_unlock(&wb->list_lock);
 			trace_writeback_dirty_inode_enqueue(inode);
