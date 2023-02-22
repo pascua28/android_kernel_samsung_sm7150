@@ -32,6 +32,7 @@
 #include <linux/kallsyms.h>
 #include <linux/rcupdate.h>
 #include <linux/perf_event.h>
+#include <linux/nospec.h>
 
 #ifdef CONFIG_RKP_MODULE_SUPPORT
 #include <linux/rkp.h>
