@@ -221,6 +221,7 @@ struct npu_irq {
 	int irq;
 	int irq_type;
 	irq_handler_t handler;
+	irq_handler_t thread_fn;
 };
 
 struct npu_io_data {
