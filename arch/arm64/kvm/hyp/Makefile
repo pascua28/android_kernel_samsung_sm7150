@@ -28,6 +28,7 @@ obj-$(CONFIG_KVM_ARM_HOST) += s2-setup.o
 # compiler instrumentation that inserts callbacks or checks into the code may
 # cause crashes. Just disable it.
 GCOV_PROFILE	:= n
+PGO_PROFILE	:= n
 KASAN_SANITIZE	:= n
 UBSAN_SANITIZE	:= n
 KCOV_INSTRUMENT	:= n

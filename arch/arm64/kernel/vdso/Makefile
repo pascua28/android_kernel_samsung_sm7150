@@ -21,6 +21,7 @@ CFLAGS_REMOVE_vgettimeofday.o += $(CC_FLAGS_SCS)
 
 # Disable gcov profiling for VDSO code
 GCOV_PROFILE := n
+PGO_PROFILE  := n
 
 obj-y += vdso.o
 extra-y += vdso.lds
