@@ -761,7 +761,10 @@ KBUILD_CFLAGS	+= -mllvm -polly \
 		   -mllvm -polly-vectorizer=stripmine
 KBUILD_CFLAGS	+= -mllvm -polly-loopfusion-greedy=1 \
 		   -mllvm -polly-reschedule=1 \
-		   -mllvm -polly-postopts=1
+		   -mllvm -polly-postopts=1 \
+		   -mllvm -polly-omp-backend=LLVM \
+		   -mllvm -polly-scheduling=dynamic \
+		   -mllvm -polly-scheduling-chunksize=1
 
 # Polly may optimise loops with dead paths beyound what the linker
 # can understand. This may negate the effect of the linker's DCE
