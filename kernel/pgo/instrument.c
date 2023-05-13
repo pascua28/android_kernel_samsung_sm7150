@@ -145,9 +145,6 @@ EXPORT_SYMBOL(__llvm_profile_instrument_target);
 /* Counts the number of times a range of targets values are seen. */
 void __llvm_profile_instrument_range(u64 target_value, void *data,
 				     u32 index, s64 precise_start,
-				     s64 precise_last, s64 large_value);
-void __llvm_profile_instrument_range(u64 target_value, void *data,
-				     u32 index, s64 precise_start,
 				     s64 precise_last, s64 large_value)
 {
 	if (large_value != S64_MIN && (s64)target_value >= large_value)
@@ -180,8 +177,6 @@ static u64 inst_prof_get_range_rep_value(u64 value)
  * The target values are partitioned into multiple ranges. The range spec is
  * defined in compiler-rt/include/profile/InstrProfData.inc.
  */
-void __llvm_profile_instrument_memop(u64 target_value, void *data,
-				     u32 counter_index);
 void __llvm_profile_instrument_memop(u64 target_value, void *data,
 				     u32 counter_index)
 {
