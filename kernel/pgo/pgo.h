@@ -43,7 +43,7 @@
 		 (u64)'R' << 8  |	\
 		 (u64)129)
 
-#define LLVM_INSTR_PROF_RAW_VERSION		5
+#define LLVM_INSTR_PROF_RAW_VERSION 		8
 #define LLVM_INSTR_PROF_DATA_ALIGNMENT		8
 #define LLVM_INSTR_PROF_IPVK_FIRST		0
 #define LLVM_INSTR_PROF_IPVK_LAST		1
@@ -56,6 +56,7 @@
  * struct llvm_prf_header - represents the raw profile header data structure.
  * @magic: the magic token for the file format.
  * @version: the version of the file format.
+ * @binary_ids_size
  * @data_size: the number of entries in the profile data section.
  * @padding_bytes_before_counters: the number of padding bytes before the
  *   counters.
@@ -72,6 +73,7 @@
 struct llvm_prf_header {
 	u64 magic;
 	u64 version;
+	u64 binary_ids_size;
 	u64 data_size;
 	u64 padding_bytes_before_counters;
 	u64 counters_size;
