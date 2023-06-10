@@ -12,7 +12,9 @@
 
 #define pr_fmt(fmt) "cnss_utils: " fmt
 
+#ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
+#endif
 #include <linux/etherdevice.h>
 #include <linux/bitops.h>
 #include <linux/io.h>
@@ -573,7 +575,7 @@ static const struct file_operations cnss_utils_mac_fops = {
 	.owner		= THIS_MODULE,
 	.llseek		= seq_lseek,
 };
-
+#ifdef CONFIG_DEBUG_FS
 static int cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
 {
 	int ret = 0;
@@ -592,7 +594,7 @@ static int cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
 out:
 	return ret;
 }
-
+#endif
 static int __init cnss_utils_init(void)
 {
 	struct cnss_utils_priv *priv = NULL;
@@ -605,7 +607,9 @@ static int __init cnss_utils_init(void)
 
 	mutex_init(&priv->unsafe_channel_list_lock);
 	spin_lock_init(&priv->dfs_nol_info_lock);
+#ifdef CONFIG_DEBUG_FS
 	cnss_utils_debugfs_create(priv);
+#endif
 	cnss_utils_priv = priv;
 
 	return 0;
