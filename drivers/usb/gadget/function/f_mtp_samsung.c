@@ -111,12 +111,12 @@
 
 #define DRIVER_NAME		 "usb_mtp_gadget"
 #if IS_ENABLED(CONFIG_USB_CONFIGFS_UEVENT)
-#define DRIVER_NAME_PTP "ptp"
+#define DRIVER_NAME_PTP "ptp_samsung"
 #endif
 
 
 #define MAX_GUID_SIZE	0x28
-static const char mtpg_longname[] =	"mtp";
+static const char mtpg_longname[] =	"mtp_samsung";
 static const char shortname[] = DRIVER_NAME;
 static int mtp_pid;
 
@@ -1999,7 +1999,7 @@ static void mtp_free_inst(struct usb_function_instance *fi)
 	kfree(fi_mtp);
 }
 
-struct usb_function_instance *alloc_inst_mtp_ptp(bool mtp_config)
+struct usb_function_instance *alloc_inst_mtp_ptp_samsung(bool mtp_config)
 {
 	struct mtp_instance *fi_mtp;
 	int ret = 0;
@@ -2034,12 +2034,12 @@ struct usb_function_instance *alloc_inst_mtp_ptp(bool mtp_config)
 
 	return  &fi_mtp->func_inst;
 }
-EXPORT_SYMBOL_GPL(alloc_inst_mtp_ptp);
+EXPORT_SYMBOL_GPL(alloc_inst_mtp_ptp_samsung);
 
-static struct usb_function_instance *mtp_alloc_inst(void)
+/*static struct usb_function_instance *mtp_alloc_inst(void)
 {
-		return alloc_inst_mtp_ptp(true);
-}
+		return alloc_inst_mtp_ptp_samsung(true);
+}*/
 
 static int mtp_ctrlreq_configfs(struct usb_function *f,
 				const struct usb_ctrlrequest *ctrl)
@@ -2052,7 +2052,7 @@ static void mtp_free(struct usb_function *f)
 	/*NO-OP: no function specific resource allocation in mtp_alloc*/
 }
 
-struct usb_function *function_alloc_mtp_ptp(struct usb_function_instance *fi,
+struct usb_function *function_alloc_mtp_ptp_samsung(struct usb_function_instance *fi,
 					bool mtp_config)
 {
 	struct mtp_instance *fi_mtp = to_fi_mtp(fi);
@@ -2129,15 +2129,15 @@ struct usb_function *function_alloc_mtp_ptp(struct usb_function_instance *fi,
 	return &dev->function;
 #endif
 }
-EXPORT_SYMBOL_GPL(function_alloc_mtp_ptp);
+EXPORT_SYMBOL_GPL(function_alloc_mtp_ptp_samsung);
 
-static struct usb_function *mtp_alloc(struct usb_function_instance *fi)
+/*static struct usb_function *mtp_alloc(struct usb_function_instance *fi)
 {
-	return function_alloc_mtp_ptp(fi, true);
+	return function_alloc_mtp_ptp_samsung(fi, true);
 }
 
-DECLARE_USB_FUNCTION_INIT(mtp, mtp_alloc_inst, mtp_alloc);
+DECLARE_USB_FUNCTION_INIT(mtp_samsung, mtp_alloc_inst, mtp_alloc);
 
 
 MODULE_AUTHOR("Deepak And Madhukar");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL");*/
