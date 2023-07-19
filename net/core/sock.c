@@ -662,6 +662,7 @@ out:
 	return ret;
 }
 
+#ifdef CONFIG_KNOX_NCM
 /* START_OF_KNOX_NPA */
 /** The function sets the domain name associated with the socket. **/
 static int sock_set_domain_name(struct sock *sk, char __user *optval, int optlen)
@@ -748,6 +749,7 @@ out:
 }
 
 /* END_OF_KNOX_NPA */
+#endif
 
 static inline void sock_valbool_flag(struct sock *sk, int bit, int valbool)
 {
@@ -796,7 +798,8 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 
 	if (optname == SO_BINDTODEVICE)
 		return sock_setbindtodevice(sk, optval, optlen);
-	
+
+#ifdef CONFIG_KNOX_NCM
 	/* START_OF_KNOX_NPA */
 	if (optname == SO_SET_DOMAIN_NAME)
 		return sock_set_domain_name(sk, optval, optlen);
@@ -805,6 +808,7 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 	if (optname == SO_SET_DNS_PID)
 		return sock_set_dns_pid(sk, optval, optlen);
 	/* END_OF_KNOX_NPA */
+#endif
 
 	if (optlen < sizeof(int))
 		return -EINVAL;
@@ -1619,7 +1623,8 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot, int kern)
 {
 	struct sock *sk;
-	
+
+#ifdef CONFIG_KNOX_NCM
 	/* START_OF_KNOX_NPA */
 	struct pid *pid_struct = NULL;
 	struct task_struct *task = NULL;
@@ -1630,10 +1635,12 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 	int parent_returnValue = -1;
 	char full_parent_process_name[PROCESS_NAME_LEN_NAP] = {0};
 	/* END_OF_KNOX_NPA */
+#endif
 
 	sk = sk_prot_alloc(prot, priority | __GFP_ZERO, family);
 	if (sk) {
 		sk->sk_family = family;
+#ifdef CONFIG_KNOX_NCM
 		/* START_OF_KNOX_NPA */
 		/* assign values to members of sock structure when npa flag is present */
 		sk->knox_uid = current->cred->uid.val;
@@ -1677,7 +1684,8 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 			}
 		}
 		/* END_OF_KNOX_NPA */
-		
+#endif
+
 		sk->sk_prot = sk->sk_prot_creator = prot;
 		sk->sk_kern_sock = kern;
 		sock_lock_init(sk);
