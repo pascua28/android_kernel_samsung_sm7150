@@ -594,18 +594,18 @@ static unsigned int get_connector_type(struct usbpd *pd)
 #endif
 
 #if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
-unsigned int get_pd_max_power()
+unsigned int get_pd_max_power(void)
 {
 	return max_pd_power;
 
 }
 
-int get_pd_cap_count()
+int get_pd_cap_count(void)
 {
 	return pd_count;
 }
 
-bool get_ps_ready_status()
+bool get_ps_ready_status(void)
 {
 	return ps_ready;
 }
