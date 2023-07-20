@@ -2,7 +2,7 @@
 
 comment "Samsung Debugging Feature"
 menuconfig SEC_DEBUG
-	bool "Samsung TN Ramdump Feature"
+	tristate "Samsung TN Ramdump Feature"
 	default n
 	help
 	  Samsung TN Ramdump Feature.
@@ -27,13 +27,11 @@ choice
 
 config SEC_LOG_BUF_NO_CONSOLE
 	bool "Direct copying form __log_buf"
-	default y
 	help
 	  Kernel log will be copied directly from __log_buf.
 
 config SEC_LOG_BUF_CONSOLE
 	bool "Console based implementaion (EXPERIMENTAL)"
-	default n
 	help
 	  sec_log_buf will be registered as a console.
 
