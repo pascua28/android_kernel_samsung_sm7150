@@ -274,6 +274,13 @@ DTC ?= $(objtree)/scripts/dtc/dtc
 ifeq ($(KBUILD_ENABLE_EXTRA_GCC_CHECKS),)
 DTC_FLAGS += -Wno-unit_address_vs_reg
 endif
+ifeq ($(DTC_EXT),)
+DTC_FLAGS += -Wno-simple_bus_reg \
+	-Wno-unit_address_format \
+	-Wno-pci_bridge \
+	-Wno-pci_device_bus_num \
+	-Wno-pci_device_reg
+endif
 
 ifeq ($(KBUILD_ENABLE_EXTRA_GCC_CHECKS),2)
 DTC_FLAGS += -Wnode_name_chars_strict \
@@ -300,7 +307,11 @@ cmd_dt_S_dtb=						\
 $(obj)/%.dtb.S: $(obj)/%.dtb
 	$(call cmd,dt_S_dtb)
 
+ifneq ($(DTC_EXT),)
+DTC = $(DTC_EXT)
+else
 DTC = $(srctree)/tools/dtc
+endif
 
 quiet_cmd_dtc = DTC     $@
 cmd_dtc = mkdir -p $(dir ${dtc-tmp}) ; \
@@ -308,6 +319,7 @@ cmd_dtc = mkdir -p $(dir ${dtc-tmp}) ; \
 	$(DTC) -O dtb -o $@ -b 0 \
 		$(addprefix -i,$(dir $<) $(DTC_INCLUDE)) $(DTC_FLAGS) \
 		-d $(depfile).dtc.tmp $(dtc-tmp) ; \
+		$(DTC) -O dts -I dtb -o $@.reverse.dts $@ ; \
 	cat $(depfile).pre.tmp $(depfile).dtc.tmp > $(depfile)
 
 $(obj)/%.dtb: $(src)/%.dts FORCE
