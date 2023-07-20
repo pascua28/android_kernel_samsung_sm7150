@@ -216,8 +216,6 @@ obj-y				+= motor/
 
 obj-$(CONFIG_ICD)		+= security/samsung/icdrv/
 
-obj-y				+= kperfmon/
-
 obj-$(CONFIG_SEC_SVDM)	+= ccic/
 
 #TZIC
