@@ -5042,7 +5042,7 @@ int ss_brightness_dcs(struct samsung_display_driver_data *vdd, int level, int ba
 			vdd->br.finger_mask_hbm_on = true;
 			ss_wait_for_te_gpio(vdd, 1, 2000);
 			backup_acl = vdd->acl_status;
-			if (vdd->finger_mask_updated) /* do not backup br.bl_level at on to on */
+			if (vdd->finger_mask_updated && vdd->br.bl_level != vdd->br.finger_mask_bl_level) /* do not backup br.bl_level at on to on */
 				backup_bl_level = vdd->br.bl_level;
 			level = vdd->br.finger_mask_bl_level;
 			vdd->acl_status = 0;
