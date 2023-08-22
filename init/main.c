@@ -1039,7 +1039,7 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 __setup("initcall_blacklist=", initcall_blacklist);
 
 #ifdef CONFIG_SEC_BOOTSTAT
-static bool __init_or_module initcall_sec_debug = true;
+static bool initcall_sec_debug = true;
 
 static int __init_or_module do_one_initcall_sec_debug(initcall_t fn)
 {
