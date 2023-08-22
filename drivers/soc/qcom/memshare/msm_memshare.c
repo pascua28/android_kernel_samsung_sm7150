@@ -49,7 +49,7 @@ static void *memshare_ramdump_dev[MAX_CLIENTS];
 static struct device *memshare_dev[MAX_CLIENTS];
 
 #ifdef CONFIG_CP_DYNAMIC_MEM_RESERVE
-extern sec_reserved_mem(void);
+extern uint32_t sec_reserved_mem(void);
 #define RESERVE_MEM_LEVEL1_MASK (1u << 2)
 #define RESERVE_MEM_LEVEL2_MASK (1u << 3)
 #endif
