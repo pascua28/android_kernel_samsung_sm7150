@@ -246,7 +246,7 @@ static const struct file_operations xlog_dump_ops = {
 };
 
 #define SS_ONCE_LOG_BUF_MAX	(1024)
-static debug_display_read_once(struct samsung_display_driver_data *vdd,
+static ssize_t debug_display_read_once(struct samsung_display_driver_data *vdd,
 				char __user *buff, loff_t *ppos)
 {
 	struct dsi_panel *panel = GET_DSI_PANEL(vdd);
