@@ -2048,12 +2048,6 @@ CONFIG_WLAN_VENDOR_ZYDAS=y
 # CONFIG_USB_ZD1201 is not set
 CONFIG_WLAN_VENDOR_QUANTENNA=y
 # CONFIG_QTNFMAC_PEARL_PCIE is not set
-
-#
-# Qualcomm Atheros CLD WLAN module
-#
-CONFIG_QCA_CLD_WLAN=y
-CONFIG_QCA_CLD_WLAN_PROFILE="default"
 # CONFIG_USB_NET_RNDIS_WLAN is not set
 CONFIG_WCNSS_MEM_PRE_ALLOC=y
 # CONFIG_CNSS_CRYPTO is not set
@@ -4598,6 +4592,12 @@ CONFIG_SEC_ABC=y
 #
 # Samsung ABC Hub Booting Time Check eng mode Options
 #
+
+#
+# Qualcomm Atheros CLD WLAN module
+#
+CONFIG_QCA_CLD_WLAN=y
+CONFIG_QCA_CLD_WLAN_PROFILE="default"
 
 #
 # MUIC configs
