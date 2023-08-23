@@ -1226,6 +1226,7 @@ static ssize_t disk_ios_show(struct device *dev,
 }
 #undef DISCARD
 
+#ifdef CONFIG_KPERFMON
 /* IOPP-iomon-v1.0.4.14 */
 #define SEC2MB(x) ((unsigned long)((x) / 2 / 1024))
 static ssize_t iomon_show(struct device *dev,
@@ -1310,7 +1311,7 @@ static ssize_t iomon_store(struct device *dev,
 
 	return count;
 }
-
+#endif
 
 static DEVICE_ATTR(range, S_IRUGO, disk_range_show, NULL);
 static DEVICE_ATTR(ext_range, S_IRUGO, disk_ext_range_show, NULL);
@@ -1326,7 +1327,9 @@ static DEVICE_ATTR(inflight, S_IRUGO, part_inflight_show, NULL);
 static DEVICE_ATTR(badblocks, S_IRUGO | S_IWUSR, disk_badblocks_show,
 		disk_badblocks_store);
 static DEVICE_ATTR(diskios, 0400, disk_ios_show, NULL);
+#ifdef CONFIG_KPERFMON
 static DEVICE_ATTR(iomon, 0660, iomon_show, iomon_store);
+#endif
 #ifdef CONFIG_FAIL_MAKE_REQUEST
 static struct device_attribute dev_attr_fail =
 	__ATTR(make-it-fail, S_IRUGO|S_IWUSR, part_fail_show, part_fail_store);
@@ -1350,7 +1353,9 @@ static struct attribute *disk_attrs[] = {
 	&dev_attr_inflight.attr,
 	&dev_attr_badblocks.attr,
 	&dev_attr_diskios.attr,
+#ifdef CONFIG_KPERFMON
 	&dev_attr_iomon.attr,
+#endif
 #ifdef CONFIG_FAIL_MAKE_REQUEST
 	&dev_attr_fail.attr,
 #endif
