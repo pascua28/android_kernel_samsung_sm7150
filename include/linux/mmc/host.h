@@ -16,6 +16,7 @@
 #include <linux/fault-inject.h>
 #include <linux/blkdev.h>
 #include <linux/extcon.h>
+#include <linux/wakelock.h>
 
 #include <linux/mmc/core.h>
 #include <linux/mmc/card.h>
@@ -515,6 +516,8 @@ struct mmc_host {
 #define MMC_CAP2_HS200_1_2V_SDR (1 << 6)        /* can support */
 #define MMC_CAP2_HS200		(MMC_CAP2_HS200_1_8V_SDR | \
 				MMC_CAP2_HS200_1_2V_SDR)
+#define MMC_CAP2_BKOPS_EN       (1 << 7)        /* Bkops enable */
+#define MMC_CAP2_DETECT_ON_ERR  (1 << 8)        /* On I/O err check card removal */
 #define MMC_CAP2_HC_ERASE_SZ    (1 << 9)        /* High-capacity erase size */
 #define MMC_CAP2_CD_ACTIVE_HIGH (1 << 10)       /* Card-detect signal active high */
 #define MMC_CAP2_RO_ACTIVE_HIGH (1 << 11)       /* Write-protect signal active high */
@@ -603,6 +606,8 @@ struct mmc_host {
 	int			claim_cnt;	/* "claim" nesting count */
 
 	struct delayed_work	detect;
+	struct wake_lock        detect_wake_lock;
+	const char              *wlock_name;
 	int			detect_change;	/* card detect flag */
 	struct mmc_slot		slot;
 
@@ -687,7 +692,10 @@ struct mmc_host {
 #endif
 
 	bool sdr104_wa;
-
+	unsigned int            card_detect_cnt;
+#if defined(CONFIG_SEC_ABC)
+	unsigned int            card_removed_cnt;
+#endif
 	/*
 	 * Set to 1 to just stop the SDCLK to the card without
 	 * actually disabling the clock from it's source.
@@ -722,7 +730,7 @@ struct mmc_host {
 	 */
 	void *cmdq_private;
 	struct mmc_request	*err_mrq;
-
+	int (*sdcard_uevent)(struct mmc_card *card);
 	bool inlinecrypt_support;  /* Inline encryption support */
 	bool inlinecrypt_reset_needed;  /* Inline crypto reset */
 
@@ -917,6 +925,26 @@ static inline int mmc_card_uhs(struct mmc_card *card)
 {
 	return card->host->ios.timing >= MMC_TIMING_UHS_SDR12 &&
 		card->host->ios.timing <= MMC_TIMING_UHS_DDR50;
+}
+
+static inline bool mmc_card_hs200(struct mmc_card *card)
+{
+	return card->host->ios.timing == MMC_TIMING_MMC_HS200;
+}
+
+static inline bool mmc_card_ddr52(struct mmc_card *card)
+{
+	return card->host->ios.timing == MMC_TIMING_MMC_DDR52;
+}
+
+static inline bool mmc_card_hs400(struct mmc_card *card)
+{
+	return card->host->ios.timing == MMC_TIMING_MMC_HS400;
+}
+
+static inline bool mmc_card_hs400es(struct mmc_card *card)
+{
+	return card->host->ios.enhanced_strobe;
 }
 
 void mmc_retune_enable(struct mmc_host *host);

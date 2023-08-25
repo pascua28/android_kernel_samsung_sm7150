@@ -1955,6 +1955,8 @@ void blk_trace_remove_sysfs(struct device *dev)
 
 #ifdef CONFIG_EVENT_TRACING
 
+SIO_PATCH_VERSION(ftrace_discard_bugfix, 1, 0, "");
+
 void blk_fill_rwbs(char *rwbs, unsigned int op, int bytes)
 {
 	int i = 0;
@@ -1963,16 +1965,16 @@ void blk_fill_rwbs(char *rwbs, unsigned int op, int bytes)
 		rwbs[i++] = 'F';
 
 	switch (op & REQ_OP_MASK) {
-	case REQ_OP_WRITE:
-	case REQ_OP_WRITE_SAME:
-		rwbs[i++] = 'W';
-		break;
 	case REQ_OP_DISCARD:
 		rwbs[i++] = 'D';
 		break;
 	case REQ_OP_SECURE_ERASE:
 		rwbs[i++] = 'D';
 		rwbs[i++] = 'E';
+		break;
+	case REQ_OP_WRITE:
+	case REQ_OP_WRITE_SAME:
+		rwbs[i++] = 'W';
 		break;
 	case REQ_OP_FLUSH:
 		rwbs[i++] = 'F';

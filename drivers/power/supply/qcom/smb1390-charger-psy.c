@@ -25,6 +25,9 @@
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/iio/consumer.h>
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#include "../../../battery_qc/include/sec_battery_qc.h"
+#endif
 
 #define MISC_CSIR_LSB_REG		0x9F1
 #define MISC_CSIR_MSB_REG		0x9F2
@@ -75,6 +78,9 @@
 #define TEMP_ALERT_LVL_MASK		GENMASK(6, 5)
 #define TEMP_ALERT_LVL_SHIFT		5
 #define TEMP_BUFFER_OUTPUT_BIT		BIT(7)
+#define CORE_FTRIM_CTRL 		0x1031
+#define CFG_TEMP_ALERT_LVL		GENMASK(6, 5)
+#define CFG_TEMP_ALERT_100C		BIT(6)
 
 #define CORE_FTRIM_LVL_REG		0x1033
 #define CFG_WIN_HI_MASK			GENMASK(3, 2)
@@ -88,6 +94,9 @@
 
 #define CORE_FTRIM_DIS_REG		0x1035
 #define TR_DIS_ILIM_DET_BIT		BIT(4)
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#define TR_DIS_ILIM_DET_SHIFT	4
+#endif
 
 #define CORE_ATEST1_SEL_REG		0x10E2
 #define ATEST1_OUTPUT_ENABLE_BIT	BIT(7)
@@ -108,6 +117,9 @@
 #define CC_MODE_VOTER		"CC_MODE_VOTER"
 #define MAIN_DISABLE_VOTER	"MAIN_DISABLE_VOTER"
 #define TAPER_MAIN_ICL_LIMIT_VOTER	"TAPER_MAIN_ICL_LIMIT_VOTER"
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#define INIT_VOTER		"INIT_VOTER"
+#endif
 
 #define CP_MASTER		0
 #define CP_SLAVE		1
@@ -174,6 +186,9 @@ struct smb1390 {
 	/* work structs */
 	struct work_struct	status_change_work;
 	struct work_struct	taper_work;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	struct delayed_work	init_work;
+#endif
 
 	/* mutexes */
 	spinlock_t		status_change_lock;
@@ -212,6 +227,9 @@ struct smb1390 {
 	int			cp_ilim;
 	int			die_temp;
 	int			min_ilim_ua;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	int			die_temp_adc;
+#endif
 	bool			suspended;
 	bool			disabled;
 	u32			debug_mask;
@@ -355,7 +373,7 @@ static bool is_psy_voter_available(struct smb1390 *chip)
 		smb1390_dbg(chip, PR_MISC, "Couldn't find CP DISABLE votable\n");
 		return false;
 	}
-
+	
 	return true;
 }
 
@@ -583,12 +601,31 @@ static int smb1390_get_die_temp(struct smb1390 *chip,
 	mutex_lock(&chip->die_chan_lock);
 	rc = iio_read_channel_processed(chip->iio.die_temp_chan,
 			&die_temp_deciC);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	rc = iio_read_channel_raw(chip->iio.die_temp_chan,
+			&chip->die_temp_adc);
+#endif
 	mutex_unlock(&chip->die_chan_lock);
+
+	rc = smb1390_get_cp_en_status(chip, SMB_PIN_EN, &enable);
+	if (rc < 0) {
+		pr_err("Couldn't get SMB_PIN enable status, rc=%d\n", rc);
+		return rc;
+	}
+	//Check Enable Status again to debounce Die Temp read */
+	if (!enable)
+		return -ENODATA;
 
 	if (rc < 0)
 		pr_err("Couldn't read die chan, rc = %d\n", rc);
 	else
 		val->intval = die_temp_deciC / 100;
+
+	if(val->intval > 3000)
+	{
+		pr_err("SMB off, read >300degC: %d\n", val->intval);
+		return -ENODATA;
+	}
 
 	return rc;
 }
@@ -936,7 +973,9 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 			      int ilim_uA, const char *client)
 {
 	struct smb1390 *chip = data;
+#if !defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
 	union power_supply_propval pval = {0, };
+#endif
 	int rc = 0;
 	bool slave_enabled = false;
 
@@ -949,8 +988,20 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 		return -EINVAL;
 	}
 
-	ilim_uA = min(ilim_uA, (is_cps_available(chip) ?
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	rc = smb1390_masked_write(chip, CORE_FTRIM_ILIM_REG,
+		CFG_ILIM_MASK,
+		min(DIV_ROUND_CLOSEST(3200000 - 500000, 100000),
+			DIV_ROUND_CLOSEST(max(ilim_uA, 500000) - 500000, 100000)));
+
+	if (rc < 0) {
+		pr_err("Failed to write ILIM Register, rc=%d\n", rc);
+		return rc;
+	}
+#else
+ilim_uA = min(ilim_uA, (is_cps_available(chip) ?
 				MAX_ILIM_DUAL_CP_UA : MAX_ILIM_UA));
+#endif
 	/* ILIM less than min_ilim_ua, disable charging */
 	if (ilim_uA < chip->min_ilim_ua) {
 		smb1390_dbg(chip, PR_INFO, "ILIM %duA is too low to allow charging\n",
@@ -958,6 +1009,7 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 		vote(chip->disable_votable, ILIM_VOTER, true, 0);
 	} else {
 		/* Disable Slave CP if ILIM is < 2 * min ILIM */
+#if !defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
 		if (is_cps_available(chip)) {
 			vote(chip->slave_disable_votable, ILIM_VOTER,
 				(ilim_uA < (2 * chip->min_ilim_ua)), 0);
@@ -985,7 +1037,7 @@ static int smb1390_ilim_vote_cb(struct votable *votable, void *data,
 			pr_err("Failed to set ILIM, rc=%d\n", rc);
 			return rc;
 		}
-
+#endif
 		smb1390_dbg(chip, PR_INFO, "ILIM set to %duA slave_enabled = %d\n",
 						ilim_uA, slave_enabled);
 		vote(chip->disable_votable, ILIM_VOTER, false, 0);
@@ -1053,6 +1105,7 @@ static int smb1390_notifier_cb(struct notifier_block *nb,
 #define ILIM_DR			8
 #define ILIM_FACTOR(ilim)	((ilim * ILIM_NR) / ILIM_DR)
 
+#if !defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
 static void smb1390_configure_ilim(struct smb1390 *chip, int mode)
 {
 	int rc;
@@ -1091,11 +1144,16 @@ static void smb1390_configure_ilim(struct smb1390 *chip, int mode)
 		}
 	}
 }
+#endif
+
 
 static void smb1390_status_change_work(struct work_struct *work)
 {
 	struct smb1390 *chip = container_of(work, struct smb1390,
 					    status_change_work);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	union power_supply_propval pval_cap = {0, };
+#endif
 	union power_supply_propval pval = {0, };
 	int rc;
 
@@ -1109,6 +1167,19 @@ static void smb1390_status_change_work(struct work_struct *work)
 	 */
 	if (smb1390_is_batt_soc_valid(chip))
 		vote(chip->disable_votable, SOC_LEVEL_VOTER, false, 0);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if(get_effective_result(chip->fcc_votable) < (chip->min_ilim_ua * 2))
+		vote(chip->disable_votable, FCC_VOTER, true, 0);
+	else
+		vote(chip->disable_votable, FCC_VOTER, false, 0);
+
+	rc = power_supply_get_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_CAPACITY, &pval_cap);
+	if (rc < 0) {
+		pr_err("Couldn't get CAPACITY rc=%d\n", rc);
+		goto out;
+	}
+#endif
 
 	rc = power_supply_get_property(chip->usb_psy,
 			POWER_SUPPLY_PROP_SMB_EN_MODE, &pval);
@@ -1139,6 +1210,10 @@ static void smb1390_status_change_work(struct work_struct *work)
 				false : true, 0);
 			chip->batt_soc_validated = true;
 		}
+#if defined(CONFIG_SEC_A90Q_PROJECT)
+		vote(chip->fcc_votable, SOC_LEVEL_VOTER,
+			(pval_cap.intval >= chip->max_cutoff_soc) ? true : false, 2550000);
+#endif
 
 		if (pval.intval == POWER_SUPPLY_CP_WIRELESS) {
 			vote(chip->ilim_votable, ICL_VOTER, false, 0);
@@ -1151,7 +1226,24 @@ static void smb1390_status_change_work(struct work_struct *work)
 						pval.intval);
 		} else {
 			vote(chip->ilim_votable, WIRELESS_VOTER, false, 0);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			if (pval.intval == POWER_SUPPLY_CP_PPS){
+				rc = power_supply_get_property(chip->usb_psy,
+					POWER_SUPPLY_PROP_PD_CURRENT_MAX, &pval);
+				pval.intval = pval.intval * 10 / 8;
+			}
+			else {
+				rc = power_supply_get_property(chip->usb_psy,
+					POWER_SUPPLY_PROP_INPUT_CURRENT_SETTLED, &pval);
+			if (rc < 0)
+				pr_err("Couldn't get usb icl rc=%d\n", rc);
+			else
+				vote(chip->ilim_votable, ICL_VOTER, true,
+								pval.intval);
+			}
+#else
 			smb1390_configure_ilim(chip, pval.intval);
+#endif
 		}
 
 		/*
@@ -1236,6 +1328,15 @@ static int smb1390_validate_slave_chg_taper(struct smb1390 *chip, int fcc_uA)
 	return rc;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+static void smb1390_init_work(struct work_struct *work)
+{
+	struct smb1390 *chip = container_of(work, struct smb1390, init_work.work);
+
+	smb1390_dbg(chip, PR_INFO, "init work exit\n");
+	vote(chip->disable_votable, INIT_VOTER, false, 0);
+}
+#endif
 static void smb1390_taper_work(struct work_struct *work)
 {
 	struct smb1390 *chip = container_of(work, struct smb1390, taper_work);
@@ -1341,6 +1442,9 @@ static enum power_supply_property smb1390_charge_pump_props[] = {
 	POWER_SUPPLY_PROP_CP_TOGGLE_SWITCHER,
 	POWER_SUPPLY_PROP_CP_IRQ_STATUS,
 	POWER_SUPPLY_PROP_CP_ILIM,
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	POWER_SUPPLY_PROP_CP_DISABLE_ILIM,
+#endif
 	POWER_SUPPLY_PROP_CHIP_VERSION,
 	POWER_SUPPLY_PROP_PARALLEL_OUTPUT_MODE,
 	POWER_SUPPLY_PROP_MIN_ICL,
@@ -1394,6 +1498,9 @@ static int smb1390_get_prop(struct power_supply *psy,
 	struct smb1390 *chip = power_supply_get_drvdata(psy);
 	int rc = 0, status;
 	bool enable;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property)prop;
+#endif
 
 	/*
 	 * Return the cached values when the system is in suspend state
@@ -1478,6 +1585,13 @@ static int smb1390_get_prop(struct power_supply *psy,
 		if (!rc)
 			chip->cp_ilim = val->intval;
 		break;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_CP_DISABLE_ILIM:
+		rc = smb1390_read(chip, CORE_FTRIM_DIS_REG, &status);
+		if (!rc)
+			val->intval = ((status & TR_DIS_ILIM_DET_BIT) >> TR_DIS_ILIM_DET_SHIFT);
+		break;
+#endif
 	case POWER_SUPPLY_PROP_CHIP_VERSION:
 		val->intval = chip->pmic_rev_id->rev4;
 		break;
@@ -1490,7 +1604,18 @@ static int smb1390_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_MODEL_NAME:
 		val->strval = (chip->pmic_rev_id->rev4 > 2) ? "SMB1390_V3" :
 								"SMB1390_V2";
+        break;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
+		switch (ext_psp) {
+		case POWER_SUPPLY_EXT_PROP_CP_DIE_TEMP_ADC:
+			val->intval = chip->die_temp_adc;
+			break;
+		default:
+			rc = -EINVAL;
+		}
 		break;
+#endif
 	case POWER_SUPPLY_PROP_PARALLEL_MODE:
 		val->intval = chip->pl_input_mode;
 		break;
@@ -1525,7 +1650,12 @@ static int smb1390_set_prop(struct power_supply *psy,
 		if (chip->ilim_votable)
 			vote_override(chip->ilim_votable, CC_MODE_VOTER,
 					(val->intval > 0), val->intval);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_CP_DISABLE_ILIM:
+		rc = smb1390_masked_write(chip, CORE_FTRIM_DIS_REG,
+			TR_DIS_ILIM_DET_BIT, val->intval ? TR_DIS_ILIM_DET_BIT : 0);
 		break;
+#endif
 	default:
 		smb1390_dbg(chip, PR_MISC, "charge pump power supply set prop %d not supported\n",
 			prop);
@@ -1545,6 +1675,9 @@ static int smb1390_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_MAX:
 	case POWER_SUPPLY_PROP_CURRENT_CAPABILITY:
 	case POWER_SUPPLY_PROP_CP_ILIM:
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_CP_DISABLE_ILIM:
+#endif
 		return 1;
 	default:
 		break;
@@ -1645,8 +1778,13 @@ static void smb1390_release_channels(struct smb1390 *chip)
 
 static int smb1390_create_votables(struct smb1390 *chip)
 {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	int rc;
+	union power_supply_propval pval = {0, };
+#endif
 	chip->cp_awake_votable = create_votable("CP_AWAKE",
 			VOTE_SET_ANY, smb1390_awake_vote_cb, chip);
+
 	chip->disable_votable = create_votable("CP_DISABLE",
 			VOTE_SET_ANY, smb1390_disable_vote_cb, chip);
 	if (IS_ERR(chip->disable_votable))
@@ -1678,10 +1816,62 @@ static int smb1390_create_votables(struct smb1390 *chip)
 	 * update ilim vote to reflect FCC / 2 value, this is only applicable
 	 * when SMB1390 is directly connected to VBAT.
 	 */
-	if ((chip->pl_output_mode != POWER_SUPPLY_PL_OUTPUT_VPH)
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if (is_psy_voter_available(chip)) {
+		rc = power_supply_get_property(chip->usb_psy,
+				POWER_SUPPLY_PROP_SMB_EN_MODE, &pval);
+		if (rc < 0) {
+			pr_err("Couldn't get smb en mode rc=%d\n", rc);
+		}
+		else if ((pval.intval == POWER_SUPPLY_CHARGER_SEC_CP) || (pval.intval == POWER_SUPPLY_CHARGER_SEC_CP_PL)) {
+			rc = power_supply_get_property(chip->usb_psy,
+					POWER_SUPPLY_PROP_SMB_EN_REASON, &pval);
+			if (rc < 0)
+				pr_err("Couldn't get cp reason rc=%d\n", rc);
+			else {
+				switch (pval.intval) {
+					case POWER_SUPPLY_CP_PPS:
+						vote(chip->ilim_votable, WIRELESS_VOTER, false, 0);
+						rc = power_supply_get_property(chip->usb_psy,
+									POWER_SUPPLY_PROP_PD_CURRENT_MAX, &pval);
+						if(rc < 0)
+							pr_err("Couldn't get pd icl rc=%d\n", rc);
+						else
+							vote(chip->ilim_votable, ICL_VOTER, true,
+								(pval.intval * 10 / 8));
+						break;
+					case POWER_SUPPLY_CP_HVDCP3:
+						vote(chip->ilim_votable, WIRELESS_VOTER, false, 0);
+						rc = power_supply_get_property(chip->usb_psy,
+									POWER_SUPPLY_PROP_INPUT_CURRENT_SETTLED, &pval);
+						if(rc < 0)
+							pr_err("Couldn't get settled aicl rc=%d\n", rc);
+						else
+							vote(chip->ilim_votable, ICL_VOTER, true,
+								pval.intval);
+						break;
+					case POWER_SUPPLY_CP_WIRELESS:
+						vote(chip->ilim_votable, ICL_VOTER, false, 0);
+						rc = power_supply_get_property(chip->dc_psy,
+								POWER_SUPPLY_PROP_CURRENT_MAX, &pval);
+						if (rc < 0)
+							pr_err("Couldn't get dc icl rc=%d\n", rc);
+						else
+							vote(chip->ilim_votable, WIRELESS_VOTER, true,
+											pval.intval);
+						break;
+					default:
+						break;
+				}
+			}
+		}
+	}
+#else
+		if ((chip->pl_output_mode != POWER_SUPPLY_PL_OUTPUT_VPH)
 			&& chip->fcc_votable)
 		vote(chip->ilim_votable, FCC_VOTER, true,
 			get_effective_result(chip->fcc_votable) / 2);
+#endif
 
 	return 0;
 }
@@ -1692,6 +1882,7 @@ static void smb1390_destroy_votables(struct smb1390 *chip)
 	destroy_votable(chip->ilim_votable);
 }
 
+#define SMB1390_FSW_700KHZ		  0x06
 static int smb1390_init_hw(struct smb1390 *chip)
 {
 	int rc = 0, val;
@@ -1888,6 +2079,7 @@ static int smb1390_master_probe(struct smb1390 *chip)
 	chip->pmic_rev_id = pmic_rev_id;
 	spin_lock_init(&chip->status_change_lock);
 	mutex_init(&chip->die_chan_lock);
+	chip->suspended = false;
 
 	rc = smb1390_parse_dt(chip);
 	if (rc < 0) {
@@ -1944,6 +2136,14 @@ static int smb1390_master_probe(struct smb1390 *chip)
 	}
 
 	smb1390_create_debugfs(chip);
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	vote(chip->disable_votable, INIT_VOTER, true, 0);
+	INIT_DELAYED_WORK(&chip->init_work, smb1390_init_work);
+	schedule_delayed_work(&chip->init_work, msecs_to_jiffies(60000));
+	schedule_work(&chip->status_change_work);
+#endif
+
 	return 0;
 
 out_notifier:

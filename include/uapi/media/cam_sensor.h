@@ -159,6 +159,7 @@ struct cam_cmd_probe {
 	uint8_t     cmd_type;
 	uint32_t    reg_addr;
 	uint32_t    expected_data;
+	uint32_t    version_id;
 	uint32_t    data_mask;
 	uint16_t    camera_id;
 	uint16_t    reserved;
@@ -370,6 +371,17 @@ struct cam_sensor_acquire_dev {
 	uint32_t    handle_type;
 	uint32_t    reserved;
 	uint64_t    info_handle;
+} __attribute__((packed));
+
+/**
+ * cam_sensor_release_dev : Updates sensor acuire cmd
+ * @session_handle :    Session handle for acquiring device
+ * @device_handle  :    Updates device handle
+ *
+ */
+struct cam_sensor_release_dev {
+	uint32_t    session_handle;
+	uint32_t    device_handle;
 } __attribute__((packed));
 
 /**

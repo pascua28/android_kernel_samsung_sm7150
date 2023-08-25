@@ -56,6 +56,8 @@
 
 #include <linux/uaccess.h>
 
+#include <linux/sec_debug.h>
+
 #include <trace/events/timer.h>
 
 #include "tick-internal.h"
@@ -1278,7 +1280,13 @@ static void __run_hrtimer(struct hrtimer_cpu_base *cpu_base,
 	 */
 	raw_spin_unlock(&cpu_base->lock);
 	trace_hrtimer_expire_entry(timer, now);
+#ifdef CONFIG_SEC_DEBUG_MSG_LOG
+	secdbg_msg("hrtimer %pS entry", fn);
+#endif
 	restart = fn(timer);
+#ifdef CONFIG_SEC_DEBUG_MSG_LOG
+	secdbg_msg("hrtimer %pS exit", fn);
+#endif
 	trace_hrtimer_expire_exit(timer);
 	raw_spin_lock(&cpu_base->lock);
 

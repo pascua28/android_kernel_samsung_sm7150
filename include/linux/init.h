@@ -128,6 +128,7 @@ typedef void (*ctor_fn_t)(void);
 extern int do_one_initcall(initcall_t fn);
 extern char __initdata boot_command_line[];
 extern char *saved_command_line;
+extern char *erased_command_line;
 extern unsigned int reset_devices;
 
 /* used by init/main.c */
@@ -240,6 +241,12 @@ extern bool initcall_debug;
 #define console_initcall(fn)	___define_initcall(fn, con, .con_initcall)
 #define security_initcall(fn)	___define_initcall(fn, security, .security_initcall)
 
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define deferred_initcall(fn, id)				\
+	static initcall_t __initcall_##fn##id __used		\
+	__attribute__((__section__(".deferred_initcall" #id ".init"))) = fn
+#endif
+
 struct obs_kernel_param {
 	const char *str;
 	int (*setup_func)(char *);
@@ -293,7 +300,16 @@ void __init parse_early_param(void);
 void __init parse_early_options(char *cmdline);
 #endif /* __ASSEMBLY__ */
 
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define deferred_module_init(fn) deferred_initcall(fn, 0)
+#define deferred_module_init_sync(fn) deferred_initcall(fn, 0s)
+#endif
+
 #else /* MODULE */
+
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define deferred_module_init(fn) module_init(fn)
+#endif
 
 #define __setup_param(str, unique_id, fn)	/* nothing */
 #define __setup(str, func) 			/* nothing */

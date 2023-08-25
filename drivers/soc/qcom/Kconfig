@@ -4,6 +4,7 @@
 menu "Qualcomm SoC drivers"
 config QCOM_MEM_OFFLINE
 	bool "Dynamic Memory Region Offline driver"
+	depends on MEMORY_HOTPLUG
 	help
 	  Add support for DDR Self-Refresh power management through the dynamic
 	  memory offline framework. This driver interfaces between the memory
@@ -760,7 +761,7 @@ config QCOM_QDSS_BRIDGE
 
 config QTI_RPM_STATS_LOG
 	bool "Qualcomm Technologies RPM Stats Driver"
-	depends on DEBUG_FS
+	depends on QTI_RPMH_API
 	default n
 	help
 	  This option enables a driver which reads RPM messages from a shared

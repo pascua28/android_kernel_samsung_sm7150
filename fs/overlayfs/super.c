@@ -44,6 +44,11 @@ module_param_named(override_creds, ovl_override_creds_def, bool, 0644);
 MODULE_PARM_DESC(ovl_override_creds_def,
 		 "Use mounter's credentials for accesses");
 
+#ifdef CONFIG_RKP_NS_PROT
+extern void rkp_set_mnt_flags(struct vfsmount *mnt,int flags);
+extern void rkp_reset_mnt_flags(struct vfsmount *mnt,int flags);
+#endif
+
 static void ovl_dentry_release(struct dentry *dentry)
 {
 	struct ovl_entry *oe = dentry->d_fsdata;
@@ -1020,7 +1025,11 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		}
 
 		/* Don't inherit atime flags */
+#ifdef CONFIG_RKP_NS_PROT
+		rkp_reset_mnt_flags(ufs->upper_mnt, (MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME));
+#else
 		ufs->upper_mnt->mnt_flags &= ~(MNT_NOATIME | MNT_NODIRATIME | MNT_RELATIME);
+#endif
 
 		sb->s_time_gran = ufs->upper_mnt->mnt_sb->s_time_gran;
 
@@ -1093,7 +1102,11 @@ static int ovl_fill_super(struct super_block *sb, void *data, int silent)
 		 * Make lower_mnt R/O.  That way fchmod/fchown on lower file
 		 * will fail instead of modifying lower fs.
 		 */
+#ifdef CONFIG_RKP_NS_PROT
+		rkp_set_mnt_flags(mnt, MNT_READONLY | MNT_NOATIME);
+#else
 		mnt->mnt_flags |= MNT_READONLY | MNT_NOATIME;
+#endif
 
 		ufs->lower_mnt[ufs->numlower] = mnt;
 		ufs->numlower++;

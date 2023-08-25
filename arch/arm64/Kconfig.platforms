@@ -222,6 +222,9 @@ config ARCH_SDMMAGPIE
 	  This enables support for the SDMMAGPIE chipset. If you do not
 	  wish to build a kernel that runs on this chipset, say 'N' here.
 
+config ARCH_SEC_SM7150
+	bool "Enable Support for Qualcomm Technologies, Inc. SEC_SM7150"
+
 config ARCH_TRINKET
 	bool "Enable Support for Qualcomm Technologies, Inc. TRINKET"
 	depends on ARCH_QCOM

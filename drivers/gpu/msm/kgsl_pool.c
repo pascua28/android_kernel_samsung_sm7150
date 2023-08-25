@@ -1,4 +1,5 @@
 /* Copyright (c) 2016-2017, 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -83,6 +84,15 @@ _kgsl_pool_zero_page(struct page *p, unsigned int pool_order)
 static void
 _kgsl_pool_add_page(struct kgsl_page_pool *pool, struct page *p)
 {
+	/*
+	 * Sanity check to make sure we don't re-pool a page that
+	 * somebody else has a reference to.
+	 */
+	if (WARN_ON_ONCE(unlikely(page_count(p) > 1))) {
+		__free_pages(p, pool->pool_order);
+		return;
+	}
+	
 	_kgsl_pool_zero_page(p, pool->pool_order);
 
 	spin_lock(&pool->list_lock);
@@ -264,6 +274,7 @@ void kgsl_pool_free_pages(struct page **pages, unsigned int pcount)
 
 	if (pages == NULL || pcount == 0)
 		return;
+	
 
 	if (WARN(!kern_addr_valid((unsigned long)pages),
 		"Address of pages=%pK is not valid\n", pages))
@@ -274,6 +285,7 @@ void kgsl_pool_free_pages(struct page **pages, unsigned int pcount)
 		 * Free each page or compound page group individually.
 		 */
 		struct page *p = pages[i];
+		
 
 		if (WARN(!kern_addr_valid((unsigned long)p),
 			"Address of page=%pK is not valid\n", p))

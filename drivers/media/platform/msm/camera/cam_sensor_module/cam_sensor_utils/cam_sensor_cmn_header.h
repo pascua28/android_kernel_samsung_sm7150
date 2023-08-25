@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,6 +39,68 @@
 #define MAX_SYSTEM_PIPELINE_DELAY 2
 
 #define CAM_PKT_NOP_OPCODE 127
+
+#define FROM_MODULE_ID_SIZE	10
+
+#if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
+#define TRUE	1
+#define FALSE	0
+
+#define HW_PARAMS_MI_INVALID	0
+#define HW_PARAMS_MI_VALID	1
+#define HW_PARAMS_MIR_ERR_0	2
+#define HW_PARAMS_MIR_ERR_1	3
+
+#define CAM_HW_PARM_CLK_CNT 2
+#define CAM_HW_PARM_CC_CLK_CNT 4
+
+#define CAM_HW_ERR_CNT_FILE_PATH "/data/camera/camera_hw_err_cnt.dat"
+
+typedef enum {
+	HW_PARAMS_CREATED = 0,
+	HW_PARAMS_NOT_CREATED,
+} hw_params_check_type;
+
+struct cam_hw_param {
+	u32 i2c_sensor_err_cnt;
+	u32 i2c_comp_err_cnt;
+	u32 i2c_ois_err_cnt;
+	u32 i2c_af_err_cnt;
+	u32 mipi_sensor_err_cnt;
+	u32 mipi_comp_err_cnt;
+	u16 i2c_chk;
+	u16 mipi_chk;
+	u16 comp_chk;
+	u16 need_update_to_file;
+} __attribute__((__packed__));
+
+struct cam_hw_param_collector {
+	struct cam_hw_param rear_hwparam;
+	struct cam_hw_param front_hwparam;
+	struct cam_hw_param iris_hwparam;
+	struct cam_hw_param rear2_hwparam;
+	struct cam_hw_param rear3_hwparam;
+	struct cam_hw_param front2_hwparam;
+	struct cam_hw_param front3_hwparam;
+} __attribute__((__packed__));
+
+void msm_is_sec_init_all(void);
+void msm_is_sec_dbg_check(void);
+void msm_is_sec_init_err_cnt_file(struct cam_hw_param *hw_param);
+void msm_is_sec_copy_err_cnt_from_file(void);
+void msm_is_sec_copy_err_cnt_to_file(void);
+
+int msm_is_sec_file_exist(char *filename, hw_params_check_type chktype);
+int msm_is_sec_get_sensor_position(uint32_t **sensor_position);
+int msm_is_sec_get_sensor_comp_mode(uint32_t **sensor_comp_mode);
+int msm_is_sec_get_rear_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_front_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_iris_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_rear2_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_rear3_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_front2_hw_param(struct cam_hw_param **hw_param);
+int msm_is_sec_get_front3_hw_param(struct cam_hw_param **hw_param);
+#endif
 
 enum camera_sensor_cmd_type {
 	CAMERA_SENSOR_CMD_TYPE_INVALID,
@@ -85,6 +147,7 @@ enum camera_flash_opcode {
 	CAMERA_SENSOR_FLASH_OP_OFF,
 	CAMERA_SENSOR_FLASH_OP_FIRELOW,
 	CAMERA_SENSOR_FLASH_OP_FIREHIGH,
+	CAMERA_SENSOR_FLASH_OP_FIRERECORD,
 	CAMERA_SENSOR_FLASH_OP_MAX,
 };
 
@@ -132,7 +195,6 @@ enum sensor_sub_module {
 	SUB_MODULE_CSID,
 	SUB_MODULE_CSIPHY,
 	SUB_MODULE_OIS,
-	SUB_MODULE_IR_LED,
 	SUB_MODULE_EXT,
 	SUB_MODULE_MAX,
 };
@@ -146,6 +208,8 @@ enum msm_camera_power_seq_type {
 	SENSOR_VAF_PWDM,
 	SENSOR_CUSTOM_REG1,
 	SENSOR_CUSTOM_REG2,
+        SENSOR_CUSTOM_REG3,
+        SENSOR_CUSTOM_REG4,
 	SENSOR_RESET,
 	SENSOR_STANDBY,
 	SENSOR_CUSTOM_GPIO1,
@@ -170,7 +234,8 @@ enum cam_actuator_packet_opcodes {
 };
 
 enum cam_eeprom_packet_opcodes {
-	CAM_EEPROM_PACKET_OPCODE_INIT
+	CAM_EEPROM_PACKET_OPCODE_INIT,
+	CAM_EEPROM_WRITE
 };
 
 enum cam_ois_packet_opcodes {
@@ -278,8 +343,16 @@ struct cam_sensor_i2c_reg_setting {
 	unsigned short delay;
 };
 
+struct cam_sensor_i2c_seq_reg {
+	uint32_t reg_addr;
+	uint8_t  *reg_data;
+	uint32_t size;
+	enum camera_sensor_i2c_type addr_type;
+};
+
 struct i2c_settings_list {
 	struct cam_sensor_i2c_reg_setting i2c_settings;
+	struct cam_sensor_i2c_seq_reg seq_settings;
 	enum cam_sensor_i2c_cmd_type op_code;
 	struct list_head list;
 };
@@ -314,6 +387,7 @@ struct cam_camera_slave_info {
 	uint16_t sensor_id_reg_addr;
 	uint16_t sensor_id;
 	uint16_t sensor_id_mask;
+	uint16_t version_id;
 };
 
 struct msm_sensor_init_params {
@@ -329,6 +403,10 @@ enum msm_sensor_camera_id_t {
 	CAMERA_4,
 	CAMERA_5,
 	CAMERA_6,
+	CAMERA_7,
+	CAMERA_8,
+	CAMERA_9,
+	CAMERA_10,
 	MAX_CAMERAS,
 };
 
@@ -373,6 +451,8 @@ enum msm_camera_vreg_name_t {
 	CAM_VAF,
 	CAM_V_CUSTOM1,
 	CAM_V_CUSTOM2,
+        CAM_V_CUSTOM3,
+        CAM_V_CUSTOM4,
 	CAM_VREG_MAX,
 };
 

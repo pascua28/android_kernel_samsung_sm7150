@@ -111,8 +111,8 @@ struct mmc_ioc_multi_cmd {
 #define MMC_IOC_MAX_RPMB_CMD	3
 struct mmc_ioc_rpmb {
 	struct mmc_ioc_cmd cmds[MMC_IOC_MAX_RPMB_CMD];
-}
-;
+};
+
 /*
  * This ioctl is meant for use with rpmb partitions. This is needed since the
  * access procedure for this particular partition is different from regular

@@ -97,7 +97,7 @@ struct eth_dev {
 
 	unsigned long		todo;
 	unsigned long		flags;
-	unsigned short		rx_needed_headroom;
+	unsigned short	    rx_needed_headroom;
 #define	WORK_RX_MEMORY		0
 
 	bool			zlp;
@@ -136,8 +136,7 @@ MODULE_PARM_DESC(tx_qmult, "Additional queue length multiplier for tx");
 /* for dual-speed hardware, use deeper queues at high/super speed */
 static inline int qlen(struct usb_gadget *gadget, unsigned qmult)
 {
-	if (gadget_is_dualspeed(gadget) && (gadget->speed == USB_SPEED_HIGH ||
-					    gadget->speed == USB_SPEED_SUPER))
+	if (gadget_is_dualspeed(gadget))
 		return qmult * DEFAULT_QLEN;
 	else
 		return DEFAULT_QLEN;
@@ -329,7 +328,7 @@ enomem:
 
 static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	struct sk_buff	*skb = req->context;
+	struct sk_buff	*skb = req->context, *skb2;
 	struct eth_dev	*dev = ep->driver_data;
 	int		status = req->status;
 	bool		queue = 0;
@@ -360,8 +359,54 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		} else {
 			skb_queue_tail(&dev->rx_frames, skb);
 		}
-		if (!status)
-			queue = 1;
+		skb = NULL;
+
+		skb2 = skb_dequeue(&dev->rx_frames);
+		while (skb2) {
+			if (status < 0
+					|| ETH_HLEN > skb2->len
+					|| skb2->len > GETHER_MAX_ETH_FRAME_LEN) {
+#ifdef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
+				/*
+			 	* Need to revisit net->mtu  does not include header size incase of changed MTU
+			 	*/
+				if (!strcmp(dev->port_usb->func.name, "ncm")) {
+					if (status < 0
+						|| ETH_HLEN > skb2->len
+						|| skb2->len > (dev->net->mtu + ETH_HLEN)) {
+						INFO(dev, "usb: %s  drop incase of NCM rx length %d\n",
+							__func__, skb2->len);
+					} else {
+						INFO(dev, "usb: %s  Dont drop incase of NCM rx length %d\n",
+							__func__, skb2->len);
+						goto process_frame;
+					}
+				}
+#endif
+				dev->net->stats.rx_errors++;
+				dev->net->stats.rx_length_errors++;
+#ifndef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
+				DBG(dev, "rx length %d\n", skb2->len);
+#else
+				INFO(dev, "usb: %s Drop rx length %d\n", __func__, skb2->len);
+#endif
+				dev_kfree_skb_any(skb2);
+				goto next_frame;
+			}
+#ifdef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
+process_frame:
+#endif
+			skb2->protocol = eth_type_trans(skb2, dev->net);
+			dev->net->stats.rx_packets++;
+			dev->net->stats.rx_bytes += skb2->len;
+
+			/* no buffer copies needed, unless hardware can't
+			 * use skb buffers.
+			 */
+			status = netif_rx(skb2);
+next_frame:
+			skb2 = skb_dequeue(&dev->rx_frames);
+		}
 		break;
 
 	/* software-driven interface shutdown */
@@ -470,8 +515,8 @@ static int alloc_requests(struct eth_dev *dev, struct gether *link, unsigned n)
 	spin_lock(&dev->req_lock);
 	if (link->in_ep) {
 		status = prealloc(&dev->tx_reqs, link->in_ep, n * tx_qmult);
-			if (status < 0)
-				goto fail;
+		if (status < 0)
+			goto fail;
 	}
 
 	if (link->out_ep) {
@@ -998,7 +1043,11 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	retval = usb_ep_queue(in, req, GFP_ATOMIC);
 	switch (retval) {
 	default:
+#ifndef CONFIG_USB_NCM_SUPPORT_MTU_CHANGE
 		DBG(dev, "tx queue err %d\n", retval);
+#else
+		INFO(dev, "usb:%s tx queue err %d\n", __func__, retval);
+#endif
 		break;
 	case 0:
 		netif_trans_update(net);

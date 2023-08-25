@@ -1834,6 +1834,8 @@ static int sdhci_get_tuning_cmd(struct sdhci_host *host)
 		return MMC_SEND_TUNING_BLOCK;
 }
 
+static int sdhci_card_busy(struct mmc_host *mmc);
+
 static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct sdhci_host *host;
@@ -1869,6 +1871,17 @@ static void sdhci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		else
 			present = sdhci_readl(host, SDHCI_PRESENT_STATE) &
 					SDHCI_CARD_PRESENT;
+	}
+
+	/*
+	 * Check SDcard busy signal by DAT0 before sending CMD13
+	 * about 10ms : 100us * 100 times
+	 */
+	if (present && (mrq->cmd->opcode == MMC_SEND_STATUS) &&
+			mmc_can_retune(mmc)) {
+		int tries = 100;
+		while (sdhci_card_busy(mmc) && --tries)
+			usleep_range(95, 105);
 	}
 
 	spin_lock_irqsave(&host->lock, flags);
@@ -2047,6 +2060,10 @@ void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 				mmc_card_sdio(host->mmc->card))
 			sdhci_cfg_irq(host, true, false);
 		spin_unlock_irqrestore(&host->lock, flags);
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+		sdhci_set_power(host, ios->power_mode, ios->vdd);
+		host->ops->set_clock(host, ios->clock);
+#endif
 		return;
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
@@ -2655,6 +2672,8 @@ int sdhci_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		 */
 		mmc_retune_disable(mmc);
 		err = host->ops->platform_execute_tuning(host, opcode);
+		if (err)                                                                                                               
+			host->mmc->err_stats[MMC_ERR_TUNING]++;
 		mmc_retune_enable(mmc);
 		goto out;
 	}

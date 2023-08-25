@@ -76,6 +76,16 @@ static int cam_ois_get_dt_data(struct cam_ois_ctrl_t *o_ctrl)
 		}
 	}
 
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	rc = of_property_read_u32(of_node, "slave-addr",
+		&o_ctrl->slave_addr);
+	if (rc < 0) {
+		pr_err("%s failed rc %d\n", __func__, rc);
+	}
+	soc_private->i2c_info.slave_addr = o_ctrl->slave_addr;
+	soc_private->i2c_info.i2c_freq_mode = I2C_FAST_MODE;
+	o_ctrl->io_master_info.cci_client->sid = o_ctrl->slave_addr;
+#endif
 	return rc;
 }
 /**
@@ -111,7 +121,7 @@ int cam_ois_driver_soc_init(struct cam_ois_ctrl_t *o_ctrl)
 
 		rc = of_property_read_u32(of_node, "cci-device",
 			&o_ctrl->cci_num);
-		CAM_DBG(CAM_ACTUATOR, "cci-device %d, rc %d",
+		CAM_DBG(CAM_OIS, "cci-device %d, rc %d",
 			o_ctrl->cci_num, rc);
 		if (rc < 0) {
 			/* Set default master 0 */
