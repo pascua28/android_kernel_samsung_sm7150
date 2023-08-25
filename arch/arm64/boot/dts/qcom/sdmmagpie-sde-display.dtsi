@@ -371,7 +371,6 @@
 		pinctrl-1 = <&sde_te_suspend>;
 
 		qcom,platform-te-gpio = <&tlmm 10 0>;
-		qcom,platform-reset-gpio = <&pm6150l_gpios 9 0>;
 		qcom,panel-te-source = <0>;
 
 		vddio-supply = <&pm6150_l13>;

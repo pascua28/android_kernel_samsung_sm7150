@@ -203,6 +203,14 @@ static const char *lpi_gpio_get_function_name(struct pinctrl_dev *pctldev,
 	return lpi_gpio_functions[function];
 }
 
+static int lpi_gpio_pinmux_request(struct pinctrl_dev *pctldev, unsigned offset)
+{
+	struct lpi_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct gpio_chip *chip = &state->chip;
+
+	return gpiochip_line_is_valid(chip, offset) ? 0 : -EINVAL;
+}
+
 static int lpi_gpio_get_function_groups(struct pinctrl_dev *pctldev,
 					unsigned int function,
 					const char *const **groups,
@@ -217,7 +225,12 @@ static int lpi_gpio_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 			    unsigned int pin)
 {
 	struct lpi_gpio_pad *pad;
+	struct lpi_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct gpio_chip *chip = &state->chip;
 	unsigned int val;
+
+	if (!gpiochip_line_is_valid(chip, pin))
+		return 0;
 
 	pad = pctldev->desc->pins[pin].drv_data;
 
@@ -231,6 +244,7 @@ static int lpi_gpio_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 }
 
 static const struct pinmux_ops lpi_gpio_pinmux_ops = {
+	.request		= lpi_gpio_pinmux_request,
 	.get_functions_count	= lpi_gpio_get_functions_count,
 	.get_function_name	= lpi_gpio_get_function_name,
 	.get_function_groups	= lpi_gpio_get_function_groups,
@@ -240,9 +254,14 @@ static const struct pinmux_ops lpi_gpio_pinmux_ops = {
 static int lpi_config_get(struct pinctrl_dev *pctldev,
 			  unsigned int pin, unsigned long *config)
 {
+	struct lpi_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct gpio_chip *chip = &state->chip;
 	unsigned int param = pinconf_to_config_param(*config);
 	struct lpi_gpio_pad *pad;
 	unsigned int arg;
+
+	if (!gpiochip_line_is_valid(chip, pin))
+		return -EINVAL;
 
 	pad = pctldev->desc->pins[pin].drv_data;
 
@@ -279,9 +298,14 @@ static unsigned int lpi_drive_to_regval(u32 arg)
 static int lpi_config_set(struct pinctrl_dev *pctldev, unsigned int pin,
 			  unsigned long *configs, unsigned int nconfs)
 {
+	struct lpi_gpio_state *state = pinctrl_dev_get_drvdata(pctldev);
+	struct gpio_chip *chip = &state->chip;
 	struct lpi_gpio_pad *pad;
 	unsigned int param, arg;
 	int i, ret = 0, val;
+
+	if (!gpiochip_line_is_valid(chip, pin))
+		return -EINVAL;
 
 	pad = pctldev->desc->pins[pin].drv_data;
 
@@ -458,6 +482,9 @@ static void lpi_gpio_dbg_show_one(struct seq_file *s,
 		"pull up"
 	};
 
+	if (!gpiochip_line_is_valid(chip, offset))
+		return;
+
 	pctldev = pctldev ? : state->ctrl;
 	pindesc = pctldev->desc->pins[offset];
 	pad = pctldev->desc->pins[offset].drv_data;
@@ -486,6 +513,8 @@ static void lpi_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		lpi_gpio_dbg_show_one(s, NULL, chip, i, gpio);
 		seq_puts(s, "\n");
 	}
+
+	seq_puts(s, "\n");
 }
 
 #else
@@ -604,6 +633,7 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	state->chip.label = dev_name(dev);
 	state->chip.of_gpio_n_cells = 2;
 	state->chip.can_sleep = false;
+	state->chip.of_node = dev->of_node;
 
 	state->ctrl = devm_pinctrl_register(dev, pctrldesc, state);
 	if (IS_ERR(state->ctrl))

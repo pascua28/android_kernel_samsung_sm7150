@@ -766,6 +766,7 @@ struct csr_roam_profile {
 	uint16_t beacon_tx_rate;
 	tSirMacRateSet  supported_rates;
 	tSirMacRateSet  extended_rates;
+	bool require_h2e;
 	struct qdf_mac_addr bssid_hint;
 	bool force_24ghz_in_ht20;
 	uint32_t cac_duration_ms;
@@ -1445,8 +1446,6 @@ typedef void (*sme_get_raom_scan_ch_callback)(
 				struct roam_scan_ch_resp *roam_ch,
 				void *context);
 
-#if defined(WLAN_LOGGING_SOCK_SVC_ENABLE) && \
-	defined(FEATURE_PKTLOG) && !defined(REMOVE_PKT_LOG)
 /**
  * csr_packetdump_timer_stop() - stops packet dump timer
  *
@@ -1456,20 +1455,6 @@ typedef void (*sme_get_raom_scan_ch_callback)(
  *
  */
 void csr_packetdump_timer_stop(void);
-
-/**
- * csr_packetdump_timer_start() - start packet dump timer
- *
- * This function is used to start packet dump timer
- *
- * Return: None
- *
- */
-void csr_packetdump_timer_start(void);
-#else
-static inline void csr_packetdump_timer_stop(void) {}
-static inline void csr_packetdump_timer_start(void) {}
-#endif
 
 /**
  * csr_get_channel_status() - get chan info via channel number

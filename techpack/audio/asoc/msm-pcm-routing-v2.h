@@ -604,4 +604,8 @@ int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
 	int op_channel_cnt, int *ch_wght_coeff,
 	int session_type, int stream_type);
 int msm_pcm_routing_get_pp_ch_cnt(int fe_id, int session_type);
+#ifdef CONFIG_SEC_SND_ADAPTATION
+int q6audio_get_copp_idx_from_port_id(int port_id, int func_type,
+	int sb_val, int *copp_idx);
+#endif
 #endif /*_MSM_PCM_H*/

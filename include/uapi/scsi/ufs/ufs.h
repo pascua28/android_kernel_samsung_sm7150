@@ -14,6 +14,9 @@ enum flag_idn {
 	QUERY_FLAG_IDN_RESERVED2		= 0x07,
 	QUERY_FLAG_IDN_FPHYRESOURCEREMOVAL      = 0x08,
 	QUERY_FLAG_IDN_BUSY_RTC			= 0x09,
+	QUERY_FLAG_IDN_WB_EN                            = 0x0E,
+	QUERY_FLAG_IDN_WB_BUFF_FLUSH_EN                 = 0x0F,
+	QUERY_FLAG_IDN_WB_BUFF_FLUSH_DURING_HIBERN8     = 0x10,
 };
 
 /* Attribute idn for Query requests */
@@ -56,7 +59,7 @@ enum desc_idn {
 	QUERY_DESC_IDN_GEOMETRY		= 0x7,
 	QUERY_DESC_IDN_POWER		= 0x8,
 	QUERY_DESC_IDN_HEALTH           = 0x9,
-	QUERY_DESC_IDN_RFU_2		= 0x0A,
+	QUERY_DESC_IDN_RFU_2		= 0xA,
 	QUERY_DESC_IDN_MAX,
 };
 

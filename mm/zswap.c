@@ -47,6 +47,7 @@
 **********************************/
 /* Total bytes used by the compressed storage */
 static u64 zswap_pool_total_size;
+u64 zswap_pool_pages;
 /* The number of compressed pages currently stored in zswap */
 static atomic_t zswap_stored_pages = ATOMIC_INIT(0);
 
@@ -225,6 +226,7 @@ static void zswap_update_total_size(void)
 	rcu_read_unlock();
 
 	zswap_pool_total_size = total;
+	zswap_pool_pages = zswap_pool_total_size >> PAGE_SHIFT;
 }
 
 /*********************************
@@ -1241,6 +1243,25 @@ static int __init zswap_debugfs_init(void)
 static void __exit zswap_debugfs_exit(void) { }
 #endif
 
+static int zswap_size_notifier(struct notifier_block *nb,
+			       unsigned long action, void *data)
+{
+	struct seq_file *s;
+
+	s = (struct seq_file *)data;
+	if (s)
+		seq_printf(s, "ZSwapDevice:    %8lu kB\n",
+			(unsigned long)zswap_pool_pages << (PAGE_SHIFT - 10));
+	else
+		pr_cont("ZSwapDevice:%lukB ",
+			(unsigned long)zswap_pool_pages << (PAGE_SHIFT - 10));
+	return 0;
+}
+
+static struct notifier_block zswap_size_nb = {
+	.notifier_call = zswap_size_notifier,
+};
+
 /*********************************
 * module init and exit
 **********************************/
@@ -1284,6 +1305,8 @@ static int __init init_zswap(void)
 	frontswap_register_ops(&zswap_frontswap_ops);
 	if (zswap_debugfs_init())
 		pr_warn("debugfs initialization failed\n");
+
+	show_mem_extra_notifier_register(&zswap_size_nb);
 	return 0;
 
 hp_fail:

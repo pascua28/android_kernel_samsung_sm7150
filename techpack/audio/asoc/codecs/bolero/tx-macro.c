@@ -349,6 +349,9 @@ static int tx_macro_event_handler(struct snd_soc_codec *codec, u16 event,
 	if (!tx_macro_get_data(codec, &tx_dev, &tx_priv, __func__))
 		return -EINVAL;
 
+	if(!tx_priv->swr_ctrl_data)
+	return -EINVAL;
+
 	switch (event) {
 	case BOLERO_MACRO_EVT_SSR_DOWN:
 		swrm_wcd_notify(
@@ -391,6 +394,9 @@ static int tx_macro_reg_wake_irq(struct snd_soc_codec *codec,
 
 	if (!tx_macro_get_data(codec, &tx_dev, &tx_priv, __func__))
 		return -EINVAL;
+
+	 if(!tx_priv->swr_ctrl_data)
+	 return -EINVAL;
 
 	ret = swrm_wcd_notify(
 		tx_priv->swr_ctrl_data[0].tx_swr_pdev,

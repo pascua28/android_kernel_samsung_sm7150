@@ -379,6 +379,11 @@ void drm_vblank_disable_and_save(struct drm_device *dev, unsigned int pipe)
 	spin_unlock_irqrestore(&dev->vblank_time_lock, irqflags);
 }
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include <linux/sched/clock.h>
+#include "./msm/samsung_lego/ss_dsi_panel_debug.h"
+#endif
+
 static void vblank_disable_fn(unsigned long arg)
 {
 	struct drm_vblank_crtc *vblank = (void *)arg;
@@ -1014,9 +1019,13 @@ static void drm_vblank_put(struct drm_device *dev, unsigned int pipe)
 			return;
 		else if (drm_vblank_offdelay < 0)
 			vblank_disable_fn((unsigned long)vblank);
-		else if (!dev->vblank_disable_immediate)
+		else if (!dev->vblank_disable_immediate) {
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) // case 04436106
+			SS_XLOG_VSYNC();
+#endif
 			mod_timer(&vblank->disable_timer,
 				  jiffies + ((drm_vblank_offdelay * HZ)/1000));
+		}
 	}
 }
 
@@ -1543,6 +1552,15 @@ static void drm_handle_vblank_events(struct drm_device *dev, unsigned int pipe)
 
 		list_del(&e->base.link);
 		drm_vblank_put(dev, pipe);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) // case 04436106
+		/* Now timestamp will be registered pending drm event.
+		 * Then, GFX HAL will reads it using drm file.
+		 * -> drm_read() returns timestamp value.
+		 */
+		//SS_XLOG_VSYNC(ktime_to_us(now), seq);
+#endif
+
 		send_vblank_event(dev, e, seq, &now);
 	}
 
@@ -1604,6 +1622,11 @@ bool drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 	drm_handle_vblank_events(dev, pipe);
 
 	spin_unlock_irqrestore(&dev->event_lock, irqflags);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) // case 04436106
+	if (disable_irq)
+		SS_XLOG_VSYNC();
+#endif
 
 	if (disable_irq)
 		vblank_disable_fn((unsigned long)vblank);

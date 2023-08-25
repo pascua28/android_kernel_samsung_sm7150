@@ -91,6 +91,10 @@
 #define HDD_SSR_BRING_UP_TIME 30000
 #endif
 
+#ifdef SEC_CONFIG_POWER_BACKOFF
+extern int cur_sec_sar_index;
+#endif /* SEC_CONFIG_POWER_BACKOFF */
+
 /* Type declarations */
 
 #ifdef FEATURE_WLAN_DIAG_SUPPORT
@@ -258,7 +262,6 @@ static void hdd_disable_gtk_offload(struct hdd_adapter *adapter)
 /**
  * __wlan_hdd_ipv6_changed() - IPv6 notifier callback function
  * @net_dev: net_device whose IP address changed
- * @event: event from kernel, NETDEV_UP or NETDEV_DOWN
  *
  * This is a callback function that is registered with the kernel via
  * register_inet6addr_notifier() which allows the driver to be
@@ -266,8 +269,7 @@ static void hdd_disable_gtk_offload(struct hdd_adapter *adapter)
  *
  * Return: None
  */
-static void __wlan_hdd_ipv6_changed(struct net_device *net_dev,
-				    unsigned long event)
+static void __wlan_hdd_ipv6_changed(struct net_device *net_dev)
 {
 	struct hdd_adapter *adapter = WLAN_HDD_GET_PRIV_PTR(net_dev);
 	struct hdd_context *hdd_ctx;
@@ -284,12 +286,8 @@ static void __wlan_hdd_ipv6_changed(struct net_device *net_dev,
 	if (errno)
 		goto exit;
 
-	/* Only need to be notified for ipv6_add_addr
-	 * No need for ipv6_del_addr or addrconf_ifdown
-	 */
-	if (event == NETDEV_UP &&
-	    (adapter->device_mode == QDF_STA_MODE ||
-	     adapter->device_mode == QDF_P2P_CLIENT_MODE)) {
+	if (adapter->device_mode == QDF_STA_MODE ||
+	    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
 		hdd_debug("invoking sme_dhcp_done_ind");
 		sme_dhcp_done_ind(hdd_ctx->mac_handle, adapter->vdev_id);
 		schedule_work(&adapter->ipv6_notifier_work);
@@ -309,7 +307,7 @@ int wlan_hdd_ipv6_changed(struct notifier_block *nb,
 	if (osif_vdev_sync_op_start(net_dev, &vdev_sync))
 		return NOTIFY_DONE;
 
-	__wlan_hdd_ipv6_changed(net_dev, data);
+	__wlan_hdd_ipv6_changed(net_dev);
 
 	osif_vdev_sync_op_stop(vdev_sync);
 
@@ -684,7 +682,8 @@ void hdd_disable_host_offloads(struct hdd_adapter *adapter,
 	hdd_disable_arp_offload(adapter, trigger);
 	hdd_disable_ns_offload(adapter, trigger);
 	hdd_disable_mc_addr_filtering(adapter, trigger);
-	hdd_disable_hw_filter(adapter);
+	if (adapter->device_mode != QDF_NDI_MODE)
+		hdd_disable_hw_filter(adapter);      
 	hdd_disable_action_frame_patterns(adapter);
 out:
 	hdd_exit();
@@ -1578,6 +1577,10 @@ QDF_STATUS hdd_wlan_re_init(void)
 		hdd_ssr_restart_sap(hdd_ctx);
 	hdd_is_interface_down_during_ssr(hdd_ctx);
 	hdd_wlan_ssr_reinit_event();
+#ifdef SEC_CONFIG_POWER_BACKOFF
+	cur_sec_sar_index = 0;
+#endif /* SEC_CONFIG_POWER_BACKOFF */
+
 	return QDF_STATUS_SUCCESS;
 
 err_re_init:
@@ -1806,20 +1809,14 @@ static int _wlan_hdd_cfg80211_resume_wlan(struct wiphy *wiphy)
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
 	int errno;
 
-	if(!hdd_ctx) {
-		hdd_err_rl("hdd context is null");
-		return -ENODEV;
-	}
+	errno = wlan_hdd_validate_context(hdd_ctx);
+	if (errno)
+		return errno;
 
-	/* If Wifi is off, return success for system resume */
 	if (hdd_ctx->driver_status != DRIVER_MODULES_ENABLED) {
 		hdd_debug("Driver Modules not Enabled ");
 		return 0;
 	}
-
-	errno = wlan_hdd_validate_context(hdd_ctx);
-	if (errno)
-		return errno;
 
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	errno = __wlan_hdd_cfg80211_resume_wlan(wiphy);
@@ -2043,20 +2040,14 @@ static int _wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
 	int errno;
 
-	if(!hdd_ctx) {
-		hdd_err_rl("hdd context is null");
-		return -ENODEV;
-	}
+	errno = wlan_hdd_validate_context(hdd_ctx);
+	if (errno)
+		return errno;
 
-	/* If Wifi is off, return success for system suspend */
 	if (hdd_ctx->driver_status != DRIVER_MODULES_ENABLED) {
 		hdd_debug("Driver Modules not Enabled ");
 		return 0;
 	}
-
-	errno = wlan_hdd_validate_context(hdd_ctx);
-	if (errno)
-		return errno;
 
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	errno = hif_pm_runtime_get_sync(hif_ctx, RTPM_ID_SUSPEND_RESUME);

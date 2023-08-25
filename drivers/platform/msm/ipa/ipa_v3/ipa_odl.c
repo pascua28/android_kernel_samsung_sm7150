@@ -499,7 +499,6 @@ void ipa3_odl_pipe_cleanup(bool is_ssr)
 		ipa3_odl_ctx->odl_state.adpl_open = true;
 	else
 		ipa3_odl_ctx->odl_state.adpl_open = false;
-
 	ipa3_odl_ctx->odl_state.odl_disconnected = true;
 	ipa3_odl_ctx->odl_state.odl_ep_setup = false;
 	ipa3_odl_ctx->odl_state.aggr_byte_limit_sent = false;

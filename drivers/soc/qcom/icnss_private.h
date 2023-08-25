@@ -387,6 +387,7 @@ struct icnss_priv {
 	struct esoc_desc *esoc_client;
 	struct esoc_client_hook esoc_ops;
 	struct completion notif_complete;
+	struct kobject *wifi_kobj;
 };
 
 int icnss_call_driver_uevent(struct icnss_priv *priv,

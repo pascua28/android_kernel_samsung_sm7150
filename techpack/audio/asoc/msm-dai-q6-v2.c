@@ -56,6 +56,8 @@ enum {
 	DEC_FMT_NONE = ENC_FMT_NONE,
 	ENC_FMT_SBC = ASM_MEDIA_FMT_SBC,
 	DEC_FMT_SBC = ASM_MEDIA_FMT_SBC,
+	ENC_FMT_SBC_SS = ASM_MEDIA_FMT_SBC_SS,
+	ENC_FMT_SSC = ASM_MEDIA_FMT_SSC,
 	ENC_FMT_AAC_V2 = ASM_MEDIA_FMT_AAC_V2,
 	DEC_FMT_AAC_V2 = ASM_MEDIA_FMT_AAC_V2,
 	ENC_FMT_APTX = ASM_MEDIA_FMT_APTX,
@@ -214,6 +216,7 @@ struct msm_dai_q6_dai_data {
 	u16 afe_rx_in_bitformat;
 	u32 afe_tx_out_channels;
 	u16 afe_tx_out_bitformat;
+	u32 dyn_bitrate;
 	struct afe_enc_config enc_config;
 	struct afe_dec_config dec_config;
 	union afe_port_config port_config;
@@ -738,6 +741,7 @@ static int msm_dai_q6_dai_add_route(struct snd_soc_dai *dai)
 		dev_dbg(dai->dev, "%s: src %s sink %s\n",
 				__func__, intercon.source, intercon.sink);
 		snd_soc_dapm_add_routes(dapm, &intercon, 1);
+		snd_soc_dapm_ignore_suspend(dapm, intercon.sink);
 	}
 	if (dai->driver->capture.stream_name &&
 		dai->driver->capture.aif_name) {
@@ -748,6 +752,7 @@ static int msm_dai_q6_dai_add_route(struct snd_soc_dai *dai)
 		dev_dbg(dai->dev, "%s: src %s sink %s\n",
 				__func__, intercon.source, intercon.sink);
 		snd_soc_dapm_add_routes(dapm, &intercon, 1);
+		snd_soc_dapm_ignore_suspend(dapm, intercon.source);
 	}
 	return 0;
 }
@@ -2964,6 +2969,16 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 		pr_debug("%s: Received encoder config for %d format\n",
 			 __func__, dai_data->enc_config.format);
 		switch (dai_data->enc_config.format) {
+		case ENC_FMT_SBC_SS:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_ss_sbc_enc_cfg_t));
+			break;
+		case ENC_FMT_SSC:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_custom_enc_cfg_ssc_t));
+			break;
 		case ENC_FMT_SBC:
 			memcpy(&dai_data->enc_config.data,
 				ucontrol->value.bytes.data + format_size,
@@ -3008,6 +3023,13 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 	} else
 		ret = -EINVAL;
 
+	if (ret == 0) {
+		int rc = 0;
+		rc = afe_q6_update_enc_format(dai_data->enc_config.format);
+		if (rc < 0) {
+			pr_debug("%s: fail to update encoder config format\n", __func__);
+		}
+	}
 	return ret;
 }
 
@@ -3024,11 +3046,11 @@ static const struct soc_enum afe_bit_format_enum[] = {
 	SOC_ENUM_SINGLE_EXT(3, afe_bit_format_text),
 };
 
-static const char *const tws_chs_mode_text[] = {"Zero", "One", "Two"};
+/*static const char *const tws_chs_mode_text[] = {"Zero", "One", "Two"};
 
 static const struct soc_enum tws_chs_mode_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(tws_chs_mode_text), tws_chs_mode_text),
-};
+};*/
 
 static int msm_dai_q6_afe_input_channel_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
@@ -3058,7 +3080,124 @@ static int msm_dai_q6_afe_input_channel_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int msm_dai_q6_tws_channel_mode_get(struct snd_kcontrol *kcontrol,
+static int msm_dai_q6_afe_dynamic_bitrate_get( struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	ucontrol->value.enumerated.item[0] = dai_data->dyn_bitrate;
+	pr_debug("%s: afe dynamic bitrate : %ld\n", __func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_dynamic_bitrate_put( struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int rc = 0;
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+	dai_data->dyn_bitrate = ucontrol->value.enumerated.item[0];
+	pr_debug("%s: updating afe dynamic bitrate : %d\n",
+		__func__, dai_data->dyn_bitrate);
+
+	rc = afe_q6_update_dyn_bitrate(dai_data->dyn_bitrate);
+	if (rc < 0) {
+		pr_debug("%s: fail to update dynamic bitrate for AFE APR\n", __func__);
+	}
+
+	return rc;
+}
+
+static int msm_dai_q6_afe_mtu_get( struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	ucontrol->value.integer.value[0] = dai_data->enc_config.mtu;
+	pr_debug("%s: afe mtu : %ld\n", __func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_mtu_put( struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int rc = 0;
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		 pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+	dai_data->enc_config.mtu = ucontrol->value.integer.value[0];
+	pr_debug("%s: updating afe mtu: %d\n",
+ 		__func__, dai_data->enc_config.mtu);
+
+	rc = afe_q6_update_mtu(dai_data->enc_config.mtu);
+	if (rc < 0) {
+		pr_debug("%s: fail to update dynamic bitpool for AFE APR\n", __func__);
+	}
+
+	return rc;
+}
+
+static int msm_dai_q6_afe_a2dp_suspend_get(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	ucontrol->value.integer.value[0] = dai_data->enc_config.a2dp_suspend;
+	pr_debug("%s: afe A2dp suspend state : %ld\n",
+		__func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_a2dp_suspend_put(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int rc = 0;
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+	dai_data->enc_config.a2dp_suspend = ucontrol->value.integer.value[0];
+	pr_debug("%s: updating afe A2dp suspend state: %d\n",
+		__func__, dai_data->enc_config.a2dp_suspend);
+
+	rc = afe_q6_update_a2dp_suspend(dai_data->enc_config.a2dp_suspend);
+	if (rc < 0) {
+		pr_debug("%s: fail to update A2dp suspend state for AFE APR\n", __func__);
+	}
+
+	return rc;
+}
+
+/*static int msm_dai_q6_tws_channel_mode_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_dai *dai = kcontrol->private_data;
@@ -3112,7 +3251,7 @@ static int msm_dai_q6_tws_channel_mode_put(struct snd_kcontrol *kcontrol,
 exit:
 	return ret;
 }
-
+*/
 static int msm_dai_q6_afe_input_bit_format_get(
 			struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
@@ -3168,6 +3307,47 @@ static int msm_dai_q6_afe_input_bit_format_put(
 		__func__, dai_data->afe_rx_in_bitformat);
 
 	return 0;
+}
+
+static int msm_dai_q6_afe_slimbus_dynamic_bitrate_get(
+			 struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	ucontrol->value.enumerated.item[0] = dai_data->dyn_bitrate;
+	pr_debug("%s: afe dynamic bitrate : %ld\n",
+		__func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_slimbus_dynamic_bitrate_put(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int rc = 0;
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+	dai_data->dyn_bitrate = ucontrol->value.enumerated.item[0];
+	pr_debug("%s: updating afe dynamic bitrate : %d\n",
+		__func__, dai_data->dyn_bitrate);
+
+	rc = afe_q6_slimbus_update_dyn_bitrate(dai_data->dyn_bitrate);
+	if (rc < 0) {
+		pr_debug("%s: fail to update dynamic bitrate for AFE APR\n", __func__);
+	}
+
+	return rc;
 }
 
 static int msm_dai_q6_afe_output_bit_format_get(
@@ -3306,9 +3486,12 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		       0, 0, 1, 0,
 		       msm_dai_q6_afe_scrambler_mode_get,
 		       msm_dai_q6_afe_scrambler_mode_put),
-	SOC_ENUM_EXT("TWS Channel Mode", tws_chs_mode_enum[0],
-		       msm_dai_q6_tws_channel_mode_get,
-		       msm_dai_q6_tws_channel_mode_put)
+	SOC_SINGLE_EXT("AFE Dynamic Bitrate", 0, 0, UINT_MAX, 0,
+				msm_dai_q6_afe_slimbus_dynamic_bitrate_get,
+				msm_dai_q6_afe_slimbus_dynamic_bitrate_put),
+	/*SOC_ENUM_EXT("TWS Channel Mode", tws_chs_mode_enum[0],
+				msm_dai_q6_tws_channel_mode_get,
+				msm_dai_q6_tws_channel_mode_put)*/
 };
 
 static int  msm_dai_q6_afe_dec_cfg_info(struct snd_kcontrol *kcontrol,
@@ -3423,6 +3606,34 @@ static const struct snd_kcontrol_new afe_dec_config_controls[] = {
 		     msm_dai_q6_afe_output_bit_format_get,
 		     msm_dai_q6_afe_output_bit_format_put),
 };
+
+static const struct snd_kcontrol_new quat_mi2s_afe_enc_config_controls[] = {
+	{
+		.access = (SNDRV_CTL_ELEM_ACCESS_READWRITE |
+			SNDRV_CTL_ELEM_ACCESS_INACTIVE),
+		.iface = SNDRV_CTL_ELEM_IFACE_PCM,
+		.name = "QUAT_MI2S_RX Encoder Config",
+		.info = msm_dai_q6_afe_enc_cfg_info,
+		.get = msm_dai_q6_afe_enc_cfg_get,
+		.put = msm_dai_q6_afe_enc_cfg_put,
+	},
+	SOC_ENUM_EXT("QUAT_MI2S_RX AFE Input Channels", afe_chs_enum[0],
+			msm_dai_q6_afe_input_channel_get,
+			msm_dai_q6_afe_input_channel_put),
+	SOC_ENUM_EXT("QUAT_MI2S_RX AFE Input Bit Format", afe_bit_format_enum[0],
+			msm_dai_q6_afe_input_bit_format_get,
+			msm_dai_q6_afe_input_bit_format_put),
+	SOC_SINGLE_EXT("QUAT_MI2S_RX AFE Dynamic Bitrate", 0, 0, UINT_MAX, 0,
+			msm_dai_q6_afe_dynamic_bitrate_get,
+			msm_dai_q6_afe_dynamic_bitrate_put),
+	SOC_SINGLE_EXT("QUAT_MI2S_RX AFE Peer Mtu", 0, 0, UINT_MAX, 0,
+			msm_dai_q6_afe_mtu_get,
+			msm_dai_q6_afe_mtu_put),
+	SOC_SINGLE_EXT("QUAT_MI2S_RX AFE A2dp Suspend", 0, 0, UINT_MAX, 0,
+			msm_dai_q6_afe_a2dp_suspend_get,
+			msm_dai_q6_afe_a2dp_suspend_put),
+};
+
 
 static int msm_dai_q6_slim_rx_drift_info(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_info *uinfo)
@@ -3596,7 +3807,7 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 				 dai_data));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				 snd_ctl_new1(&afe_enc_config_controls[4],
-				 dai));
+				 dai_data));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(&avd_drift_config_controls[2],
 					dai));

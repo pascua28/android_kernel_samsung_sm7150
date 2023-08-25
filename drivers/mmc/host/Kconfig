@@ -931,6 +931,21 @@ config MMC_CQ_HCI_CRYPTO_QTI
 	 Enabling this allows kernel to use CQHCI crypto operations defined
 	 and implemented by QTI.
 
+config SEC_NO_SD_DETECT
+	bool "No SDcard detect pin.(T_FLASH_DETECT)"
+	depends on MMC_SDHCI_MSM
+	help
+	  If the target has no SDcard detect pin(T_FLASH_DETECT),
+	  enable this
+
+config SEC_HYBRID_TRAY
+	bool "SD slot tray"
+	depends on MMC_SDHCI_MSM
+	default y
+	help
+	  If the target has slot tray(including dual tray),
+	  enable this
+
 config MMC_QTI_NONCMDQ_ICE
 	bool "Vendor support Legacy Inline Crypto Engine"
 	default n

@@ -359,7 +359,6 @@
 						  "temp-change",
 						  "temp-change-smb";
 			};
-
 			qcom,sdam@b100 {
 				reg = <0xb100 0x100>;
 				interrupts =
@@ -416,6 +415,8 @@
 			qcom,vbatt-empty-mv = <3000>;
 			qcom,vbatt-empty-cold-mv = <3000>;
 			qcom,s3-entry-fifo-length = <2>;
+			qcom,s3-entry-ibat-ua = <15000>;
+			qcom,s3-exit-ibat-ua = <35000>;
 
 			qcom,pmic-revid = <&pm6150_revid>;
 			io-channels = <&pm6150_vadc ADC_BAT_THERM_PU2>,
@@ -497,6 +498,16 @@
 			gpio-controller;
 			#gpio-cells = <2>;
 			qcom,gpios-disallowed = <5 6 9 10>;
+
+			afc_switch {
+				gpio1_afc_switch_default: gpio1_afc_switch_default {
+					pins = "gpio1";		/* GPIO 1 */
+					function = "normal";	/* normal output */
+					power-source = <0>;	/* VIN0 */
+					output-low;		/* digital output, no invert */
+					input-disable;		/* prevent GPIO from being set to DIO */
+				};
+			};
 		};
 
 		pm6150_rtc: qcom,pm6150_rtc {
@@ -526,7 +537,7 @@
 		pm6150_vib: qcom,vibrator@5300 {
 			compatible = "qcom,qpnp-vibrator-ldo";
 			reg = <0x5300 0x100>;
-			qcom,vib-ldo-volt-uv = <3000000>;
+			qcom,vib-ldo-volt-uv = <3300000>;
 			qcom,disable-overdrive;
 		};
 	};
@@ -643,6 +654,7 @@
 	};
 
 	pm6150-bcl-lvl0 {
+		disable-thermal-zone;
 		polling-delay-passive = <100>;
 		polling-delay = <0>;
 		thermal-governor = "step_wise";
@@ -659,6 +671,7 @@
 	};
 
 	pm6150-bcl-lvl1 {
+		disable-thermal-zone;
 		polling-delay-passive = <100>;
 		polling-delay = <0>;
 		thermal-governor = "step_wise";
@@ -675,6 +688,7 @@
 	};
 
 	pm6150-bcl-lvl2 {
+		disable-thermal-zone;
 		polling-delay-passive = <100>;
 		polling-delay = <0>;
 		thermal-governor = "step_wise";

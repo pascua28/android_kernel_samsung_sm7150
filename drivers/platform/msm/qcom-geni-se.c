@@ -509,6 +509,7 @@ static int geni_se_select_dma_mode(void __iomem *base)
 	}
 
 	geni_write_reg(common_geni_m_irq_en, base, SE_GENI_M_IRQ_EN);
+
 	geni_dma_mode = geni_read_reg(base, SE_GENI_DMA_MODE_EN);
 	geni_dma_mode |= GENI_DMA_MODE_EN;
 	geni_write_reg(geni_dma_mode, base, SE_GENI_DMA_MODE_EN);
@@ -898,7 +899,7 @@ static int geni_se_rmv_ab_ib(struct geni_se_device *geni_se_dev,
 	if (bus_bw_update && geni_se_dev->num_paths != 2)
 		ret = msm_bus_scale_update_bw(geni_se_dev->bus_bw,
 						geni_se_dev->cur_ab,
-						geni_se_dev->cur_ib);
+					geni_se_dev->cur_ib);
 	GENI_SE_DBG(geni_se_dev->log_ctx, false, NULL,
 		"%s: %s: cur_ab_ib(%lu:%lu) req_ab_ib(%lu:%lu) %d\n",
 		__func__, dev_name(rsc->ctrl_dev), geni_se_dev->cur_ab,

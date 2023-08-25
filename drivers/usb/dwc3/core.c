@@ -209,6 +209,9 @@ static int dwc3_core_soft_reset(struct dwc3 *dwc)
 	int		retries = 1000;
 	int		ret;
 
+	pr_err("%s: dwc->maximum_speed %d\n",
+				__func__, dwc->maximum_speed);
+
 	/* Reset and initialize PHYs */
 	usb_phy_reset(dwc->usb2_phy);
 	ret = usb_phy_init(dwc->usb2_phy);

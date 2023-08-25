@@ -27,7 +27,8 @@
 #include <linux/of_platform.h>
 #include <linux/pm_opp.h>
 #include <linux/regulator/consumer.h>
-
+#include <linux/sec_debug.h>
+#include <trace/events/power.h>
 #include "clk.h"
 
 #if defined(CONFIG_COMMON_CLK)
@@ -99,6 +100,9 @@ struct clk_core {
 	struct dentry		*dentry;
 	struct hlist_node	debug_node;
 #endif
+#if IS_ENABLED(CONFIG_SEC_PM)
+	struct hlist_node	sec_debug_node;
+#endif
 	struct kref		ref;
 	struct clk_vdd_class	*vdd_class;
 	int			vdd_class_vote;
@@ -107,6 +111,9 @@ struct clk_core {
 	unsigned long		*rate_max;
 	int			num_rate_max;
 };
+
+//extern unsigned int sec_debug_level(void);
+//bool is_dbg_level_low;
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/clk.h>
@@ -1909,6 +1916,7 @@ static int clk_change_rate(struct clk_core *core)
 	}
 
 	trace_clk_set_rate(core, core->new_rate);
+	sec_debug_clock_rate_log(core->name, core->new_rate, raw_smp_processor_id());
 
 	if (core->new_parent && core->new_parent != core->parent) {
 		old_parent = __clk_set_parent_before(core, core->new_parent);
@@ -1938,6 +1946,7 @@ static int clk_change_rate(struct clk_core *core)
 	}
 
 	trace_clk_set_rate_complete(core, core->new_rate);
+	sec_debug_clock_rate_complete_log(core->name, core->new_rate, raw_smp_processor_id());
 
 	core->rate = clk_recalc(core, best_parent_rate);
 
@@ -2159,6 +2168,9 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 
 	/* prevent racing with updates to the clock topology */
 	clk_prepare_lock();
+
+	//if(!is_dbg_level_low)
+		//trace_clock_set_rate(clk->core->name, rate, raw_smp_processor_id());
 
 	ret = clk_core_set_rate_nolock(clk->core, rate);
 
@@ -2682,6 +2694,59 @@ int clk_set_flags(struct clk *clk, unsigned long flags)
 }
 EXPORT_SYMBOL_GPL(clk_set_flags);
 
+#if IS_ENABLED(CONFIG_SEC_PM)
+static DEFINE_MUTEX(sec_clk_debug_lock);
+static HLIST_HEAD(sec_clk_debug_list);
+
+static int sec_clock_debug_print_clock(struct clk_core *c)
+{
+	char *start = "\t";
+	struct clk *clk;
+
+	if (!c || !c->prepare_count)
+		return 0;
+
+	pr_info("    ");
+	clk = c->hw->clk;
+
+	do {
+		c = clk->core;
+		pr_cont("%s%s:%u:%u [%ld]", start,
+				c->name,
+				c->prepare_count,
+				c->enable_count,
+				c->rate);
+		start = " -> ";
+	} while ((clk = clk_get_parent(clk)));
+
+	pr_cont("\n");
+
+	return 1;
+}
+
+void sec_clock_debug_print_enabled(void)
+{
+	struct clk_core *core;
+	int cnt = 0;
+	
+	if (!mutex_trylock(&sec_clk_debug_lock))
+		return;
+
+	pr_info("Enabled clocks:\n");
+	
+	hlist_for_each_entry(core, &sec_clk_debug_list, sec_debug_node)
+		cnt += sec_clock_debug_print_clock(core);
+
+	if (cnt)
+		pr_info("Enabled clock count: %d\n", cnt);
+	else
+		pr_info("No clocks enabled.\n");
+
+	mutex_unlock(&sec_clk_debug_lock);
+}
+EXPORT_SYMBOL(sec_clock_debug_print_enabled);
+#endif
+
 /***        debugfs support        ***/
 
 #ifdef CONFIG_DEBUG_FS
@@ -2689,7 +2754,11 @@ EXPORT_SYMBOL_GPL(clk_set_flags);
 
 static struct dentry *rootdir;
 static int inited = 0;
+#ifdef CONFIG_SEC_PM_DEBUG
+static u32 debug_suspend = 1;
+#else
 static u32 debug_suspend;
+#endif
 static DEFINE_MUTEX(clk_debug_lock);
 static HLIST_HEAD(clk_debug_list);
 
@@ -3765,8 +3834,17 @@ static int __clk_core_init(struct clk_core *core)
 out:
 	clk_prepare_unlock();
 
+#if IS_ENABLED(CONFIG_SEC_PM)
+	if (!ret) {
+		clk_debug_register(core);
+		mutex_lock(&sec_clk_debug_lock);
+		hlist_add_head(&core->sec_debug_node, &sec_clk_debug_list);
+		mutex_unlock(&sec_clk_debug_lock);
+	}
+#else
 	if (!ret)
 		clk_debug_register(core);
+#endif
 
 	return ret;
 }
@@ -3994,6 +4072,12 @@ void clk_unregister(struct clk *clk)
 		return;
 
 	clk_debug_unregister(clk->core);
+
+#if IS_ENABLED(CONFIG_SEC_PM)
+	mutex_lock(&sec_clk_debug_lock);
+	hlist_del_init(&clk->core->sec_debug_node);
+	mutex_unlock(&sec_clk_debug_lock);
+#endif
 
 	clk_prepare_lock();
 
@@ -4949,6 +5033,12 @@ void __init of_clk_init(const struct of_device_id *matches)
 
 	if (!matches)
 		matches = &__clk_of_table;
+
+	//ANDROID_DEBUG_LEVEL_LOW		0x4f4c
+	/*if (sec_debug_level() == 0x4f4c)
+		is_dbg_level_low = true;
+	else
+		is_dbg_level_low = false;*/
 
 	/* First prepare the list of the clocks providers */
 	for_each_matching_node_and_match(np, matches, &match) {

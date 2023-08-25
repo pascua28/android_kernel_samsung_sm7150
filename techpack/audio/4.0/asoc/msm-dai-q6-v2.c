@@ -52,6 +52,8 @@ enum {
 	DEC_FMT_NONE = ENC_FMT_NONE,
 	ENC_FMT_SBC = ASM_MEDIA_FMT_SBC,
 	DEC_FMT_SBC = ASM_MEDIA_FMT_SBC,
+	ENC_FMT_SBC_SS = ASM_MEDIA_FMT_SBC_SS,
+	ENC_FMT_SSC = ASM_MEDIA_FMT_SSC,
 	ENC_FMT_AAC_V2 = ASM_MEDIA_FMT_AAC_V2,
 	DEC_FMT_AAC_V2 = ASM_MEDIA_FMT_AAC_V2,
 	ENC_FMT_APTX = ASM_MEDIA_FMT_APTX,
@@ -230,6 +232,7 @@ struct msm_dai_q6_dai_data {
 	u16 afe_rx_in_bitformat;
 	u32 afe_tx_out_channels;
 	u16 afe_tx_out_bitformat;
+	u32 dyn_bitrate;
 	struct afe_enc_config enc_config;
 	struct afe_dec_config dec_config;
 	union afe_port_config port_config;
@@ -2473,7 +2476,7 @@ static int msm_dai_q6_usb_audio_hw_params(struct snd_pcm_hw_params *params,
 	dai_data->port_config.usb_audio.num_channels = dai_data->channels;
 	dai_data->port_config.usb_audio.sample_rate = dai_data->rate;
 
-	dev_dbg(dai->dev, "%s: dev_id[0x%x] bit_wd[%hu] format[%hu]\n"
+	dev_info(dai->dev, "%s: dev_id[0x%x] bit_wd[%hu] format[%hu]\n"
 		"num_channel %hu  sample_rate %d\n", __func__,
 		dai_data->port_config.usb_audio.dev_token,
 		dai_data->port_config.usb_audio.bit_width,
@@ -2933,7 +2936,7 @@ static int msm_dai_q6_usb_audio_cfg_put(struct snd_kcontrol *kcontrol,
 
 	if (dai_data) {
 		dai_data->port_config.usb_audio.dev_token = val;
-		pr_debug("%s: dev_token = 0x%x\n",  __func__,
+		pr_info("%s: dev_token = 0x%x\n",  __func__,
 				 dai_data->port_config.usb_audio.dev_token);
 	} else {
 		pr_err("%s: dai_data is NULL\n", __func__);
@@ -3120,6 +3123,11 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 		pr_debug("%s: Received encoder config for %d format\n",
 			 __func__, dai_data->enc_config.format);
 		switch (dai_data->enc_config.format) {
+		case ENC_FMT_SBC_SS:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_ss_sbc_enc_cfg_t));
+			break;
 		case ENC_FMT_SBC:
 			memcpy(&dai_data->enc_config.data,
 				ucontrol->value.bytes.data + format_size,
@@ -3154,6 +3162,11 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 			memcpy(&dai_data->enc_config.data,
 				ucontrol->value.bytes.data + format_size,
 				sizeof(struct asm_aptx_ad_enc_cfg_t));
+			break;
+		case ENC_FMT_SSC:
+			memcpy(&dai_data->enc_config.data,
+				ucontrol->value.bytes.data + format_size,
+				sizeof(struct asm_custom_enc_cfg_ssc_t));
 			break;
 		case ENC_FMT_APTX_AD_SPEECH:
 			memcpy(&dai_data->enc_config.data,
@@ -3338,6 +3351,46 @@ static int msm_dai_q6_afe_input_bit_format_put(
 	return 0;
 }
 
+static int msm_dai_q6_afe_slimbus_dynamic_bitrate_get(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+
+	ucontrol->value.enumerated.item[0] = dai_data->dyn_bitrate;
+	pr_debug("%s: afe dynamic bitrate : %ld\n",
+		__func__, ucontrol->value.integer.value[0]);
+
+	return 0;
+}
+
+static int msm_dai_q6_afe_slimbus_dynamic_bitrate_put(
+			struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int rc = 0;
+	struct msm_dai_q6_dai_data *dai_data = kcontrol->private_data;
+
+	if (!dai_data) {
+		pr_err("%s: Invalid dai data\n", __func__);
+		return -EINVAL;
+	}
+	dai_data->dyn_bitrate = ucontrol->value.enumerated.item[0];
+	pr_debug("%s: updating afe dynamic bitrate : %d\n",
+		__func__, dai_data->dyn_bitrate);
+
+	rc = afe_q6_slimbus_update_dyn_bitrate(dai_data->dyn_bitrate);
+	if (rc < 0)
+		pr_debug("%s: fail to update dynamic bitrate for AFE APR\n", __func__);
+
+	return rc;
+}
+
 static int msm_dai_q6_afe_output_bit_format_get(
 			struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
@@ -3485,7 +3538,10 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		.info = msm_dai_q6_afe_enc_cfg_info,
 		.get = msm_dai_q6_afe_enc_cfg_get,
 		.put = msm_dai_q6_afe_enc_cfg_put,
-	}
+	},
+	SOC_SINGLE_EXT("AFE Dynamic Bitrate", 0, 0, UINT_MAX, 0,
+		       msm_dai_q6_afe_slimbus_dynamic_bitrate_get,
+		       msm_dai_q6_afe_slimbus_dynamic_bitrate_put)
 };
 
 static int  msm_dai_q6_afe_dec_cfg_info(struct snd_kcontrol *kcontrol,
@@ -3612,6 +3668,14 @@ static int msm_dai_q6_afe_dec_cfg_get(struct snd_kcontrol *kcontrol,
 	case DEC_FMT_MP3:
 		/* No decoder specific data available */
 		break;
+	case ENC_FMT_SBC_SS:
+	case ENC_FMT_SSC:
+		pr_debug("%s: SBC_SS or SSC config for %d format: Expect abr_dec_cfg\n",
+				__func__, dai_data->dec_config.format);
+		memcpy(ucontrol->value.bytes.data + format_size,
+			&dai_data->dec_config.abr_dec_cfg,
+			sizeof(struct afe_abr_dec_cfg_t));
+		break;
 	default:
 		pr_err("%s: Invalid format %d\n",
 				__func__, dai_data->dec_config.format);
@@ -3657,6 +3721,14 @@ static int msm_dai_q6_afe_dec_cfg_put(struct snd_kcontrol *kcontrol,
 		memcpy(&dai_data->dec_config.data,
 			ucontrol->value.bytes.data + format_size,
 			sizeof(struct asm_aptx_ad_dec_cfg_t));
+		break;
+	case ENC_FMT_SBC_SS:
+	case ENC_FMT_SSC:
+		pr_debug("%s: SBC SS or SSC config for %d format: Expect abr_dec_cfg\n",
+				__func__, dai_data->dec_config.format);
+		memcpy(&dai_data->dec_config.abr_dec_cfg,
+			ucontrol->value.bytes.data + format_size,
+			sizeof(struct afe_abr_dec_cfg_t));
 		break;
 	default:
 		pr_err("%s: Invalid format %d\n",
@@ -3898,6 +3970,9 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 				 dai));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				 snd_ctl_new1(&afe_enc_config_controls[5],
+				 dai_data));
+		rc = snd_ctl_add(dai->component->card->snd_card,
+				 snd_ctl_new1(&afe_enc_config_controls[6],
 				 dai_data));
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(&avd_drift_config_controls[2],

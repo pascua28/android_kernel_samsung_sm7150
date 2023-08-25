@@ -73,6 +73,8 @@ MODULE_DESCRIPTION("USB Audio");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Generic,USB Audio}}");
 
+#undef dev_dbg
+#define dev_dbg dev_err
 
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
@@ -867,6 +869,7 @@ static int usb_audio_suspend(struct usb_interface *intf, pm_message_t message)
 	if (chip == (void *)-1L)
 		return 0;
 
+	dev_dbg(&intf->dev, "suspend\n");
 	if (!chip->num_suspended_intf++) {
 		list_for_each_entry(as, &chip->pcm_list, list) {
 			snd_pcm_suspend_all(as->pcm);
@@ -929,6 +932,7 @@ err_out:
 
 static int usb_audio_resume(struct usb_interface *intf)
 {
+	dev_dbg(&intf->dev, "resume\n");
 	return __usb_audio_resume(intf, false);
 }
 

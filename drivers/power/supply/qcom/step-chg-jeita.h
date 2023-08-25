@@ -15,6 +15,15 @@
 
 #define MAX_STEP_CHG_ENTRIES	8
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#define NOT_CHANGE_RECHG	0
+#define CHANGE_RECHG		1
+#define RECHG_COOL	4200
+#define RECHG_NORMAL	4280
+#define RECHG_WARM	4000
+#endif
+
+
 struct step_chg_jeita_param {
 	u32			psy_prop;
 	char			*prop_name;

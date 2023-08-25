@@ -9,6 +9,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+#define DEBUG
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -30,11 +31,19 @@
 #include "wcd-mbhc-adc.h"
 #include "wcd-mbhc-v2.h"
 #include "pdata.h"
-
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+#include "wcd937x/wcd937x-registers.h"
+#include "pdata.h"
+#endif
+#include "wcd937x/wcd937x-registers.h"
 #define WCD_MBHC_ADC_HS_THRESHOLD_MV    1700
-#define WCD_MBHC_ADC_HPH_THRESHOLD_MV   75
-#define WCD_MBHC_ADC_MICBIAS_MV         1800
+#define WCD_MBHC_ADC_HPH_THRESHOLD_MV   641
+#define WCD_MBHC_ADC_MICBIAS_MV         2800
 #define WCD_MBHC_FAKE_INS_RETRY         4
+
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+#define MBHC_SLOW_DET_ADC_COUNT 10
+#endif
 
 static int wcd_mbhc_get_micbias(struct wcd_mbhc *mbhc)
 {
@@ -91,7 +100,7 @@ static int wcd_measure_adc_continuous(struct wcd_mbhc *mbhc)
 
 	while (retry--) {
 		/* wait for 3 msec before reading ADC result */
-		usleep_range(3000, 3100);
+		usleep_range(20000, 20100);
 
 		/* Read ADC result */
 		WCD_MBHC_REG_READ(WCD_MBHC_ADC_RESULT, adc_result);
@@ -102,7 +111,7 @@ static int wcd_measure_adc_continuous(struct wcd_mbhc *mbhc)
 	/* Get voltage from ADC result */
 	output_mv = wcd_get_voltage_from_adc(adc_result,
 					     wcd_mbhc_get_micbias(mbhc));
-	pr_debug("%s: adc_result: 0x%x, output_mv: %d\n",
+	pr_info("%s: adc_result: 0x%x, output_mv: %d\n",
 		 __func__, adc_result, output_mv);
 
 	return output_mv;
@@ -503,23 +512,23 @@ static bool wcd_is_special_headset(struct wcd_mbhc *mbhc)
 static void wcd_mbhc_adc_update_fsm_source(struct wcd_mbhc *mbhc,
 				       enum wcd_mbhc_plug_type plug_type)
 {
-	bool micbias2;
-
-	micbias2 = mbhc->mbhc_cb->micbias_enable_status(mbhc,
-							MIC_BIAS_2);
 	switch (plug_type) {
 	case MBHC_PLUG_TYPE_HEADPHONE:
-		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 3);
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
+		if (!mbhc->mbhc_cfg->detect_extn_cable)
+			WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
 		break;
 	case MBHC_PLUG_TYPE_HEADSET:
 	case MBHC_PLUG_TYPE_ANC_HEADPHONE:
-		if (!mbhc->is_hs_recording && !micbias2)
-			WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 3);
+		if (mbhc->pullup_enable == false) {
+			mbhc->mbhc_cb->mbhc_micbias_control(mbhc->codec,
+					MIC_BIAS_2, MICB_PULLUP_ENABLE);
+			mbhc->pullup_enable = true;
+		}
 		break;
 	default:
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 0);
 		break;
-
 	};
 }
 
@@ -553,23 +562,110 @@ static void wcd_cancel_hs_detect_plug(struct wcd_mbhc *mbhc,
 static void wcd_mbhc_adc_detect_plug_type(struct wcd_mbhc *mbhc)
 {
 	struct snd_soc_codec *codec = mbhc->codec;
-
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+	/* slow: Check slow insertion with schmitt trigger */
+	bool hphl_sch_res, hphr_sch_res;
+	int hphl_adc_res = 0, hphr_adc_res = 0;
+	u8 fsm_en = 0;
+	u8 adc_mode = 0;
+	u8 elect_ctl = 0;
+	u8 adc_en = 0;
+	int try_l = 0, try_r = 0;
+#endif
+	u8 l_hph_surg_p = 0;/* WCD_MBHC_EN_SURGE_PROTECTION_HPHL */
+	u8 r_hph_surg_p = 0;/* WCD_MBHC_EN_SURGE_PROTECTION_HPHR */
 	pr_debug("%s: enter\n", __func__);
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
 
 	if (mbhc->mbhc_cb->hph_pull_down_ctrl)
 		mbhc->mbhc_cb->hph_pull_down_ctrl(codec, false);
-
+	/* disable MIC_CLAMP */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_MIC_CLAMP_CTL, 0);
+	/* read WCD_MBHC_EN_SURGE_PROTECTION_HPHL and disable */
+	WCD_MBHC_REG_READ(WCD_MBHC_EN_SURGE_PROTECTION_HPHL, l_hph_surg_p);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_EN_SURGE_PROTECTION_HPHL, 0);
+	
+	/* read WCD_MBHC_EN_SURGE_PROTECTION_HPHR and disable */
+	WCD_MBHC_REG_READ(WCD_MBHC_EN_SURGE_PROTECTION_HPHR, r_hph_surg_p);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_EN_SURGE_PROTECTION_HPHR, 0);
 	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_DETECTION_DONE, 0);
 
 	if (mbhc->mbhc_cb->mbhc_micbias_control) {
+		usleep_range(20000, 20100);
 		mbhc->mbhc_cb->mbhc_micbias_control(codec, MIC_BIAS_2,
 						    MICB_ENABLE);
 	} else {
 		pr_err("%s: Mic Bias is not enabled\n", __func__);
 		return;
 	}
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+	/* slow: Check L/R ADC value of each pin */
+	/* Read legacy electircal detection and disable */
+	WCD_MBHC_REG_READ(WCD_MBHC_ELECT_SCHMT_ISRC, elect_ctl);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_SCHMT_ISRC, 0);
+	/* Read and set ADC to single measurement */
+	WCD_MBHC_REG_READ(WCD_MBHC_ADC_MODE, adc_mode);
+	/* Read ADC Enable bit to restore after adc measurement */
+	WCD_MBHC_REG_READ(WCD_MBHC_ADC_EN, adc_en);
+	/* Read FSM status */
+	WCD_MBHC_REG_READ(WCD_MBHC_FSM_EN, fsm_en);
 
+	/* Get adc result for HPH L */
+	do {
+		hphl_adc_res = wcd_measure_adc_once(mbhc, MUX_CTL_HPH_L);
+		if (hphl_adc_res < 0) {
+			pr_err("%s: hphl_adc_res adc measurement failed\n", __func__);
+			hphl_sch_res = true;
+		} else {
+			pr_debug("%s: hphl_adc_res adc val : %d\n", __func__, hphl_adc_res);
+			hphl_sch_res = hphl_adc_res > 50 ? true : false;
+			break;
+		}
+		try_l++;
+	} while (try_l < MBHC_SLOW_DET_ADC_COUNT);
+
+	/* Get adc result for HPH R in mV */
+	do {
+		hphr_adc_res = wcd_measure_adc_once(mbhc, MUX_CTL_HPH_R);
+		if (hphr_adc_res < 0) {
+			pr_err("%s: hphr_adc_res adc measurement failed\n", __func__);
+			hphr_sch_res = true;
+		} else {
+			pr_debug("%s: hphr_adc_res adc val : %d\n", __func__, hphr_adc_res);
+			hphr_sch_res = hphr_adc_res > 50 ? true : false;
+			break;
+		}
+		try_r++;
+	} while (try_r < MBHC_SLOW_DET_ADC_COUNT);
+
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 0);
+	/* Set the MUX selection to Auto */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_MUX_CTL, MUX_CTL_AUTO);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 1);
+	/* Restore ADC Enable */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ADC_EN, adc_en);
+	/* Restore ADC mode */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ADC_MODE, adc_mode);
+	/* Restore FSM state */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, fsm_en);
+	/* Restore electrical detection */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_SCHMT_ISRC, elect_ctl);
+	if ((hphl_sch_res || hphr_sch_res) && !mbhc->is_extn_cable) {
+		pr_debug("%s: SLOW Insertion [ %d | %d ]\n",
+			__func__, hphl_sch_res, hphr_sch_res);
+		mbhc->slow_insertion = true;
+	} else {
+		pr_debug("%s: NORMAL Insertion [ %d | %d ]\n",
+			__func__, hphl_sch_res, hphr_sch_res);
+		mbhc->slow_insertion = false;
+	}
+	/* enable HPH L/R GND switch */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHL_GND, 1);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_HPHR_GND, 1);
+
+	/* enable MIC_CLAMP */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_MIC_CLAMP_CTL, 2);
+#endif/* CONFIG_SND_SOC_WCD_MBHC_SLOW_DET */
 	/* Re-initialize button press completion object */
 	reinit_completion(&mbhc->btn_press_compl);
 	wcd_schedule_hs_detect_plug(mbhc, &mbhc->correct_plug_swch);
@@ -599,11 +695,19 @@ static int wcd_mbhc_get_plug_from_adc(struct wcd_mbhc *mbhc, int adc_result)
 
 	if (adc_result < hph_thr)
 		plug_type = MBHC_PLUG_TYPE_HEADPHONE;
-	else if (adc_result > hs_thr)
-		plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
-	else
+	else if (adc_result > hs_thr) {
+		if (mbhc->mbhc_cfg->detect_extn_cable)
+#ifdef CONFIG_SEC_FACTORY
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
+#else
+			plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
+#endif
+		else
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
+	} else
 		plug_type = MBHC_PLUG_TYPE_HEADSET;
-	pr_debug("%s: plug type is %d found\n", __func__, plug_type);
+
+	pr_info("%s: plug type is %d found\n", __func__, plug_type);
 
 	return plug_type;
 }
@@ -621,10 +725,11 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	int ret = 0;
 	int spl_hs_count = 0;
 	int output_mv = 0;
+#ifndef CONFIG_SND_SOC_WCD_MBHC_SLOW_DET
 	int cross_conn;
 	int try = 0;
+#endif
 	int hs_threshold, micbias_mv;
-
 	pr_debug("%s: enter\n", __func__);
 
 	mbhc = container_of(work, struct wcd_mbhc, correct_plug_swch);
@@ -638,6 +743,7 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	wcd_mbhc_hs_elec_irq(mbhc, WCD_MBHC_ELEC_HS_INS, false);
 	WCD_MBHC_RSC_UNLOCK(mbhc);
 
+#ifndef CONFIG_SND_SOC_WCD_MBHC_SLOW_DET
 	/* Check for cross connection */
 	do {
 		cross_conn = wcd_check_cross_conn(mbhc);
@@ -650,6 +756,7 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 			 __func__, plug_type);
 		goto correct_plug_type;
 	}
+#endif
 	/* Find plug type */
 	output_mv = wcd_measure_adc_continuous(mbhc);
 	plug_type = wcd_mbhc_get_plug_from_adc(mbhc, output_mv);
@@ -658,12 +765,16 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 	 * Report plug type if it is either headset or headphone
 	 * else start the 3 sec loop
 	 */
-	if ((plug_type == MBHC_PLUG_TYPE_HEADSET ||
-	     plug_type == MBHC_PLUG_TYPE_HEADPHONE) &&
-	    (!wcd_swch_level_remove(mbhc))) {
-		WCD_MBHC_RSC_LOCK(mbhc);
-		wcd_mbhc_find_plug_and_report(mbhc, plug_type);
-		WCD_MBHC_RSC_UNLOCK(mbhc);
+	if (plug_type == MBHC_PLUG_TYPE_HEADSET ||
+	     plug_type == MBHC_PLUG_TYPE_HEADPHONE) {
+		if (mbhc->mbhc_cfg->detect_extn_cable &&
+			wcd_swch_level_remove(mbhc)) {
+			pr_info("%s: Skipping to report plug\n", __func__);
+		} else {
+			WCD_MBHC_RSC_LOCK(mbhc);
+			wcd_mbhc_find_plug_and_report(mbhc, plug_type);
+			WCD_MBHC_RSC_UNLOCK(mbhc);
+		}
 	}
 
 	/*
@@ -677,17 +788,18 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_DETECTION_DONE, 1);
 	}
 
+#ifndef CONFIG_SND_SOC_WCD_MBHC_SLOW_DET
 correct_plug_type:
-	/*
-	 * Callback to disable BCS slow insertion detection
-	 */
-	if (plug_type == MBHC_PLUG_TYPE_HEADSET ||
-	    plug_type == MBHC_PLUG_TYPE_HEADPHONE)
-		if (mbhc->mbhc_cb->bcs_enable)
-			mbhc->mbhc_cb->bcs_enable(mbhc, false);
+#endif
+	if (!mbhc->slow_insertion &&
+		mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET) {
+		pr_debug("%s: plug_type:0x%x already reported\n",
+			 __func__, mbhc->current_plug);
+		goto report;
+	}
 
 	timeout = jiffies + msecs_to_jiffies(HS_DETECT_PLUG_TIME_MS);
-	while (!time_after(jiffies, timeout)) {
+	while (!time_after(jiffies, timeout)&& mbhc->slow_insertion) {
 		if (mbhc->hs_detect_work_stop) {
 			pr_debug("%s: stop requested: %d\n", __func__,
 					mbhc->hs_detect_work_stop);
@@ -735,7 +847,7 @@ correct_plug_type:
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(mbhc->codec);
 
 		if ((output_mv <= hs_threshold) &&
-		    (!is_pa_on)) {
+		    (!is_pa_on) && mbhc->mbhc_cfg->mbhc_spl_headset) {
 			/* Check for cross connection*/
 			ret = wcd_check_cross_conn(mbhc);
 			if (ret < 0)
@@ -790,12 +902,21 @@ correct_plug_type:
 
 		if (output_mv > hs_threshold) {
 			pr_debug("%s: cable is extension cable\n", __func__);
-			plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
+			if (mbhc->mbhc_cfg->detect_extn_cable)
+#ifdef CONFIG_SEC_FACTORY
+				plug_type = MBHC_PLUG_TYPE_HEADSET;
+#else
+				plug_type = MBHC_PLUG_TYPE_HIGH_HPH;
+#endif
+			else
+				plug_type = MBHC_PLUG_TYPE_HEADSET;
+
 			wrk_complete = true;
 		} else {
 			pr_debug("%s: cable might be headset: %d\n", __func__,
 				 plug_type);
-			if (plug_type != MBHC_PLUG_TYPE_GND_MIC_SWAP) {
+			if ((plug_type != MBHC_PLUG_TYPE_GND_MIC_SWAP) &&
+				mbhc->mbhc_cfg->mbhc_spl_headset){
 				plug_type = wcd_mbhc_get_plug_from_adc(
 						mbhc, output_mv);
 				if (!spl_hs_reported &&
@@ -829,19 +950,15 @@ correct_plug_type:
 			wrk_complete = false;
 		}
 	}
-	if ((plug_type == MBHC_PLUG_TYPE_HEADSET ||
-	    plug_type == MBHC_PLUG_TYPE_HEADPHONE))
-		if (mbhc->mbhc_cb->bcs_enable)
-			mbhc->mbhc_cb->bcs_enable(mbhc, true);
-
 	if (!wrk_complete) {
 		/*
 		 * If plug_tye is headset, we might have already reported either
 		 * in detect_plug-type or in above while loop, no need to report
 		 * again
 		 */
-		if ((plug_type == MBHC_PLUG_TYPE_HEADSET) ||
-		    (plug_type == MBHC_PLUG_TYPE_ANC_HEADPHONE)) {
+		if ((mbhc->current_plug == plug_type) && 
+		    ((plug_type == MBHC_PLUG_TYPE_HEADSET) ||
+		    (plug_type == MBHC_PLUG_TYPE_ANC_HEADPHONE))) {
 			pr_debug("%s: plug_type:0x%x already reported\n",
 				 __func__, mbhc->current_plug);
 			WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ADC_MODE, 0);
@@ -849,7 +966,8 @@ correct_plug_type:
 			goto enable_supply;
 		}
 	}
-	if (plug_type == MBHC_PLUG_TYPE_HIGH_HPH) {
+	if (mbhc->mbhc_cfg->mbhc_spl_headset &&
+	    plug_type == MBHC_PLUG_TYPE_HIGH_HPH) {
 		if (wcd_is_special_headset(mbhc)) {
 			pr_debug("%s: Special headset found %d\n",
 					__func__, plug_type);
@@ -940,7 +1058,9 @@ exit:
 
 	if (mbhc->mbhc_cb->hph_pull_down_ctrl)
 		mbhc->mbhc_cb->hph_pull_down_ctrl(codec, true);
-
+	/* enable surge protection */
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_EN_SURGE_PROTECTION_HPHL, 1);
+	WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_EN_SURGE_PROTECTION_HPHR, 1);
 	mbhc->mbhc_cb->lock_sleep(mbhc, false);
 	pr_debug("%s: leave\n", __func__);
 }

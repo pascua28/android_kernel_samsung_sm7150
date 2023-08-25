@@ -250,4 +250,14 @@ config PINCTRL_SDM429W
 	  Technologies Inc SDM429W platform.
 	  If unsure say N.
 
+config SENSORS_FP_SPI_GPIO_START
+    depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number start"
+	default 0
+
+config SENSORS_FP_SPI_GPIO_END
+    depends on SENSORS_FINGERPRINT
+	int "Fingerprint spi gpio number end"
+	default 0
+
 endif

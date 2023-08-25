@@ -144,7 +144,7 @@ do {                                                    \
 #define GND_MIC_SWAP_THRESHOLD 4
 #define GND_MIC_USBC_SWAP_THRESHOLD 2
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
-#define HS_VREF_MIN_VAL 1400
+#define HS_VREF_MIN_VAL 1300
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 #define FAKE_REM_RETRY_ATTEMPTS 3
@@ -222,6 +222,8 @@ enum wcd_mbhc_register_function {
 	WCD_MBHC_ADC_MODE,
 	WCD_MBHC_DETECTION_DONE,
 	WCD_MBHC_ELECT_ISRC_EN,
+	WCD_MBHC_EN_SURGE_PROTECTION_HPHL,
+	WCD_MBHC_EN_SURGE_PROTECTION_HPHR,
 	WCD_MBHC_REG_FUNC_MAX,
 };
 
@@ -448,6 +450,7 @@ struct wcd_mbhc_config {
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
 	bool moisture_duty_cycle_en;
+	bool mbhc_spl_headset;
 	struct usbc_ana_audio_config usbc_analog_cfg;
 	bool fsa_enable;
 };
@@ -608,13 +611,21 @@ struct wcd_mbhc {
 
 	unsigned long intr_status;
 	bool is_hph_ocp_pending;
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+	bool slow_insertion;
+#endif
 	bool usbc_force_pr_mode;
-
 	struct wcd_mbhc_fn *mbhc_fn;
 	bool force_linein;
 	int usbc_mode;
 	struct device_node *fsa_np;
 	struct notifier_block fsa_nb;
+
+	bool pullup_enable;
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	int default_impedance_offset;
+	int impedance_offset;
+#endif
 	struct notifier_block psy_nb;
 	struct power_supply *usb_psy;
 	struct work_struct usbc_analog_work;

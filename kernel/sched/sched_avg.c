@@ -108,6 +108,10 @@ static inline void update_last_busy_time(int cpu, bool dequeue,
 				unsigned long prev_nr_run, u64 curr_time)
 {
 	bool nr_run_trigger = false, load_trigger = false;
+	bool is_sched_boost = false;
+
+	if (sysctl_sched_boost > 0)
+		is_sched_boost = true;
 
 	if (!hmp_capable() || is_min_capacity_cpu(cpu))
 		return;
@@ -119,7 +123,7 @@ static inline void update_last_busy_time(int cpu, bool dequeue,
 			capacity_orig_of(cpu))
 		load_trigger = true;
 
-	if (nr_run_trigger || load_trigger)
+	if (nr_run_trigger || load_trigger || is_sched_boost)
 		atomic64_set(&per_cpu(last_busy_time, cpu), curr_time);
 }
 

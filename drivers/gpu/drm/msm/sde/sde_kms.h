@@ -105,7 +105,16 @@
 #define SDE_NAME_SIZE  12
 
 /* timeout in frames waiting for frame done */
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+/* case 03134585
+ * sometimes, it is delayed for hundreds miliseconds
+ * to call sde_crtc_frame_event_work(), by scheduling.
+ * Set enough time for frame done timeout.
+ */
+#define SDE_FRAME_DONE_TIMEOUT	500
+#else
 #define SDE_FRAME_DONE_TIMEOUT	60
+#endif
 
 /* max active secure client counts allowed */
 #define MAX_ALLOWED_SECURE_CLIENT_CNT	1

@@ -222,6 +222,48 @@ config MFD_CROS_EC_SPI
 	  response time cannot be guaranteed, we support ignoring
 	  'pre-amble' bytes before the response actually starts.
 
+config MFD_TACNA
+	bool
+
+config MFD_TACNA_SPI
+	tristate "Cirrus Logic Tacna codecs with SPI"
+	select MFD_CORE
+	select MFD_TACNA
+	select TACNA_IRQ
+	select PINCTRL_TACNA
+	select REGMAP
+	select REGMAP_SPI
+	select REGMAP_IRQ
+	depends on SPI_MASTER
+	depends on PINCTRL
+	help
+	  Support for the Cirrus Logic Tacna platform audio SoC
+	  core functionality controlled via SPI.
+
+config MFD_CS47L96
+	bool "Cirrus Logic CS47L96 and CS47L97"
+	depends on MFD_TACNA
+	help
+	  Support for Cirrus Logic CS47L96 and CS47L97 Smart Codec
+
+config MFD_CS48L31
+	bool "Cirrus Logic CS48L31"
+	depends on MFD_TACNA
+	help
+	  Support for Cirrus Logic CS48L31 Smart Codec
+
+config MFD_CS48L32
+	bool "Cirrus Logic CS48L32"
+	depends on MFD_TACNA
+	help
+	  Support for Cirrus Logic CS48L32 Smart Codec
+
+config MFD_CS48L33
+	bool "Cirrus Logic CS48L33"
+	depends on MFD_TACNA
+	help
+	  Support for Cirrus Logic CS48L33 Smart Codec
+
 config MFD_ASIC3
 	bool "Compaq ASIC3"
 	depends on GPIOLIB && ARM
@@ -761,6 +803,17 @@ config MFD_MAX8998
 	  additional drivers must be enabled in order to use the functionality
 	  of the device.
 
+config MFD_SM5713
+        bool "Siliconmitus SM5713 IFPM Support"
+        depends on I2C=y
+        select MFD_CORE
+        help
+          Say yes here to support for Siliconmitus SM5713.
+          This is a Power Management IC with USBLDO, RGB(SVC led), Dual Flash, Charger 
+          controls on chip.
+          This driver provides common support for accessing the device;
+          additional drivers
+
 config MFD_MT6397
 	tristate "MediaTek MT6397 PMIC Support"
 	select MFD_CORE
@@ -1000,6 +1053,37 @@ config MFD_RN5T618
 	  This driver provides common support for accessing the device,
 	  additional drivers must be enabled in order to use the
 	  functionality of the device.
+
+config MFD_S2MU107
+    bool "SAMSUNG Electronics IF PMIC Series Support"
+    depends on I2C=y
+    select MFD_CORE
+    help
+     Support for the Samsung Electronics MFD series.
+     This driver provides common support for accessing the device,
+     additional drivers must be enabled in order to use the functionality
+     of the device
+	 
+config MFD_S2MU106
+    	bool "SAMSUNG Electronics IF PMIC Series Support"
+    	depends on I2C=y
+    	select MFD_CORE
+    	help
+     	 Support for the Samsung Electronics MFD series.
+     	 This driver provides common support for accessing the device,
+     	 additional drivers must be enabled in order to use the functionality
+     	 of the device
+
+config MFD_SM5714
+        bool "Siliconmitus SM5714 IFPM Support"
+        depends on I2C=y
+        select MFD_CORE
+        help
+          Say yes here to support for Siliconmitus SM5714.
+          This is a Power Management IC with Single Flash, Charger, Type-C, MUIC, FG
+          controls on chip.
+          This driver provides common support for accessing the device;
+          additional drivers
 
 config MFD_SEC_CORE
 	bool "SAMSUNG Electronics PMIC Series Support"

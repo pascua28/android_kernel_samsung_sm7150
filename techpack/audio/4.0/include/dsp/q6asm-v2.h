@@ -144,6 +144,9 @@ enum {
 	SOFT_PAUSE_CURVE_LOG,
 };
 
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+#define SOFT_VOLUME_MMAP_PERIOD       0   /* ramp up/down for mmap 0ms    */
+#endif
 #define SOFT_VOLUME_PERIOD       30   /* ramp up/down for 30ms    */
 #define SOFT_VOLUME_STEP         0 /* Step value 0ms or 0us */
 enum {
@@ -753,4 +756,8 @@ int q6asm_adjust_session_clock(struct audio_client *ac,
 /* Provide default asm channel mapping for given channel count */
 int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
 		bool use_back_flavor);
+
+#ifdef CONFIG_SEC_SND_ADAPTATION
+struct audio_session *q6asm_get_audio_session(void);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
 #endif /* __Q6_ASM_H__ */

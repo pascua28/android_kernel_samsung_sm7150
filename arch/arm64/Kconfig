@@ -109,9 +109,7 @@ config ARM64
 	select HAVE_DEBUG_KMEMLEAK
 	select HAVE_DMA_API_DEBUG
 	select HAVE_DMA_CONTIGUOUS
-	select HAVE_DYNAMIC_FTRACE
 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
-	select HAVE_FTRACE_MCOUNT_RECORD
 	select HAVE_FUNCTION_TRACER
 	select HAVE_FUNCTION_GRAPH_TRACER if !SHADOW_CALL_STACK
 	select HAVE_GCC_PLUGINS
@@ -313,6 +311,7 @@ source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"
 
+source "arch/arm64/Kconfig.projects"
 source "arch/arm64/Kconfig.platforms"
 
 menu "Bus support"
@@ -1099,6 +1098,78 @@ config ARM64_SW_TTBR0_PAN
 	  zeroed area and reserved ASID. The user access routines
 	  restore the valid TTBR0_EL1 temporarily.
 
+config UH
+	bool "Enable micro hypervisor feature of Samsung"
+	depends on !SEC_FACTORY
+	default n
+	help
+	  It enables a micro hypervisor.
+	  It's samsung's hypervisor and it should be combined with QC hyp.
+	  So you must check a hypX(samsung hypervisor image)
+	  RKP and etc can be loaded on it.
+
+config UH_RKP
+	bool "Enable RKP (Realtime Kernel Protection) UH feature"
+	select UH
+	default n
+	help
+		it protects a kernel text and etc.
+
+config RKP_MODULE_SUPPORT
+	bool "RKP (Realtime Kernel Protection) supports and protect modules"
+	depends on UH_RKP
+	default n
+	help
+		it protects a kernel module text and etc.
+
+config RKP_KDP
+	bool "Protection for cred structure"
+	depends on !SEC_VTS_TEST
+	depends on UH_RKP
+	default n
+	help
+	  Prevents unauthorized cred modification.
+
+config RKP_NS_PROT
+	bool "Protection for namespace structure"
+	depends on RKP_KDP
+	default n
+	help
+	  Prevents unauthorized namespace modification.
+
+config RKP_DMAP_PROT
+	bool "Page Double Mapping protection"
+	depends on RKP_KDP
+	default n
+	help
+	  Prevents unauthorized mapping for page table.
+
+config RKP_TEST
+	bool "Enable RKP test"
+	depends on UH_RKP && !SAMSUNG_PRODUCT_SHIP
+	default n
+	help
+	  enable RKP test.
+
+config KDP_TEST
+	bool "Enable KDP test"
+	depends on RKP_KDP && RKP_NS_PROT && !SAMSUNG_PRODUCT_SHIP
+	default n
+	help
+	  enable KDP test.
+
+config UH_LKMAUTH
+	bool "Enable LKM authentication by micro hypervisor"
+	depends on MODULES
+	help
+	  micro hypervisor authenticates loaded kernel modules. Disable it if you don't
+	  want CONFIG_UH enabled.
+
+config UH_LKM_BLOCK
+	bool "Block LKM by micro hypervisor"
+	help
+	  LKM is not allowed by Samsung security policy.
+
 menu "ARMv8.1 architectural features"
 
 config ARM64_HW_AFDBM
@@ -1432,6 +1503,8 @@ config SYSVIPC_COMPAT
 	depends on COMPAT && SYSVIPC
 
 endmenu
+
+source "arch/arm64/Kconfig.sec"
 
 menu "Power management options"
 

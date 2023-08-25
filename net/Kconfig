@@ -58,6 +58,7 @@ source "net/unix/Kconfig"
 source "net/tls/Kconfig"
 source "net/xfrm/Kconfig"
 source "net/iucv/Kconfig"
+source "net/ncm/Kconfig"
 source "net/smc/Kconfig"
 
 config INET

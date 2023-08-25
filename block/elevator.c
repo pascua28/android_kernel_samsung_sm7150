@@ -235,6 +235,9 @@ int elevator_init(struct request_queue *q, char *name)
 		 * to "none".
 		 */
 		if (q->mq_ops) {
+			if (q->tag_set && q->tag_set->flags & BLK_MQ_F_NO_SCHED_BY_DEFAULT)
+				return 0;
+
 			if (q->nr_hw_queues == 1)
 				e = elevator_get(q, "mq-deadline", false);
 			if (!e)
@@ -590,6 +593,20 @@ static void blk_pm_add_request(struct request_queue *q, struct request *rq)
 	if (q->dev && !(rq->rq_flags & RQF_PM) && q->nr_pending++ == 0 &&
 	    (q->rpm_status == RPM_SUSPENDED || q->rpm_status == RPM_SUSPENDING))
 		pm_request_resume(q->dev);
+		
+#if 1
+	// We detected runtime resume had not been called despite
+	// pm_runtime_work is not pending and running
+	// We can't know what makes this symptom. In the case, we will try to
+	// call pm_request_resume to resolve such a problem.
+	else if (q->nr_pending && q->dev && !(rq->cmd_flags & RQF_PM) &&
+			(q->rpm_status == RPM_SUSPENDED || q->rpm_status == RPM_SUSPENDING) &&
+			!work_pending(&q->dev->power.work) && !work_busy(&q->dev->power.work)) {
+		printk(KERN_ERR "%s: needs to call pm_request_resume(nr_pending=%u)\n",
+				q->elevator->type->elevator_name, q->nr_pending);
+		pm_request_resume(q->dev);
+	}
+#endif
 }
 #else
 static inline void blk_pm_requeue_request(struct request *rq) {}
@@ -640,6 +657,8 @@ void elv_drain_elevator(struct request_queue *q)
 void __elv_add_request(struct request_queue *q, struct request *rq, int where)
 {
 	trace_block_rq_insert(q, rq);
+
+	blk_queue_io_vol_add(q, rq->cmd_flags, blk_rq_bytes(rq));
 
 	blk_pm_add_request(q, rq);
 
@@ -801,6 +820,8 @@ void elv_completed_request(struct request_queue *q, struct request *rq)
 	 */
 	if (blk_account_rq(rq)) {
 		q->in_flight[rq_is_sync(rq)]--;
+		if (!queue_in_flight(q))
+			q->in_flight_time += ktime_us_delta(ktime_get(), q->in_flight_stamp);
 		if ((rq->rq_flags & RQF_SORTED) &&
 		    e->type->ops.sq.elevator_completed_req_fn)
 			e->type->ops.sq.elevator_completed_req_fn(q, rq);

@@ -234,7 +234,7 @@ static int adc_tm_get_dt_data(struct platform_device *pdev,
 	adc_tm->prop.timer2 = ADC_TM_TIMER2;
 	adc_tm->prop.timer3 = ADC_TM_TIMER3;
 
-	for_each_child_of_node(node, child) {
+	for_each_available_child_of_node(node, child) {
 		int channel_num, i = 0, adc_rscale_fn = 0;
 		int calib_type = 0, ret, hw_settle_time = 0;
 		int prescal = 0;
@@ -324,7 +324,7 @@ static int adc_tm_probe(struct platform_device *pdev)
 	if (!node)
 		return -EINVAL;
 
-	for_each_child_of_node(node, child)
+	for_each_available_child_of_node(node, child)
 		dt_chan_num++;
 
 	if (!dt_chan_num) {

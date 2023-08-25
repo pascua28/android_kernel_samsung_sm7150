@@ -173,6 +173,8 @@ struct swr_mstr_ctrl {
 	int wlock_holders;
 	u32 intr_mask;
 	u32 swr_irq_wakeup_capable;
+	u32 rd_fifo_depth;
+	u32 wr_fifo_depth;
 };
 
 #endif /* _SWR_WCD_CTRL_H */

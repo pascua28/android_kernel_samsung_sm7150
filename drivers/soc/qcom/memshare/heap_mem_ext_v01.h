@@ -44,6 +44,10 @@ enum dhms_mem_client_id_v01 {
 	DHMS_MEM_CLIENT_ID_MIN_ENUM_VAL_V01 = -2147483647,
 	/*  Request from GPS Client    */
 	DHMS_MEM_CLIENT_GPS_V01 = 0,
+#ifdef CONFIG_CP_DYNAMIC_MEM_RESERVE
+	/* Modem Sharedmem Client */
+	DHMS_MEM_CLIENT_MODEM_V01 = 3,
+#endif
 	/* Invalid Client */
 	DHMS_MEM_CLIENT_INVALID = 1000,
 	/* To force a 32 bit signed enum.  Do not change or use */

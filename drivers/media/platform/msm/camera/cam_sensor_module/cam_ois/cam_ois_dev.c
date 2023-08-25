@@ -15,6 +15,16 @@
 #include "cam_ois_soc.h"
 #include "cam_ois_core.h"
 #include "cam_debug_util.h"
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+#include "cam_ois_rumba_s4.h"
+#endif
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+struct cam_ois_ctrl_t *g_o_ctrl;
+
+static struct ois_sensor_interface ois_reset;
+extern int ois_reset_register(struct ois_sensor_interface *ois);
+#endif
 
 static long cam_ois_subdev_ioctl(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -159,6 +169,9 @@ static int cam_ois_i2c_driver_probe(struct i2c_client *client,
 	int                          rc = 0;
 	struct cam_ois_ctrl_t       *o_ctrl = NULL;
 	struct cam_ois_soc_private  *soc_private = NULL;
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	int i = 0;
+#endif
 
 	if (client == NULL || id == NULL) {
 		CAM_ERR(CAM_OIS, "Invalid Args client: %pK id: %pK",
@@ -193,6 +206,10 @@ static int cam_ois_i2c_driver_probe(struct i2c_client *client,
 		goto octrl_free;
 	}
 
+	INIT_LIST_HEAD(&(o_ctrl->i2c_init_data.list_head));
+	INIT_LIST_HEAD(&(o_ctrl->i2c_calib_data.list_head));
+	INIT_LIST_HEAD(&(o_ctrl->i2c_mode_data.list_head));
+	mutex_init(&(o_ctrl->ois_mutex));
 	o_ctrl->soc_info.soc_private = soc_private;
 	rc = cam_ois_driver_soc_init(o_ctrl);
 	if (rc) {
@@ -205,6 +222,34 @@ static int cam_ois_i2c_driver_probe(struct i2c_client *client,
 		goto soc_free;
 
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	for (i = 0; i < MAX_BRIDGE_COUNT; i++)
+		o_ctrl->bridge_intf[i].device_hdl = -1;
+	o_ctrl->bridge_cnt = 0;
+	o_ctrl->start_cnt = 0;
+
+	o_ctrl->is_power_up = false;
+	o_ctrl->is_servo_on = false;
+
+	mutex_init(&(o_ctrl->ois_mode_mutex));
+	o_ctrl->is_thread_started = false;
+	o_ctrl->ois_thread = NULL;
+	INIT_LIST_HEAD(&(o_ctrl->i2c_mode_data.list_head));
+	INIT_LIST_HEAD(&(o_ctrl->list_head_thread.list));
+	init_waitqueue_head(&(o_ctrl->wait));
+	spin_lock_init(&(o_ctrl->thread_spinlock));
+	mutex_init(&(o_ctrl->i2c_init_data_mutex));
+	mutex_init(&(o_ctrl->i2c_mode_data_mutex));
+
+	g_o_ctrl = o_ctrl;
+
+	ois_reset.core = o_ctrl;
+#if 0	
+	 ois_reset.ois_func = &cam_ois_reset_mcu;
+#endif
+	ois_reset_register(&ois_reset);
+#endif
 
 	return rc;
 
@@ -244,6 +289,10 @@ static int cam_ois_i2c_driver_remove(struct i2c_client *client)
 		(struct cam_ois_soc_private *)soc_info->soc_private;
 	power_info = &soc_private->power_info;
 
+	kfree(power_info->power_setting);
+	kfree(power_info->power_down_setting);
+	power_info->power_setting = NULL;
+	power_info->power_down_setting = NULL;
 	kfree(o_ctrl->soc_info.soc_private);
 	v4l2_set_subdevdata(&o_ctrl->v4l2_dev_str.sd, NULL);
 	kfree(o_ctrl);
@@ -257,6 +306,9 @@ static int32_t cam_ois_platform_driver_probe(
 	int32_t                         rc = 0;
 	struct cam_ois_ctrl_t          *o_ctrl = NULL;
 	struct cam_ois_soc_private     *soc_private = NULL;
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	int i = 0;
+#endif
 
 	o_ctrl = kzalloc(sizeof(struct cam_ois_ctrl_t), GFP_KERNEL);
 	if (!o_ctrl)
@@ -303,10 +355,37 @@ static int32_t cam_ois_platform_driver_probe(
 		CAM_ERR(CAM_OIS, "failed: to update i2c info rc %d", rc);
 		goto unreg_subdev;
 	}
+#if !defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
 	o_ctrl->bridge_intf.device_hdl = -1;
+#endif
 
 	platform_set_drvdata(pdev, o_ctrl);
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	for (i = 0; i < MAX_BRIDGE_COUNT; i++)
+		o_ctrl->bridge_intf[i].device_hdl = -1;
+	o_ctrl->bridge_cnt = 0;
+	o_ctrl->start_cnt = 0;
+
+	o_ctrl->is_power_up = false;
+	o_ctrl->is_servo_on = false;
+
+	mutex_init(&(o_ctrl->ois_mode_mutex));
+	o_ctrl->is_thread_started = false;
+	o_ctrl->ois_thread = NULL;
+	INIT_LIST_HEAD(&(o_ctrl->list_head_thread.list));
+	init_waitqueue_head(&(o_ctrl->wait));
+	spin_lock_init(&(o_ctrl->thread_spinlock));
+	mutex_init(&(o_ctrl->i2c_init_data_mutex));
+	mutex_init(&(o_ctrl->i2c_mode_data_mutex));
+
+	g_o_ctrl = o_ctrl;
+
+	ois_reset.core = o_ctrl;
+//	ois_reset.ois_func = &cam_ois_reset_mcu;
+	ois_reset_register(&ois_reset);
+#endif
 
 	return rc;
 unreg_subdev:
@@ -348,6 +427,10 @@ static int cam_ois_platform_driver_remove(struct platform_device *pdev)
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
 	power_info = &soc_private->power_info;
 
+	kfree(power_info->power_setting);
+	kfree(power_info->power_down_setting);
+	power_info->power_setting = NULL;
+	power_info->power_down_setting = NULL;
 	kfree(o_ctrl->soc_info.soc_private);
 	kfree(o_ctrl->io_master_info.cci_client);
 	platform_set_drvdata(pdev, NULL);
@@ -385,6 +468,8 @@ static struct i2c_driver cam_ois_i2c_driver = {
 	.remove = cam_ois_i2c_driver_remove,
 	.driver = {
 		.name = "msm_ois",
+		.owner = THIS_MODULE,
+		.of_match_table = cam_ois_dt_match,
 	},
 };
 

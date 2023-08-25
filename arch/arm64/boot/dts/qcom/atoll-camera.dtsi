@@ -140,7 +140,7 @@
 		src-clock-name = "csi2phytimer_clk_src";
 		clock-cntl-level = "svs", "svs_l1", "turbo";
 		clock-rates =
-			<0 0 0 0 270000000 0 300000000 0>,
+			<0 0 0 0 300000000 0 300000000 0>,
 			<0 0 0 0 360000000 0 300000000 0>,
 			<0 0 0 0 360000000 0 300000000 0>;
 		status = "ok";
@@ -827,7 +827,7 @@
 		status = "ok";
 	};
 
-	qcom,cpas-cdm0@ac48000 {
+	camera:qcom,cpas-cdm0@ac48000 {
 		cell-index = <0>;
 		compatible = "qcom,cam170-cpas-cdm0";
 		label = "cpas-cdm";

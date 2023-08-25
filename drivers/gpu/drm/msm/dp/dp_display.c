@@ -2205,6 +2205,7 @@ static int dp_display_usbpd_get(struct dp_display_private *dp)
 	return rc;
 }
 
+#if 0
 static int dp_display_fsa4480_callback(struct notifier_block *self,
 		unsigned long event, void *data)
 {
@@ -2243,6 +2244,7 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 end:
 	return rc;
 }
+#endif
 
 static int dp_display_bridge_mst_attention(void *dev, bool hpd, bool hpd_irq)
 {
@@ -2751,11 +2753,13 @@ static int dp_display_probe(struct platform_device *pdev)
 	if (rc)
 		goto error;
 
+#if 0
 	rc = dp_display_init_aux_switch(dp);
 	if (rc) {
 		rc = -EPROBE_DEFER;
 		goto error;
 	}
+#endif
 
 	rc = dp_display_init_aux_bridge(dp);
 	if (rc)

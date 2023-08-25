@@ -24,6 +24,10 @@
 #include "scsi_priv.h"
 #include "scsi_logging.h"
 
+#ifdef CONFIG_SCSI_UFSHCD
+#include "ufs/ufshcd.h"
+#endif
+
 static struct device_type scsi_dev_type;
 
 static const struct {
@@ -264,6 +268,19 @@ show_shost_supported_mode(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(supported_mode, S_IRUGO | S_IWUSR, show_shost_supported_mode, NULL);
 
+/* for Argos */
+#ifdef CONFIG_SCSI_UFSHCD
+static ssize_t show_shost_transferred_cnt(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct Scsi_Host *shost = class_to_shost(dev);
+    struct ufs_hba *hba = shost_priv(shost);
+
+    return sprintf(buf, "%u\n", hba->transferred_sector);
+}
+
+static DEVICE_ATTR(transferred_cnt, S_IRUGO | S_IWUSR, show_shost_transferred_cnt, NULL);
+#endif
+
 static ssize_t
 show_shost_active_mode(struct device *dev,
 		       struct device_attribute *attr, char *buf)
@@ -398,6 +415,9 @@ static struct attribute *scsi_sysfs_shost_attrs[] = {
 	&dev_attr_scan.attr,
 	&dev_attr_hstate.attr,
 	&dev_attr_supported_mode.attr,
+#ifdef CONFIG_SCSI_UFSHCD
+ 	&dev_attr_transferred_cnt.attr,
+#endif
 	&dev_attr_active_mode.attr,
 	&dev_attr_prot_capabilities.attr,
 	&dev_attr_prot_guard_type.attr,
@@ -672,8 +692,11 @@ sdev_store_timeout (struct device *dev, struct device_attribute *attr,
 {
 	struct scsi_device *sdev;
 	int timeout;
+	int res;
 	sdev = to_scsi_device(dev);
-	sscanf (buf, "%d\n", &timeout);
+	res = sscanf (buf, "%d\n", &timeout);
+	if (res != 1)
+		return -EINVAL;
 	blk_queue_rq_timeout(sdev->request_queue, timeout * HZ);
 	return count;
 }

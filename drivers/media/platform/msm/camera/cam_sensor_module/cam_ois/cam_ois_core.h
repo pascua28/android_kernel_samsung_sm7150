@@ -38,5 +38,8 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *e_ctrl, void *arg);
  */
 void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl);
 
+int cam_ois_power_up(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl, struct i2c_settings_array *i2c_set);
 #endif
 /* _CAM_OIS_CORE_H_ */

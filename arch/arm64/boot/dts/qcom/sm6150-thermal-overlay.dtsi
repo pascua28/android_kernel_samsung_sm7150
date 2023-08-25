@@ -14,6 +14,7 @@
 
 &thermal_zones {
 	pm6150-tz {
+		disable-thermal-zone;
 		cooling-maps {
 			trip0_bat {
 				trip = <&pm6150_trip0>;
@@ -31,6 +32,7 @@
 	};
 
 	pm6150l-tz {
+		disable-thermal-zone;
 		cooling-maps {
 			trip0_cpu0 {
 				trip = <&pm6150l_trip0>;
@@ -126,6 +128,7 @@
 	};
 
 	pm6150-bcl-lvl0 {
+		disable-thermal-zone;
 		cooling-maps {
 			vbat_cpu6 {
 				trip = <&bcl_lvl0>;
@@ -143,6 +146,7 @@
 	};
 
 	pm6150-bcl-lvl1 {
+		disable-thermal-zone;
 		cooling-maps {
 			ibat_cpu6 {
 				trip = <&bcl_lvl1>;
@@ -160,6 +164,7 @@
 	};
 
 	pm6150-bcl-lvl2 {
+		disable-thermal-zone;
 		cooling-maps {
 			ibat_cpu6 {
 				trip = <&bcl_lvl2>;
@@ -177,6 +182,7 @@
 	};
 
 	soc {
+		disable-thermal-zone;
 		cooling-maps {
 			soc_cpu6 {
 				trip = <&soc_trip>;
