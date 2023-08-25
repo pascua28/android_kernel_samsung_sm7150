@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, 2017-2020 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,8 +25,6 @@
 
 #include "msm-pcm-q6-v2.h"
 #include "msm-pcm-routing-v2.h"
-
-#define DTMF_MAX_DURATION 65535
 
 enum {
 	DTMF_IN_RX,
@@ -102,10 +100,8 @@ static int msm_dtmf_rx_generate_put(struct snd_kcontrol *kcontrol,
 	int64_t duration = ucontrol->value.integer.value[2];
 	uint16_t gain = ucontrol->value.integer.value[3];
 
-	pr_debug("%s: low_freq=%d high_freq=%d duration=%lld gain=%d\n",
-		 __func__, low_freq, high_freq, duration, gain);
-	if (duration == DTMF_MAX_DURATION)
-		duration = -1;
+	pr_debug("%s: low_freq=%d high_freq=%d duration=%d gain=%d\n",
+		 __func__, low_freq, high_freq, (int)duration, gain);
 	afe_dtmf_generate_rx(duration, high_freq, low_freq, gain);
 	return 0;
 }
@@ -158,7 +154,7 @@ static int msm_dtmf_detect_volte_rx_get(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new msm_dtmf_controls[] = {
 	SOC_SINGLE_MULTI_EXT("DTMF_Generate Rx Low High Duration Gain",
-			     SND_SOC_NOPM, 0, 65535, 0, 4,
+			     SND_SOC_NOPM, 0, 5000, 0, 4,
 			     msm_dtmf_rx_generate_get,
 			     msm_dtmf_rx_generate_put),
 	SOC_SINGLE_EXT("DTMF_Detect Rx Voice enable", SND_SOC_NOPM, 0, 1, 0,
@@ -228,7 +224,7 @@ static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
 	struct dtmf_buf_node *buf_node = NULL;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct dtmf_drv_info *prtd = runtime->private_data;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	ret = wait_event_interruptible_timeout(prtd->out_wait,
 				(!list_empty(&prtd->out_queue)),
@@ -328,7 +324,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	struct snd_pcm_substream *c_substream;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct dtmf_drv_info *prtd = runtime->private_data;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	pr_debug("%s() DTMF\n", __func__);
 
@@ -576,7 +572,6 @@ static struct platform_driver msm_pcm_driver = {
 		.name = "msm-pcm-dtmf",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_pcm_dtmf_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

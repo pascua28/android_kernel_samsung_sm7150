@@ -420,7 +420,7 @@ void audio_aio_reset_ion_region(struct q6audio_aio *audio)
 	list_for_each_safe(ptr, next, &audio->ion_region_queue) {
 		region = list_entry(ptr, struct audio_aio_ion_region, list);
 		list_del(&region->list);
-		msm_audio_ion_free(region->mem_handle);
+		msm_audio_ion_free(region->dma_buf);
 		kfree(region);
 	}
 }
@@ -963,7 +963,7 @@ static int audio_aio_ion_add(struct q6audio_aio *audio,
 	size_t len = 0;
 	struct audio_aio_ion_region *region;
 	int rc = -EINVAL;
-	void *mem_handle = NULL;
+	struct dma_buf *dma_buf = NULL;
 	unsigned long ionflag;
 	void *kvaddr = NULL;
 
@@ -975,7 +975,7 @@ static int audio_aio_ion_add(struct q6audio_aio *audio,
 		goto end;
 	}
 
-	rc = msm_audio_ion_import(&mem_handle, info->fd, &ionflag,
+	rc = msm_audio_ion_import(&dma_buf, info->fd, &ionflag,
 				0, &paddr, &len, &kvaddr);
 	if (rc) {
 		pr_err("%s: msm audio ion alloc failed\n", __func__);
@@ -988,7 +988,7 @@ static int audio_aio_ion_add(struct q6audio_aio *audio,
 		goto ion_error;
 	}
 
-	region->mem_handle = mem_handle;
+	region->dma_buf = dma_buf;
 	region->vaddr = info->vaddr;
 	region->fd = info->fd;
 	region->paddr = paddr;
@@ -1010,7 +1010,7 @@ static int audio_aio_ion_add(struct q6audio_aio *audio,
 mmap_error:
 	list_del(&region->list);
 ion_error:
-	msm_audio_ion_free(mem_handle);
+	msm_audio_ion_free(dma_buf);
 import_error:
 	kfree(region);
 end:
@@ -1047,7 +1047,7 @@ static int audio_aio_ion_remove(struct q6audio_aio *audio,
 					__func__, audio);
 
 			list_del(&region->list);
-			msm_audio_ion_free(region->mem_handle);
+			msm_audio_ion_free(region->dma_buf);
 			kfree(region);
 			rc = 0;
 			break;

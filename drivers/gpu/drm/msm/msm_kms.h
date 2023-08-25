@@ -43,6 +43,21 @@
 /* Request to switch the panel mode */
 #define MSM_MODE_FLAG_SEAMLESS_POMS			(1<<5)
 
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+enum mdss_intf_events {
+	SS_EVENT_FRAME_UPDATE_POST = 0,
+	SS_EVENT_FRAME_UPDATE_PRE,
+	SS_EVENT_FB_EVENT_CALLBACK,
+	SS_EVENT_PANEL_ON,
+	SS_EVENT_PANEL_OFF,
+	SS_EVENT_PANEL_RECOVERY,
+	SS_EVENT_PANEL_ESD_RECOVERY,
+	SS_EVENT_CHECK_TE,
+	SS_EVENT_SDE_HW_CATALOG_INIT,
+	SS_EVENT_MAX,
+};
+#endif
+
 /* As there are different display controller blocks depending on the
  * snapdragon version, the kms support is split out and the appropriate
  * implementation is loaded at runtime.  The kms module is responsible
@@ -125,6 +140,11 @@ struct msm_kms_funcs {
 	int (*get_mixer_count)(const struct msm_kms *kms,
 			const struct drm_display_mode *mode,
 			u32 mode_max_width, u32 *num_lm);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	int (*ss_callback)(int display_ndx,
+			enum mdss_intf_events event, void *arg);
+#endif
 };
 
 struct msm_kms {

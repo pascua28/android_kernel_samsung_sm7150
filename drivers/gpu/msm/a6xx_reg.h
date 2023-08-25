@@ -1,4 +1,5 @@
 /* Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -398,6 +399,8 @@
 #define A6XX_RBBM_PERFCTR_RBBM_SEL_2             0x509
 #define A6XX_RBBM_PERFCTR_RBBM_SEL_3             0x50A
 #define A6XX_RBBM_PERFCTR_GPU_BUSY_MASKED        0x50B
+#define A6XX_RBBM_PERFCTR_SRAM_INIT_CMD          0x50e
+#define A6XX_RBBM_PERFCTR_SRAM_INIT_STATUS       0x50f
 
 #define A6XX_RBBM_ISDB_CNT                       0x533
 #define A6XX_RBBM_NC_MODE_CNTL                   0x534
@@ -1146,6 +1149,12 @@
 /* GPU CX_MISC registers */
 #define A6XX_GPU_CX_MISC_SYSTEM_CACHE_CNTL_0	0x1
 #define A6XX_GPU_CX_MISC_SYSTEM_CACHE_CNTL_1	0x2
+#define A6XX_GPU_CX_MISC_CX_AHB_AON_CNTL	0X10
+#define A6XX_GPU_CX_MISC_CX_AHB_GMU_CNTL	0x11
+#define A6XX_GPU_CX_MISC_CX_AHB_CP_CNTL		0x12
+#define A6XX_GPU_CX_MISC_CX_AHB_VBIF_SMMU_CNTL 0X013
+#define A6XX_GPU_CX_MISC_CX_AHB_HOST_CNTL	0x14
+
 #define A6XX_LLC_NUM_GPU_SCIDS			5
 #define A6XX_GPU_LLC_SCID_NUM_BITS		5
 #define A6XX_GPU_LLC_SCID_MASK \

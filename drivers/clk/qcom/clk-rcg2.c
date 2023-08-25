@@ -178,6 +178,7 @@ static int clk_rcg2_set_force_enable(struct clk_hw *hw)
 
 	WARN_CLK(hw->core, clk_hw_get_name(hw), count == 0,
 		"rcg didn't turn on.");
+
 	return ret;
 }
 

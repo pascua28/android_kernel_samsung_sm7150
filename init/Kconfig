@@ -420,6 +420,16 @@ config SCHED_WALT
 	used to guide task placement as well as task frequency requirements
 	for cpufreq governors.
 
+config SCHED_SEC_TASK_BOOST
+	bool "Enable Task Priority Boost"
+	depends on SCHED_WALT
+	default n
+	help
+	  This feature will boost task based on priority(=nice) value.
+	  If task has higher priority than "/proc/perf_reserve",
+	  give a chance to migrate to prime cluster more and
+	  advantage of preemption.
+
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
 	depends on MULTIUSER
@@ -793,6 +803,11 @@ config MEMCG_SWAP_ENABLED
 	  For those who want to have the feature enabled by default should
 	  select this option (if, for some reason, they need to disable it
 	  then swapaccount=0 does the trick).
+
+config MEMCG_FORCE_USE_VM_SWAPPINESS
+	bool "Force to use vm_swappiness instead of memcg->swappiness"
+	depends on MEMCG_SWAP
+	default y
 
 config BLK_CGROUP
 	bool "IO controller"
@@ -1799,6 +1814,12 @@ config SYSTEM_DATA_VERIFICATION
 	  trusted keyring to provide public keys.  This then can be used for
 	  module verification, kexec image verification and firmware blob
 	  verification.
+	  
+config DEFERRED_INITCALLS
+       bool "Deferred initcalls support"
+       default n
+       help
+         Say Y here to include support for deferred initcalls.
 
 config PROFILING
 	bool "Profiling support"

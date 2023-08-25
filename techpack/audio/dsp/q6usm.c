@@ -209,13 +209,13 @@ static int q6usm_us_client_buf_free(unsigned int dir,
 	pr_debug("%s: data[%pK]phys[%llx][%pK]\n", __func__,
 		 (void *)port->data, (u64)port->phys, (void *)&port->phys);
 
-	msm_audio_ion_free(port->mem_handle);
+	msm_audio_ion_free(port->dma_buf);
 
 	port->data = NULL;
 	port->phys = 0;
 	port->buf_size = 0;
 	port->buf_cnt = 0;
-	port->mem_handle = NULL;
+	port->dma_buf = NULL;
 
 	mutex_unlock(&usc->cmd_lock);
 	return rc;
@@ -249,12 +249,12 @@ int q6usm_us_param_buf_free(unsigned int dir,
 		 (void *)port->param_buf, (u64)port->param_phys,
 		 (void *)&port->param_phys);
 
-	msm_audio_ion_free(port->param_mem_handle);
+	msm_audio_ion_free(port->param_dma_buf);
 
 	port->param_buf = NULL;
 	port->param_phys = 0;
 	port->param_buf_size = 0;
-	port->param_mem_handle = NULL;
+	port->param_dma_buf = NULL;
 
 	mutex_unlock(&usc->cmd_lock);
 	return rc;
@@ -396,7 +396,7 @@ int q6usm_us_client_buf_alloc(unsigned int dir,
 	/* The size to allocate should be multiple of 4K bytes */
 	size = PAGE_ALIGN(size);
 
-	rc = msm_audio_ion_alloc(&port->mem_handle,
+	rc = msm_audio_ion_alloc(&port->dma_buf,
 		size, &port->phys,
 		&len, &port->data);
 
@@ -461,7 +461,7 @@ int q6usm_us_param_buf_alloc(unsigned int dir,
 	/* The size to allocate should be multiple of 4K bytes */
 	size = PAGE_ALIGN(size);
 
-	rc = msm_audio_ion_alloc(&port->param_mem_handle,
+	rc = msm_audio_ion_alloc(&port->param_dma_buf,
 		size, &port->param_phys,
 		&len, &port->param_buf);
 
@@ -745,7 +745,7 @@ uint32_t q6usm_get_virtual_address(int dir,
 		ab.used = 1;
 		ab.size = size;
 		ab.actual_size = size;
-		ab.mem_handle = port->mem_handle;
+		ab.dma_buf = port->dma_buf;
 
 		ret = msm_audio_ion_mmap(&ab, vms);
 

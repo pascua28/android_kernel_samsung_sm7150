@@ -401,4 +401,16 @@ config QORIQ_CPUFREQ
 	  which are capable of changing the CPU's frequency dynamically.
 
 endif
+
+config CPU_FREQ_LIMIT
+	bool "CPU frequency limit API"
+	default n
+	help
+	  This driver supports API to limit CPU frequency.
+
+config CPU_FREQ_LIMIT_HMP
+	bool "CPU frequency limit API for HMP systems"
+	default SCHED_HMP
+	help
+	  This driver supports API to limit CPU frequency for HMP systems.
 endmenu

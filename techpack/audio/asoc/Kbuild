@@ -19,6 +19,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -30,26 +35,14 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm670autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM8150), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM6150), y)
-		ifdef CONFIG_SND_SOC_SA6155
-			include $(AUDIO_ROOT)/config/sa6155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa6155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm6150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm6150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_TRINKET), y)
 		include $(AUDIO_ROOT)/config/trinketauto.conf
@@ -57,30 +50,14 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/trinketautoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SDMSHRIKE), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_QCS405), y)
 		include $(AUDIO_ROOT)/config/qcs405auto.conf
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
-	endif
-	ifeq ($(CONFIG_QTI_GVM), y)
-		include $(AUDIO_ROOT)/config/gvmauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
 endif
 
@@ -112,6 +89,10 @@ COMMON_INC :=	-I$(AUDIO_ROOT)/$(COMMON_DIR)
 
 
 # for SDM6xx sound card driver
+ifdef CONFIG_SND_SOC_SDM660
+	MACHINE_OBJS += sdm660-common.o
+endif
+
 ifdef CONFIG_SND_SOC_SDM670
 	MACHINE_OBJS += sdm660-common.o
 endif
@@ -134,6 +115,7 @@ endif
 
 # for SM8150 sound card driver
 ifdef CONFIG_SND_SOC_SM8150
+	MACHINE_OBJS += sa8155.o
 	MACHINE_OBJS += sm8150.o
 	MACHINE_OBJS += machine_815x_init.o
 endif
@@ -141,27 +123,16 @@ endif
 # for SM6150 sound card driver
 ifdef CONFIG_SND_SOC_SM6150
 	MACHINE_OBJS += sm6150.o
-	MACHINE_OBJS += machine_615x_init.o
 endif
 
-# For sa6155 sound card driver
-ifdef CONFIG_SND_SOC_SA6155
-	MACHINE_OBJS += sa6155.o
+# for SAMSUNG AUDIO
+ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+	MACHINE_OBJS += sec_wcd_sysfs_cb.o
 endif
 
 # for qcs405 sound card driver
 ifdef CONFIG_SND_SOC_QCS405
 	MACHINE_OBJS += qcs405.o
-endif
-
-# for sdx sound card driver
-ifdef CONFIG_SND_SOC_MACHINE_SDXPRAIRIE
-	MACHINE_OBJS += sdx-target.o
-endif
-
-# for sa8155 sound card driver
-ifdef CONFIG_SND_SOC_SA8155
-	MACHINE_OBJS += sa8155.o
 endif
 
 ifdef CONFIG_SND_SOC_CPE
@@ -174,9 +145,7 @@ ifdef CONFIG_SND_SOC_QDSP6V2
 	PLATFORM_OBJS += msm-dai-fe.o
 	PLATFORM_OBJS += msm-dai-q6-hdmi-v2.o
 	PLATFORM_OBJS += msm-dai-q6-v2.o
-ifndef CONFIG_QTI_GVM
 	PLATFORM_OBJS += msm-dai-slim.o
-endif
 	PLATFORM_OBJS += msm-dai-stub-v2.o
 	PLATFORM_OBJS += msm-lsm-client.o
 	PLATFORM_OBJS += msm-pcm-afe-v2.o
@@ -244,6 +213,7 @@ KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codec
 KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd937x/Module.symvers
 KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/sdm660_cdc/Module.symvers
 KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/msm_sdw/Module.symvers
+KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/tas2562/Module.symvers
 endif
 ifeq ($(KERNEL_BUILD), 1)
 	obj-y += codecs/
@@ -266,9 +236,6 @@ machine_dlkm-y := $(MACHINE_OBJS)
 obj-$(CONFIG_SND_SOC_SM6150) += machine_dlkm.o
 machine_dlkm-y := $(MACHINE_OBJS)
 
-obj-$(CONFIG_SND_SOC_SA6155) += machine_dlkm.o
-machine_dlkm-y := $(MACHINE_OBJS)
-
 obj-$(CONFIG_SND_SOC_QCS405) += machine_dlkm.o
 machine_dlkm-y := $(MACHINE_OBJS)
 
@@ -278,14 +245,8 @@ machine_dlkm-y := $(MACHINE_OBJS)
 obj-$(CONFIG_SND_SOC_INT_CODEC) += machine_dlkm.o
 machine_dlkm-y := $(MACHINE_OBJS)
 
-obj-$(CONFIG_SND_SOC_SA8155) += machine_dlkm.o
-machine_dlkm-y := $(MACHINE_OBJS)
-
 obj-$(CONFIG_SND_SOC_CPE) += cpe_lsm_dlkm.o
 cpe_lsm_dlkm-y := $(CPE_LSM_OBJS)
-
-obj-$(CONFIG_SND_SOC_MACHINE_SDXPRAIRIE) += machine_dlkm.o
-machine_dlkm-y := $(MACHINE_OBJS)
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

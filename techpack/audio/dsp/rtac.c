@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -162,7 +162,7 @@ int rtac_allocate_cal_buffer(uint32_t cal_type)
 		goto done;
 	}
 
-	result = msm_audio_ion_alloc(&rtac_cal[cal_type].map_data.mem_handle,
+	result = msm_audio_ion_alloc(&rtac_cal[cal_type].map_data.dma_buf,
 		rtac_cal[cal_type].map_data.map_size,
 		&rtac_cal[cal_type].cal_data.paddr,
 		&len,
@@ -195,13 +195,13 @@ int rtac_free_cal_buffer(uint32_t cal_type)
 		goto done;
 	}
 
-	if (rtac_cal[cal_type].map_data.mem_handle == NULL) {
+	if (rtac_cal[cal_type].map_data.dma_buf == NULL) {
 		pr_debug("%s: cal_type %d not allocated!\n",
 		       __func__, cal_type);
 		goto done;
 	}
 
-	result = msm_audio_ion_free(rtac_cal[cal_type].map_data.mem_handle);
+	result = msm_audio_ion_free(rtac_cal[cal_type].map_data.dma_buf);
 	if (result < 0) {
 		pr_err("%s: ION free for RTAC failed! cal_type %d, paddr 0x%pK\n",
 		       __func__, cal_type, &rtac_cal[cal_type].cal_data.paddr);
@@ -209,7 +209,7 @@ int rtac_free_cal_buffer(uint32_t cal_type)
 	}
 
 	rtac_cal[cal_type].map_data.map_handle = 0;
-	rtac_cal[cal_type].map_data.mem_handle = NULL;
+	rtac_cal[cal_type].map_data.dma_buf = NULL;
 	rtac_cal[cal_type].cal_data.size = 0;
 	rtac_cal[cal_type].cal_data.kvaddr = 0;
 	rtac_cal[cal_type].cal_data.paddr = 0;
@@ -754,7 +754,7 @@ int send_adm_apr(void *buf, u32 opcode)
 
 	pr_debug("%s\n", __func__);
 
-	if (rtac_cal[ADM_RTAC_CAL].map_data.mem_handle == NULL) {
+	if (rtac_cal[ADM_RTAC_CAL].map_data.dma_buf == NULL) {
 		result = rtac_allocate_cal_buffer(ADM_RTAC_CAL);
 		if (result < 0) {
 			pr_err("%s: allocate buffer failed!",
@@ -999,7 +999,7 @@ int send_rtac_asm_apr(void *buf, u32 opcode)
 
 	pr_debug("%s\n", __func__);
 
-	if (rtac_cal[ASM_RTAC_CAL].map_data.mem_handle == NULL) {
+	if (rtac_cal[ASM_RTAC_CAL].map_data.dma_buf == NULL) {
 		result = rtac_allocate_cal_buffer(ASM_RTAC_CAL);
 		if (result < 0) {
 			pr_err("%s: allocate buffer failed!",
@@ -1268,7 +1268,7 @@ static int send_rtac_afe_apr(void __user *buf, uint32_t opcode)
 
 	pr_debug("%s\n", __func__);
 
-	if (rtac_cal[AFE_RTAC_CAL].map_data.mem_handle == NULL) {
+	if (rtac_cal[AFE_RTAC_CAL].map_data.dma_buf == NULL) {
 		result = rtac_allocate_cal_buffer(AFE_RTAC_CAL);
 		if (result < 0) {
 			pr_err("%s: allocate buffer failed! ret = %d\n",
@@ -1554,7 +1554,7 @@ int send_voice_apr(u32 mode, void *buf, u32 opcode)
 
 	pr_debug("%s\n", __func__);
 
-	if (rtac_cal[VOICE_RTAC_CAL].map_data.mem_handle == NULL) {
+	if (rtac_cal[VOICE_RTAC_CAL].map_data.dma_buf == NULL) {
 		result = rtac_allocate_cal_buffer(VOICE_RTAC_CAL);
 		if (result < 0) {
 			pr_err("%s: allocate buffer failed!",

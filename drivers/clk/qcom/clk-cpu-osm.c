@@ -34,6 +34,10 @@
 #include <linux/slab.h>
 #include <dt-bindings/clock/qcom,cpucc-sm8150.h>
 
+#include <linux/sched/clock.h>
+#include <linux/sec_debug.h>
+#include <linux/sec_smem.h>
+
 #include "common.h"
 #include "clk-regmap.h"
 #include "clk-voter.h"
@@ -246,6 +250,8 @@ static int l3_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	/* Make sure the write goes through before proceeding */
 	clk_osm_mb(cpuclk);
+
+	sec_smem_clk_osm_add_log_l3(rate);
 
 	return 0;
 }
@@ -597,6 +603,10 @@ osm_cpufreq_target_index(struct cpufreq_policy *policy, unsigned int index)
 	struct clk_osm *c = policy->driver_data;
 
 	osm_set_index(c, index, c->core_num);
+
+	sec_smem_clk_osm_add_log_cpufreq(policy->cpu,
+				policy->freq_table[index].frequency, clk_hw_get_name(&c->hw));
+
 	arch_set_freq_scale(policy->related_cpus,
 			    policy->freq_table[index].frequency,
 			    policy->cpuinfo.max_freq);

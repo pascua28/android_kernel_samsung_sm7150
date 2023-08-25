@@ -7,29 +7,25 @@ ifeq ($(call is-board-platform,sdm845),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SDM845=m
 endif
 
+ifeq ($(call is-board-platform,sdm660),true)
+AUDIO_SELECT  := CONFIG_SND_SOC_SDM660=m
+endif
+
 ifeq ($(call is-board-platform-in-list,msm8953 sdm670 qcs605),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SDM670=m
 endif
 
-ifeq ($(call is-board-platform-in-list,sdmshrike msmnile),true)
-ifeq ($(TARGET_BOARD_AUTO),true)
-AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
-else
+ifeq ($(call is-board-platform,msmnile),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
-endif
 endif
 
 ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) atoll $(TRINKET)),true)
-ifeq ($(TARGET_BOARD_AUTO),true)
-AUDIO_SELECT  := CONFIG_SND_SOC_SA6155=m
-else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM6150=m
-endif
 endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 sdmshrike msmnile $(MSMSTEPPE) atoll $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 sdm660 qcs605 msmnile $(MSMSTEPPE) atoll $(TRINKET)),true)
 
 LOCAL_PATH := $(call my-dir)
 
@@ -64,8 +60,6 @@ LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
 ###########################################################
-# target specific build
-ifneq ($(TARGET_BOARD_AUTO),true)
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_wglink.ko
 LOCAL_MODULE_KBUILD_NAME  := wglink_dlkm.ko
@@ -73,7 +67,7 @@ LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
-endif # target specific build
 ###########################################################
+
 endif # DLKM check
 endif # supported target check

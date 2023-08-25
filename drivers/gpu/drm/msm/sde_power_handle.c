@@ -414,6 +414,12 @@ static int _sde_power_data_bus_set_quota(
 					ib_quota[i] = ib_quota_nrt;
 				}
 			}
+
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+				pdbus->in_ab_quota = ab_quota_rt > ab_quota_nrt ? ab_quota_rt : ab_quota_nrt;
+				pdbus->in_ib_quota = ib_quota_rt > ab_quota_nrt ? ib_quota_rt : ab_quota_nrt;
+#endif
 		} else {
 			ab_quota[0] = div_u64(ab_quota_rt + ab_quota_nrt,
 					total_data_paths_cnt);
@@ -424,6 +430,11 @@ static int _sde_power_data_bus_set_quota(
 				ab_quota[i] = ab_quota[0];
 				ib_quota[i] = ib_quota[0];
 			}
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+			pdbus->in_ab_quota = ab_quota[0];
+			pdbus->in_ib_quota = ib_quota[0];
+#endif
 		}
 
 		new_uc_idx = (pdbus->curr_bw_uc_idx %
@@ -443,6 +454,7 @@ static int _sde_power_data_bus_set_quota(
 	}
 	pdbus->curr_bw_uc_idx = new_uc_idx;
 	pdbus->ao_bw_uc_idx = new_uc_idx;
+
 
 	SDE_ATRACE_BEGIN("msm_bus_scale_req");
 	rc = msm_bus_scale_client_update_request(pdbus->data_bus_hdl,

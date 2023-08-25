@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -161,6 +161,8 @@ struct tx_macro_priv {
 			[TX_MACRO_CHILD_DEVICES_MAX];
 	int child_count;
 	bool bcs_enable;
+	bool bcs_clk_en;
+	bool hs_slow_insert_complete;
 };
 
 static bool tx_macro_get_data(struct snd_soc_codec *codec,
@@ -347,6 +349,9 @@ static int tx_macro_event_handler(struct snd_soc_codec *codec, u16 event,
 	if (!tx_macro_get_data(codec, &tx_dev, &tx_priv, __func__))
 		return -EINVAL;
 
+	if(!tx_priv->swr_ctrl_data)
+	return -EINVAL;
+
 	switch (event) {
 	case BOLERO_MACRO_EVT_SSR_DOWN:
 		swrm_wcd_notify(
@@ -366,6 +371,15 @@ static int tx_macro_event_handler(struct snd_soc_codec *codec, u16 event,
 	case BOLERO_MACRO_EVT_CLK_RESET:
 		tx_macro_mclk_reset(tx_dev);
 		break;
+	case BOLERO_MACRO_EVT_BCS_CLK_OFF:
+		if (tx_priv->bcs_clk_en)
+			snd_soc_update_bits(codec,
+				BOLERO_CDC_TX0_TX_PATH_SEC7, 0x40, data << 6);
+		if (data)
+			tx_priv->hs_slow_insert_complete = true;
+		else
+			tx_priv->hs_slow_insert_complete = false;
+		break;
 	}
 	return 0;
 }
@@ -380,6 +394,9 @@ static int tx_macro_reg_wake_irq(struct snd_soc_codec *codec,
 
 	if (!tx_macro_get_data(codec, &tx_dev, &tx_priv, __func__))
 		return -EINVAL;
+
+	 if(!tx_priv->swr_ctrl_data)
+	 return -EINVAL;
 
 	ret = swrm_wcd_notify(
 		tx_priv->swr_ctrl_data[0].tx_swr_pdev,
@@ -741,7 +758,7 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 							CF_MIN_3DB_150HZ) {
 			schedule_delayed_work(
 					&tx_priv->tx_hpf_work[decimator].dwork,
-					msecs_to_jiffies(50));
+					msecs_to_jiffies(300));
 			snd_soc_update_bits(codec, hpf_gate_reg, 0x02, 0x02);
 			/*
 			 * Minimum 1 clk cycle delay is required as per HW spec
@@ -755,8 +772,11 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 		if (tx_priv->bcs_enable) {
 			snd_soc_update_bits(codec, dec_cfg_reg,
 					0x01, 0x01);
-			snd_soc_update_bits(codec, BOLERO_CDC_TX0_TX_PATH_SEC7,
-					    0x40, 0x40);
+			tx_priv->bcs_clk_en = true;
+			if (tx_priv->hs_slow_insert_complete)
+				snd_soc_update_bits(codec,
+					BOLERO_CDC_TX0_TX_PATH_SEC7, 0x40,
+					0x40);
 		}
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
@@ -791,6 +811,7 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 					0x01, 0x00);
 			snd_soc_update_bits(codec, BOLERO_CDC_TX0_TX_PATH_SEC7,
 					    0x40, 0x00);
+			tx_priv->bcs_clk_en = false;
 		}
 		break;
 	}
@@ -802,6 +823,28 @@ static int tx_macro_enable_micbias(struct snd_soc_dapm_widget *w,
 {
 	return 0;
 }
+
+/* Cutoff frequency for high pass filter */
+static const char * const cf_text[] = {
+	"CF_NEG_3DB_4HZ", "CF_NEG_3DB_75HZ", "CF_NEG_3DB_150HZ"
+};
+
+static SOC_ENUM_SINGLE_DECL(cf_dec0_enum, BOLERO_CDC_TX0_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec1_enum, BOLERO_CDC_TX1_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec2_enum, BOLERO_CDC_TX2_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec3_enum, BOLERO_CDC_TX3_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec4_enum, BOLERO_CDC_TX4_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec5_enum, BOLERO_CDC_TX5_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec6_enum, BOLERO_CDC_TX6_TX_PATH_CFG0, 5,
+							cf_text);
+static SOC_ENUM_SINGLE_DECL(cf_dec7_enum, BOLERO_CDC_TX7_TX_PATH_CFG0, 5,
+							cf_text);
 
 static int tx_macro_hw_params(struct snd_pcm_substream *substream,
 			   struct snd_pcm_hw_params *params,
@@ -1463,6 +1506,22 @@ static const struct snd_kcontrol_new tx_macro_snd_controls[] = {
 			  BOLERO_CDC_TX7_TX_VOL_CTL,
 			  0, -84, 40, digital_gain),
 
+	SOC_ENUM("TX0 HPF cut off", cf_dec0_enum),
+
+	SOC_ENUM("TX1 HPF cut off", cf_dec1_enum),
+
+	SOC_ENUM("TX2 HPF cut off", cf_dec2_enum),
+
+	SOC_ENUM("TX3 HPF cut off", cf_dec3_enum),
+
+	SOC_ENUM("TX4 HPF cut off", cf_dec4_enum),
+
+	SOC_ENUM("TX5 HPF cut off", cf_dec5_enum),
+
+	SOC_ENUM("TX6 HPF cut off", cf_dec6_enum),
+
+	SOC_ENUM("TX7 HPF cut off", cf_dec7_enum),
+
 	SOC_SINGLE_EXT("DEC0_BCS Switch", SND_SOC_NOPM, 0, 1, 0,
 		       tx_macro_get_bcs, tx_macro_set_bcs),
 };
@@ -1503,9 +1562,6 @@ static int tx_macro_swrm_clock(void *handle, bool enable)
 					BOLERO_CDC_TX_CLK_RST_CTRL_SWR_CONTROL,
 					0x02, 0x00);
 			tx_priv->reset_swr = false;
-			regmap_update_bits(regmap,
-				BOLERO_CDC_TX_CLK_RST_CTRL_SWR_CONTROL,
-				0x1C, 0x0C);
 			msm_cdc_pinctrl_select_active_state(
 						tx_priv->tx_swr_gpio_p);
 		}

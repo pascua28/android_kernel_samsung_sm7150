@@ -10,7 +10,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
 &soc {
 	qcom,cam-req-mgr {
 		compatible = "qcom,cam-req-mgr";
@@ -593,9 +592,10 @@
 	cam_vfe0: qcom,vfe0@acaf000 {
 		cell-index = <0>;
 		compatible = "qcom,vfe175_130";
-		reg-names = "ife";
-		reg = <0xacaf000 0x5200>;
-		reg-cam-base = <0xaf000>;
+		reg-names = "ife", "cam_camnoc";
+		reg = <0xacaf000 0x5200>,
+			<0xac42000 0x6000>;
+		reg-cam-base = <0xaf000 0x42000>;
 		interrupt-names = "ife";
 		interrupts = <0 465 0>;
 		regulator-names = "camss", "ife0";
@@ -665,9 +665,10 @@
 	cam_vfe1: qcom,vfe1@acb6000 {
 		cell-index = <1>;
 		compatible = "qcom,vfe175_130";
-		reg-names = "ife";
-		reg = <0xacb6000 0x5200>;
-		reg-cam-base = <0xb6000>;
+		reg-names = "ife", "cam_camnoc";
+		reg = <0xacb6000 0x5200>,
+			<0xac42000 0x6000>;
+		reg-cam-base = <0xb6000 0x42000>;
 		interrupt-names = "ife";
 		interrupts = <0 467 0>;
 		regulator-names = "camss", "ife1";

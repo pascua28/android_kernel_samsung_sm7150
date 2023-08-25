@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,6 +32,7 @@
 #include "msm-pcm-routing-v2.h"
 
 #define SHARED_MEM_BUF 2
+#define VOIP_MIN_Q_LEN 2
 #define VOIP_MAX_Q_LEN 10
 #define VOIP_MAX_VOC_PKT_SIZE 4096
 #define VOIP_MIN_VOC_PKT_SIZE 320
@@ -205,10 +206,10 @@ static struct snd_pcm_hardware msm_pcm_hardware = {
 	.rate_max =             48000,
 	.channels_min =         1,
 	.channels_max =         1,
-	.buffer_bytes_max =	sizeof(struct voip_buf_node) * VOIP_MAX_Q_LEN,
+	.buffer_bytes_max =	sizeof(struct voip_buf_node) * VOIP_MIN_Q_LEN,
 	.period_bytes_min =	VOIP_MIN_VOC_PKT_SIZE,
 	.period_bytes_max =	VOIP_MAX_VOC_PKT_SIZE,
-	.periods_min =		VOIP_MAX_Q_LEN,
+	.periods_min =		VOIP_MIN_Q_LEN,
 	.periods_max =		VOIP_MAX_Q_LEN,
 	.fifo_size =            0,
 };
@@ -514,7 +515,7 @@ static void voip_process_dl_pkt(uint8_t *voc_pkt, void *private_data)
 {
 	struct voip_buf_node *buf_node = NULL;
 	struct voip_drv_info *prtd = private_data;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 	uint32_t rate_type;
 	uint32_t frame_rate;
 	u32 pkt_len;
@@ -784,7 +785,7 @@ static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int a,
 	struct voip_buf_node *buf_node = NULL;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct voip_drv_info *prtd = runtime->private_data;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	pr_debug("%s: fbytes=%lu\n", __func__, fbytes);
 
@@ -858,7 +859,7 @@ static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
 	struct voip_buf_node *buf_node = NULL;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct voip_drv_info *prtd = runtime->private_data;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 	int size;
 
 	pr_debug("%s: fbytes = %lu\n", __func__, fbytes);
@@ -947,7 +948,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	struct snd_pcm_substream *p_substream, *c_substream;
 	struct snd_pcm_runtime *runtime;
 	struct voip_drv_info *prtd;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	if (substream == NULL) {
 		pr_err("substream is NULL\n");
@@ -1270,10 +1271,16 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_dma_buffer *dma_buf = &substream->dma_buffer;
 	struct voip_buf_node *buf_node = NULL;
 	int i = 0, offset = 0;
+	int periods = VOIP_MIN_Q_LEN;
 
 	pr_debug("%s: voip\n", __func__);
 
 	mutex_lock(&voip_info.lock);
+
+	/* Use various voip Q size */
+	periods = params_periods(params);
+	pr_info("%s: periods = %d\n", __func__, periods);
+	runtime->hw.buffer_bytes_max = sizeof(struct voip_buf_node) * periods;
 
 	dma_buf->dev.type = SNDRV_DMA_TYPE_DEV;
 	dma_buf->dev.dev = substream->pcm->card->dev;
@@ -1292,7 +1299,7 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 	memset(dma_buf->area, 0, runtime->hw.buffer_bytes_max);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		for (i = 0; i < VOIP_MAX_Q_LEN; i++) {
+		for (i = 0; i < periods; i++) {
 			buf_node = (void *)dma_buf->area + offset;
 
 			list_add_tail(&buf_node->list,
@@ -1300,7 +1307,7 @@ static int msm_pcm_hw_params(struct snd_pcm_substream *substream,
 			offset = offset + sizeof(struct voip_buf_node);
 		}
 	} else {
-		for (i = 0; i < VOIP_MAX_Q_LEN; i++) {
+		for (i = 0; i < periods; i++) {
 			buf_node = (void *) dma_buf->area + offset;
 			list_add_tail(&buf_node->list,
 					&voip_info.free_out_queue);
@@ -1674,7 +1681,6 @@ static struct platform_driver msm_pcm_driver = {
 		.name = "msm-voip-dsp",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_voip_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

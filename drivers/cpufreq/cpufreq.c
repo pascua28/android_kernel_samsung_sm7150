@@ -32,10 +32,13 @@
 #include <linux/tick.h>
 #include <linux/sched/topology.h>
 #include <linux/sched/sysctl.h>
+#include <linux/ologk.h>
 
 #include <trace/events/power.h>
 
 static LIST_HEAD(cpufreq_policy_list);
+
+struct cpufreq_user_policy core_min_max_policy[NR_CPUS];
 
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 {
@@ -1900,8 +1903,7 @@ unsigned int cpufreq_driver_fast_switch(struct cpufreq_policy *policy,
 {
 	int ret;
 	target_freq = clamp_val(target_freq, policy->min, policy->max);
-
-        ret = cpufreq_driver->fast_switch(policy, target_freq);
+	ret = cpufreq_driver->fast_switch(policy, target_freq);
 	if (ret) {
 		cpufreq_times_record_transition(policy, ret);
 		cpufreq_stats_record_transition(policy, ret);
@@ -2285,6 +2287,15 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	arch_set_max_freq_scale(policy->cpus, policy->max);
 
 	trace_cpu_frequency_limits(policy->max, policy->min, policy->cpu);
+	if(policy->cpu < NR_CPUS) {
+		if(/*core_min_max_policy[policy->cpu].min != policy->min ||*/ core_min_max_policy[policy->cpu].max != policy->max) {
+			if(policy->max < OLOG_CPU_FREQ_FILTER || core_min_max_policy[policy->cpu].max < OLOG_CPU_FREQ_FILTER) {
+				perflog(PERFLOG_CPUFREQ, "[%d] %lu, %lu", policy->cpu, policy->min / 1000, policy->max / 1000);
+			}
+			core_min_max_policy[policy->cpu].min = policy->min;
+			core_min_max_policy[policy->cpu].max = policy->max;
+		}
+	}
 
 	policy->cached_target_freq = UINT_MAX;
 

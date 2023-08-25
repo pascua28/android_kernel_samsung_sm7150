@@ -24,6 +24,9 @@
 #include "qg-reg.h"
 #include "qg-defs.h"
 #include "qg-util.h"
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#include "../../../battery_qc/include/sec_battery_qc.h"
+#endif
 
 static inline bool is_sticky_register(u32 addr)
 {
@@ -355,8 +358,14 @@ int qg_write_monotonic_soc(struct qpnp_qg *chip, int msoc)
 int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 {
 	int rc = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	int temp_adc = 0, temp_data = 0;
 
-	if (chip->battery_missing) {
+	if (chip->battery_missing || chip->dt.fake_temp)
+#else
+	if (chip->battery_missing)
+#endif
+	{
 		*temp = 250;
 		return 0;
 	}
@@ -366,6 +375,31 @@ int qg_get_battery_temp(struct qpnp_qg *chip, int *temp)
 		pr_err("Failed reading BAT_TEMP over ADC rc=%d\n", rc);
 		return rc;
 	}
+	
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+	if (chip->batt_test_batt_temp > (-500)) {
+		*temp = chip->batt_test_batt_temp;
+		return 0;
+	}
+#endif
+#if defined(CONFIG_SEC_FACTORY)
+	if (*temp <= (-400))
+		return 0;
+#endif
+
+	if (sec_bat_use_temp_adc_table()) {
+		rc = iio_read_channel_raw(chip->batt_therm_chan, &temp_adc);
+		if (rc < 0) {
+			pr_err("Failed reading BAT_TEMP ADC RAW. rc=%d\n", rc);
+			return rc;
+		}
+		pr_debug("%s: batt_temp_adc_raw = %d\n", __func__, temp_adc);
+
+		temp_data = sec_bat_convert_adc_to_temp(SEC_BAT_ADC_CHANNEL_TEMP, temp_adc);
+		*temp = temp_data;
+	}
+#endif
 	pr_debug("batt_temp = %d\n", *temp);
 
 	return 0;
@@ -462,3 +496,32 @@ int qg_get_ibat_avg(struct qpnp_qg *chip, int *ibat_ua)
 
 	return 0;
 }
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+int get_val(struct range_data *range, int threshold, int *val)
+{
+	int i;
+
+	/*
+	 * If the threshold is lesser than the minimum allowed range,
+	 * return -ENODATA.
+	 */
+	if (threshold < range[0].low_threshold)
+		return -ENODATA;
+
+	/* First try to find the matching index without hysteresis */
+	for (i = 0; i < MAX_VFLOAT_ENTRIES; i++) {
+		if (!range[i].high_threshold && !range[i].low_threshold) {
+			/* First invalid table entry; exit loop */
+			*val = range[i-1].value;
+			break;
+		}
+
+		if (is_between(range[i].low_threshold,
+			range[i].high_threshold, threshold)) {
+			*val = range[i].value;
+			break;
+		}
+	}
+	return 0;
+}
+#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,7 +18,6 @@
 #include <linux/delay.h>
 #include <linux/rpmsg.h>
 #include <ipc/apr_tal.h>
-#include <linux/of_device.h>
 
 enum apr_channel_state {
 	APR_CH_DISCONNECTED,
@@ -44,7 +43,7 @@ int apr_tal_write(struct apr_svc_ch_dev *apr_ch, void *data,
 			   struct apr_pkt_priv *pkt_priv, int len)
 {
 	int rc = 0, retries = 0;
-	unsigned long flags = 0;
+	unsigned long flags;
 	struct rpmsg_device *rpdev = NULL;
 
 	if (!apr_ch || len > APR_MAX_BUF ||
@@ -134,13 +133,14 @@ struct apr_svc_ch_dev *apr_tal_open(uint32_t clnt, uint32_t dest, uint32_t dl,
 	int rc = 0;
 	struct apr_svc_ch_dev *apr_ch = NULL;
 
-	if ((clnt != APR_CLIENT_AUDIO) || (dest >= APR_DEST_MAX) ||
+	if ((clnt != APR_CLIENT_AUDIO) || (dest != APR_DEST_QDSP6) ||
 	    (dl != APR_DL_SMD)) {
 		pr_err("%s: Invalid params, clnt:%d, dest:%d, dl:%d\n",
 		       __func__, clnt, dest, dl);
 		return NULL;
 	}
-	apr_ch = &apr_svc_ch[dl][dest][clnt];
+
+	apr_ch = &apr_svc_ch[APR_DL_SMD][APR_DEST_QDSP6][APR_CLIENT_AUDIO];
 	mutex_lock(&apr_ch->m_lock);
 	if (!apr_ch->handle) {
 		rc = wait_event_timeout(apr_ch->wait,
@@ -194,7 +194,7 @@ static int apr_tal_rpmsg_callback(struct rpmsg_device *rpdev,
 				  void *data, int len, void *priv, u32 addr)
 {
 	struct apr_svc_ch_dev *apr_ch = dev_get_drvdata(&rpdev->dev);
-	unsigned long flags = 0;
+	unsigned long flags;
 
 	if (!apr_ch || !data) {
 		pr_err("%s: Invalid apr_ch or ptr\n", __func__);
@@ -215,46 +215,24 @@ static int apr_tal_rpmsg_callback(struct rpmsg_device *rpdev,
 static int apr_tal_rpmsg_probe(struct rpmsg_device *rpdev)
 {
 	struct apr_svc_ch_dev *apr_ch = NULL;
-	int ret = 0;
-	const char* dest;
-
-	ret = of_property_read_string(rpdev->dev.parent->of_node,
-				   "mbox-names", &dest);
-
-	if(ret < 0){
-		pr_err("%s no parent source pid found\n", __func__);
-		return -EINVAL;
-	}
 
 	if (!strcmp(rpdev->id.name, "apr_audio_svc")) {
 		dev_info(&rpdev->dev, "%s: Channel[%s] state[Up]\n",
 			 __func__, rpdev->id.name);
-	} else {
-		dev_err(&rpdev->dev, "%s, Invalid Channel [%s]\n",
-			__func__, rpdev->id.name);
-		return -EINVAL;
-	}
-	if(strstr(dest, "adsp")) {
+
 		apr_ch =
 		&apr_svc_ch[APR_DL_SMD][APR_DEST_QDSP6][APR_CLIENT_AUDIO];
 		apr_ch->handle = rpdev;
 		apr_ch->channel_state = APR_CH_CONNECTED;
 		dev_set_drvdata(&rpdev->dev, apr_ch);
 		wake_up(&apr_ch->wait);
-	} else if(strstr(dest, "mpss")) {
-		apr_ch =
-		&apr_svc_ch[APR_DL_SMD][APR_DEST_MODEM][APR_CLIENT_AUDIO];
-		apr_ch->handle = rpdev;
-		apr_ch->channel_state = APR_CH_CONNECTED;
-		dev_set_drvdata(&rpdev->dev, apr_ch);
-		wake_up(&apr_ch->wait);
 	} else {
-		dev_err(&rpdev->dev, "%s, unsupported dest %s\n",
-			__func__, dest);
+		dev_err(&rpdev->dev, "%s, Invalid Channel [%s]\n",
+			__func__, rpdev->id.name);
 		return -EINVAL;
 	}
 
-	return ret;
+	return 0;
 }
 
 static void apr_tal_rpmsg_remove(struct rpmsg_device *rpdev)

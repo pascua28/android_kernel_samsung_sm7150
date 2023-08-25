@@ -24,7 +24,8 @@
 #define UFS_VENDOR_TOSHIBA     0x198
 #define UFS_VENDOR_SAMSUNG     0x1CE
 #define UFS_VENDOR_SKHYNIX     0x1AD
-#define UFS_VENDOR_WDC		0x145
+#define UFS_VENDOR_WDC         0x145
+#define UFS_VENDOR_MICRON      0x12C
 
 /**
  * ufs_dev_fix - ufs device quirk info
@@ -148,5 +149,11 @@ struct ufs_dev_fix {
  * instead of the default delay.
  */
 #define UFS_DEVICE_QUIRK_WAIT_AFTER_REF_CLK_UNGATE	(1 << 10)
+
+/*
+ * Some UFS devices support the FATAL MODE
+ * to gether the debug info.
+ */
+#define UFS_DEVICE_QUIRK_SUPPORT_QUERY_FATAL_MODE	(1 << 11)
 
 #endif /* UFS_QUIRKS_H_ */

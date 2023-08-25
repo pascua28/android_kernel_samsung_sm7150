@@ -23,6 +23,10 @@
 #include "cds_api.h"
 #include "wma.h"
 
+#ifdef SEC_CONFIG_PSM_SYSFS
+extern int wlan_hdd_sec_get_psm(void);
+#endif /* SEC_CONFIG_PSM_SYSFS */
+
 struct wlan_fwol_psoc_obj *fwol_get_psoc_obj(struct wlan_objmgr_psoc *psoc)
 {
 	return wlan_objmgr_psoc_get_comp_private_obj(psoc,
@@ -173,6 +177,13 @@ QDF_STATUS fwol_init_neighbor_report_cfg(struct wlan_objmgr_psoc *psoc,
 		cfg_get(psoc, CFG_OFFLOAD_NEIGHBOR_REPORT_CACHE_TIMEOUT);
 	fwol_neighbor_report_cfg->max_req_cap =
 		cfg_get(psoc, CFG_OFFLOAD_NEIGHBOR_REPORT_MAX_REQ_CAP);
+
+#ifdef SEC_CONFIG_PSM_SYSFS
+	if (wlan_hdd_sec_get_psm()) {
+		fwol_neighbor_report_cfg->enable_bitmask = 0;
+		printk("[WIFI] CFG_OFFLOAD_11K_ENABLE_BITMASK : sec_control_psm = %u", fwol_neighbor_report_cfg->enable_bitmask);
+	}
+#endif /* SEC_CONFIG_PSM_SYSFS */
 
 	return QDF_STATUS_SUCCESS;
 }

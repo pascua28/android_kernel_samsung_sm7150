@@ -50,5 +50,8 @@ struct votable *create_votable(const char *name,
 void destroy_votable(struct votable *votable);
 void lock_votable(struct votable *votable);
 void unlock_votable(struct votable *votable);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+void get_setanytype_effective_client(struct votable *votable);
+#endif
 
 #endif /* __PMIC_VOTER_H */

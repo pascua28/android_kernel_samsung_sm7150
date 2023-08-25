@@ -19,6 +19,9 @@
 #include <linux/unicode.h>
 #include <linux/fscrypt.h>
 
+#ifdef CONFIG_FSCRYPT_SDP
+#include "crypto/fscrypt_private.h"
+#endif
 #include <linux/uaccess.h>
 
 #include "internal.h"
@@ -1224,6 +1227,17 @@ bool is_empty_dir_inode(struct inode *inode)
 		(inode->i_op == &empty_dir_inode_operations);
 }
 
+#ifdef CONFIG_FSCRYPT_SDP
+static int fscrypt_sdp_d_delete(const struct dentry *dentry)
+{
+	return fscrypt_sdp_d_delete_wrapper(dentry);
+}
+
+static const struct dentry_operations sdp_dentry_ops = {
+	.d_delete	= fscrypt_sdp_d_delete,
+};
+#endif
+
 #ifdef CONFIG_UNICODE
 bool needs_casefold(const struct inode *dir)
 {
@@ -1301,12 +1315,18 @@ EXPORT_SYMBOL(generic_ci_d_hash);
 static const struct dentry_operations generic_ci_dentry_ops = {
 	.d_hash = generic_ci_d_hash,
 	.d_compare = generic_ci_d_compare,
+#ifdef CONFIG_FSCRYPT_SDP
+	.d_delete	= fscrypt_sdp_d_delete,
+#endif
 };
 #endif
 
 #ifdef CONFIG_FS_ENCRYPTION
 static const struct dentry_operations generic_encrypted_dentry_ops = {
 	.d_revalidate = fscrypt_d_revalidate,
+#ifdef CONFIG_FSCRYPT_SDP
+	.d_delete	= fscrypt_sdp_d_delete,
+#endif
 };
 #endif
 
@@ -1315,6 +1335,9 @@ static const struct dentry_operations generic_encrypted_ci_dentry_ops = {
 	.d_hash = generic_ci_d_hash,
 	.d_compare = generic_ci_d_compare,
 	.d_revalidate = fscrypt_d_revalidate,
+#ifdef CONFIG_FSCRYPT_SDP
+	.d_delete	= fscrypt_sdp_d_delete,
+#endif
 };
 #endif
 
@@ -1343,6 +1366,12 @@ void generic_set_encrypted_ci_d_ops(struct inode *dir, struct dentry *dentry)
 #ifdef CONFIG_UNICODE
 	if (dir->i_sb->s_encoding) {
 		d_set_d_op(dentry, &generic_ci_dentry_ops);
+		return;
+	}
+#endif
+#ifdef CONFIG_FSCRYPT_SDP
+	if (dir->i_crypt_info) {
+		d_set_d_op(dentry, &sdp_dentry_ops);
 		return;
 	}
 #endif

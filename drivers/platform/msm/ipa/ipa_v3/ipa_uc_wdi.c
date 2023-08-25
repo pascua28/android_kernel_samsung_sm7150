@@ -1670,6 +1670,7 @@ int ipa3_connect_gsi_wdi_pipe(struct ipa_wdi_in_params *in,
 		ipa3_ctx->uc_wdi_ctx.stats_notify = in->wdi_notify;
 	else
 		IPADBG("in->wdi_notify is null\n");
+	
 
 	ipa3_enable_data_path(ipa_ep_idx);
 

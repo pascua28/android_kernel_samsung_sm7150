@@ -22,7 +22,7 @@
 #include "gsi_reg.h"
 #include "gsi_emulation.h"
 
-#define GSI_CMD_TIMEOUT (5*HZ)
+#define GSI_CMD_TIMEOUT (1*HZ)
 #define GSI_START_CMD_TIMEOUT_MS 1000
 #define GSI_CMD_POLL_CNT 5
 #define GSI_STOP_CMD_TIMEOUT_MS 200
@@ -579,6 +579,11 @@ static void gsi_process_evt_re(struct gsi_evt_ctx *ctx,
 
 	evt = (struct gsi_xfer_compl_evt *)(ctx->ring.base_va +
 			ctx->ring.rp_local - ctx->ring.base);
+	gsi_ctx->ctx_channel[gsi_ctx->debug_chan] = ctx->id;
+	gsi_ctx->event_channel[gsi_ctx->debug_chan] = evt->chid;
+	gsi_ctx->debug_chan++;
+	if (gsi_ctx->debug_chan == MAX_DEBUG_CHAN_CNT)
+		gsi_ctx->debug_chan = 0;	
 	gsi_process_chan(evt, notify, callback);
 	gsi_incr_ring_rp(&ctx->ring);
 	/* recycle this element */
@@ -1311,7 +1316,7 @@ int gsi_register_device(struct gsi_per_props *props, unsigned long *dev_hdl)
 	}
 
 	*dev_hdl = (uintptr_t)gsi_ctx;
-
+	gsi_ctx->debug_chan = 0;
 	return GSI_STATUS_SUCCESS;
 }
 EXPORT_SYMBOL(gsi_register_device);

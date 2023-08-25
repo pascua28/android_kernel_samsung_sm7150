@@ -19,6 +19,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -30,26 +35,14 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm670autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM8150), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM6150), y)
-		ifdef CONFIG_SND_SOC_SA6155
-			include $(AUDIO_ROOT)/config/sa6155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa6155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm6150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm6150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_TRINKET), y)
 		include $(AUDIO_ROOT)/config/trinketauto.conf
@@ -65,16 +58,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		include $(AUDIO_ROOT)/config/qcs405auto.conf
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
-	endif
-	ifeq ($(CONFIG_QTI_GVM), y)
-		include $(AUDIO_ROOT)/config/gvmauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
 endif
 
@@ -139,6 +122,14 @@ ifdef CONFIG_SND_SOC_WSA881X
 	WSA881X_OBJS += wsa881x-tables.o
 	WSA881X_OBJS += wsa881x-regmap.o
 	WSA881X_OBJS += wsa881x-temp-sensor.o
+	WSA881X_OBJS += bigdata_wsa_sysfs_cb.o
+endif
+
+ifdef CONFIG_SND_SOC_WSA881X_ANALOG
+	WSA881X_ANALOG_OBJS += wsa881x-analog.o
+	WSA881X_ANALOG_OBJS += wsa881x-tables-analog.o
+	WSA881X_ANALOG_OBJS += wsa881x-regmap-analog.o
+	WSA881X_ANALOG_OBJS += wsa881x-temp-sensor.o
 endif
 
 ifdef CONFIG_SND_SOC_MSM_STUB
@@ -219,6 +210,10 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= msm_sdw/
 	obj-y	+= wcd9360/
 	obj-y	+= wcd937x/
+	obj-y	+= bolero/
+endif
+ifdef CONFIG_SND_SOC_TAS2562
+	obj-y	 += tas2562/
 endif
 
 ifeq ($(CONFIG_SND_SOC_GCOV), y)
@@ -237,6 +232,9 @@ wcd9335_dlkm-y := $(WCD9335_OBJS)
 
 obj-$(CONFIG_SND_SOC_WSA881X) += wsa881x_dlkm.o
 wsa881x_dlkm-y := $(WSA881X_OBJS)
+
+obj-$(CONFIG_SND_SOC_WSA881X_ANALOG) += wsa881x_analog_dlkm.o
+wsa881x_analog_dlkm-y := $(WSA881X_ANALOG_OBJS)
 
 obj-$(CONFIG_SND_SOC_MSM_STUB) += stub_dlkm.o
 stub_dlkm-y := $(STUB_OBJS)

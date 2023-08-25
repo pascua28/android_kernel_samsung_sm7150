@@ -18,9 +18,7 @@
 #include <linux/printk.h>
 #include <linux/delay.h>
 #include <linux/kernel.h>
-#include <linux/clk.h>
 #include <soc/snd_event.h>
-#include <linux/pm_runtime.h>
 #include "bolero-cdc.h"
 #include "internal.h"
 
@@ -31,9 +29,6 @@
 #define BOLERO_CDC_STRING_LEN 80
 
 static struct snd_soc_codec_driver bolero;
-
-/* pm runtime auto suspend timer in msecs */
-#define BOLERO_AUTO_SUSPEND_DELAY          100 /* delay in msec */
 
 /* MCLK_MUX table for all macros */
 static u16 bolero_mclk_mux_tbl[MAX_MACRO][MCLK_MUX_MAX] = {
@@ -72,8 +67,6 @@ static int __bolero_reg_read(struct bolero_priv *priv,
 			"%s: SSR in progress, exit\n", __func__);
 		goto err;
 	}
-
-	pm_runtime_get_sync(priv->macro_params[VA_MACRO].dev);
 	current_mclk_mux_macro =
 		priv->current_mclk_mux_macro[macro_id];
 	if (!priv->macro_params[current_mclk_mux_macro].mclk_fn) {
@@ -95,8 +88,6 @@ static int __bolero_reg_read(struct bolero_priv *priv,
 	priv->macro_params[current_mclk_mux_macro].mclk_fn(
 			priv->macro_params[current_mclk_mux_macro].dev, false);
 err:
-	pm_runtime_mark_last_busy(priv->macro_params[VA_MACRO].dev);
-	pm_runtime_put_autosuspend(priv->macro_params[VA_MACRO].dev);
 	mutex_unlock(&priv->clk_lock);
 	return ret;
 }
@@ -113,7 +104,6 @@ static int __bolero_reg_write(struct bolero_priv *priv,
 			"%s: SSR in progress, exit\n", __func__);
 		goto err;
 	}
-	ret = pm_runtime_get_sync(priv->macro_params[VA_MACRO].dev);
 	current_mclk_mux_macro =
 		priv->current_mclk_mux_macro[macro_id];
 	if (!priv->macro_params[current_mclk_mux_macro].mclk_fn) {
@@ -135,8 +125,6 @@ static int __bolero_reg_write(struct bolero_priv *priv,
 	priv->macro_params[current_mclk_mux_macro].mclk_fn(
 			priv->macro_params[current_mclk_mux_macro].dev, false);
 err:
-	pm_runtime_mark_last_busy(priv->macro_params[VA_MACRO].dev);
-	pm_runtime_put_autosuspend(priv->macro_params[VA_MACRO].dev);
 	mutex_unlock(&priv->clk_lock);
 	return ret;
 }
@@ -166,6 +154,13 @@ static int bolero_cdc_update_wcd_event(void *handle, u16 event, u32 data)
 			priv->macro_params[RX_MACRO].event_handler(priv->codec,
 				BOLERO_MACRO_EVT_IMPED_FALSE, data);
 		break;
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	case SEC_WCD_BOLERO_EVT_IMPED_TRUE:
+		if (priv->macro_params[RX_MACRO].event_handler)
+			priv->macro_params[RX_MACRO].event_handler(priv->codec,
+				SEC_BOLERO_MACRO_EVT_IMPED_TRUE, data);
+		break;
+#endif
 	default:
 		dev_err(priv->dev, "%s: Invalid event %d trigger from wcd\n",
 			__func__, event);
@@ -862,11 +857,9 @@ static void bolero_add_child_devices(struct work_struct *work)
 		}
 		pdev->dev.parent = priv->dev;
 		pdev->dev.of_node = node;
-
 		priv->dev->platform_data = platdata;
-		if (wcd937x_node)
+		if (wcd937x_node) 
 			priv->wcd_dev = &pdev->dev;
-
 		ret = platform_device_add(pdev);
 		if (ret) {
 			dev_err(&pdev->dev,
@@ -894,7 +887,9 @@ static int bolero_probe(struct platform_device *pdev)
 	struct bolero_priv *priv;
 	u32 num_macros = 0;
 	int ret;
-	struct clk *lpass_core_hw_vote = NULL;
+	u32 slew_reg1 = 0, slew_reg2 = 0;
+	u32 slew_val1 = 0, slew_val2 = 0;
+	char __iomem *slew_io_base1 = NULL, *slew_io_base2 = NULL;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(struct bolero_priv),
 			    GFP_KERNEL);
@@ -939,20 +934,41 @@ static int bolero_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, priv);
 	mutex_init(&priv->io_lock);
 	mutex_init(&priv->clk_lock);
+
+	ret = of_property_read_u32(pdev->dev.of_node, "slew_rate_reg1",
+				   &slew_reg1);
+
+	ret |= of_property_read_u32(pdev->dev.of_node, "slew_rate_val1",
+				   &slew_val1);
+	if (!ret) {
+		slew_io_base1 = devm_ioremap(&pdev->dev, slew_reg1, 0x4);
+		if (!slew_io_base1) {
+			dev_err(&pdev->dev, "%s: ioremap failed for slew reg 1\n",
+				__func__);
+			return -ENOMEM;
+		}
+		/* update slew rate for tx/rx swr interface */
+		iowrite32(slew_val1, slew_io_base1);
+	}
+	ret = of_property_read_u32(pdev->dev.of_node, "slew_rate_reg2",
+				   &slew_reg2);
+
+	ret |= of_property_read_u32(pdev->dev.of_node, "slew_rate_val2",
+				   &slew_val2);
+
+	if (!ret) {
+		slew_io_base2 = devm_ioremap(&pdev->dev, slew_reg2, 0x4);
+		if (!slew_io_base2) {
+			dev_err(&pdev->dev, "%s: ioremap failed for slew reg 2\n",
+				__func__);
+			return -ENOMEM;
+		}
+		/* update slew rate for tx/rx swr interface */
+		iowrite32(slew_val2, slew_io_base2);
+	}
 	INIT_WORK(&priv->bolero_add_child_devices_work,
 		  bolero_add_child_devices);
 	schedule_work(&priv->bolero_add_child_devices_work);
-
-	/* Register LPASS core hw vote */
-	lpass_core_hw_vote = devm_clk_get(&pdev->dev, "lpass_core_hw_vote");
-	if (IS_ERR(lpass_core_hw_vote)) {
-		ret = PTR_ERR(lpass_core_hw_vote);
-		dev_dbg(&pdev->dev, "%s: clk get %s failed %d\n",
-			__func__, "lpass_core_hw_vote", ret);
-		lpass_core_hw_vote = NULL;
-		ret = 0;
-	}
-	priv->lpass_core_hw_vote = lpass_core_hw_vote;
 
 	return 0;
 }
@@ -969,39 +985,6 @@ static int bolero_remove(struct platform_device *pdev)
 	mutex_destroy(&priv->clk_lock);
 	return 0;
 }
-
-int bolero_runtime_resume(struct device *dev)
-{
-	struct bolero_priv *priv = dev_get_drvdata(dev->parent);
-	int ret = 0;
-
-	if (priv->lpass_core_hw_vote == NULL) {
-		dev_dbg(dev, "%s: Invalid lpass core hw node\n", __func__);
-		return 0;
-	}
-
-	ret = clk_prepare_enable(priv->lpass_core_hw_vote);
-	if (ret < 0)
-		dev_err(dev, "%s:lpass core hw enable failed\n",
-			__func__);
-
-	pm_runtime_set_autosuspend_delay(priv->dev, BOLERO_AUTO_SUSPEND_DELAY);
-	return 0;
-}
-EXPORT_SYMBOL(bolero_runtime_resume);
-
-int bolero_runtime_suspend(struct device *dev)
-{
-	struct bolero_priv *priv = dev_get_drvdata(dev->parent);
-
-	if (priv->lpass_core_hw_vote != NULL)
-		clk_disable_unprepare(priv->lpass_core_hw_vote);
-	else
-		dev_dbg(dev, "%s: Invalid lpass core hw node\n",
-			__func__);
-	return 0;
-}
-EXPORT_SYMBOL(bolero_runtime_suspend);
 
 static const struct of_device_id bolero_dt_match[] = {
 	{.compatible = "qcom,bolero-codec"},

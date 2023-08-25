@@ -211,6 +211,73 @@ config KEYBOARD_EP93XX
 	  To compile this driver as a module, choose M here: the
 	  module will be called ep93xx_keypad.
 
+config INPUT_HALL_IC
+	tristate "Enable HALL IC"
+	default n
+	help
+	  Enable Hall IC Feature
+	  If unsure, say N.
+
+config SENSORS_HALL
+	bool "HALL"
+	default n
+	help
+	  Say Y here to enable the HALL
+	  and send a event when HALL state is changed.
+	  Active gpio state is low and active event value is 0.
+
+	  If unsure, say N.
+
+config CERTIFY_HALL
+	tristate "Enable CERTIFY HALL"
+	default n
+	help
+	  Say Y here to enable the CERTIFY HALL
+	  and send a event when CERTIFY HALL state is changed.
+	  Active gpio state is low and active event value is 0.
+
+	  If unsure, say N.
+
+config SUPPORT_HALL_ABNORMAL_TEST
+	bool "Enable HALL abnormal test"
+	depends on SEC_FACTORY
+	help
+	  Say Y here to support hall ic abnormal test.
+	  This enables a node to read how many hall ic is enabled,
+	  and send uevent when hall ic state has changed.
+
+	  If unsure, say N.
+
+config FOLDER_HALL
+	bool "FOLDER HALL"
+	default n
+	help
+	  Enable FOLDER Hall Feature
+
+config SLIDING_UP_HALL
+	bool "SLIDING UP HALL"
+	default n
+	help
+	  Enable SLIDING UP Hall Feature
+
+config SLIDING_DOWN_HALL
+	bool "SLIDING DOWN HALL"
+	default n
+	help
+	  Enable SLIDING DOWN Hall Feature
+
+config DW772X
+	bool "DW772X"
+	default n
+	help
+	  Enable DW772X Digtial Hall Feature
+
+config DW772X_REVERSE
+	bool "DW772X_REVERSE"
+	default n
+	help
+	  Enable DW772X Digtial Hall Feature (REVERSE SCL/SDA)
+
 config KEYBOARD_GPIO
 	tristate "GPIO Buttons"
 	depends on GPIOLIB || COMPILE_TEST

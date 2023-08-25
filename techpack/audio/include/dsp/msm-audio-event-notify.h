@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,8 +16,7 @@
 
 #include <linux/notifier.h>
 
-#if (IS_ENABLED(CONFIG_SND_SOC_MSM_QDSP6V2_INTF) || \
-	IS_ENABLED(CONFIG_SND_SOC_MSM_QDSP6V2_VM))
+#if IS_ENABLED(CONFIG_SND_SOC_MSM_QDSP6V2_INTF)
 int msm_aud_evt_register_client(struct notifier_block *nb);
 int msm_aud_evt_unregister_client(struct notifier_block *nb);
 int msm_aud_evt_notifier_call_chain(unsigned long val, void *v);

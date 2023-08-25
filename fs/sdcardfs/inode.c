@@ -20,8 +20,11 @@
 
 #include "sdcardfs.h"
 #include <linux/fs_struct.h>
-#include <linux/ratelimit.h>
 #include <linux/sched/task.h>
+
+#ifdef CONFIG_RKP_KDP
+#include <linux/cred.h>
+#endif
 
 const struct cred *override_fsids(struct sdcardfs_sb_info *sbi,
 		struct sdcardfs_inode_data *data)
@@ -55,6 +58,10 @@ void revert_fsids(const struct cred *old_cred)
 	const struct cred *cur_cred;
 
 	cur_cred = current->cred;
+#ifdef CONFIG_RKP_KDP
+	if (rkp_ro_page((unsigned long)cur_cred))
+		cur_cred = (const struct cred *)get_rocred_rcu(cur_cred)->reflected_cred;
+#endif
 	revert_creds(old_cred);
 	put_cred(cur_cred);
 }
@@ -562,11 +569,15 @@ static int sdcardfs_permission(struct vfsmount *mnt, struct inode *inode, int ma
 	struct inode tmp;
 	struct sdcardfs_inode_data *top = top_data_get(SDCARDFS_I(inode));
 
-	if (IS_ERR(mnt))
-		return PTR_ERR(mnt);
 
 	if (!top)
 		return -EINVAL;
+
+	/* don't allow extended attribute */
+	if (IS_ERR(mnt)) {
+		data_put(top);
+		return PTR_ERR(mnt);
+	}
 
 	/*
 	 * Permission check on sdcardfs inode.

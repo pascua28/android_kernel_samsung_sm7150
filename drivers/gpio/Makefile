@@ -2,6 +2,7 @@
 # generic gpio support: platform drivers, dedicated expander chips, etc
 
 ccflags-$(CONFIG_DEBUG_GPIO)	+= -DDEBUG
+ccflags-y := $(KBUILD_FP_SENSOR_CFLAGS)
 
 obj-$(CONFIG_GPIOLIB)		+= devres.o
 obj-$(CONFIG_GPIOLIB)		+= gpiolib.o
@@ -111,6 +112,7 @@ obj-$(CONFIG_GPIO_STA2X11)	+= gpio-sta2x11.o
 obj-$(CONFIG_GPIO_STMPE)	+= gpio-stmpe.o
 obj-$(CONFIG_GPIO_STP_XWAY)	+= gpio-stp-xway.o
 obj-$(CONFIG_GPIO_SYSCON)	+= gpio-syscon.o
+obj-$(CONFIG_GPIO_TACNA)	+= gpio-tacna.o
 obj-$(CONFIG_GPIO_TB10X)	+= gpio-tb10x.o
 obj-$(CONFIG_GPIO_TC3589X)	+= gpio-tc3589x.o
 obj-$(CONFIG_GPIO_TEGRA)	+= gpio-tegra.o
@@ -151,3 +153,10 @@ obj-$(CONFIG_GPIO_ZEVIO)	+= gpio-zevio.o
 obj-$(CONFIG_GPIO_ZYNQ)		+= gpio-zynq.o
 obj-$(CONFIG_GPIO_ZX)		+= gpio-zx.o
 obj-$(CONFIG_GPIO_LOONGSON1)	+= gpio-loongson1.o
+obj-$(CONFIG_GPIO_PCAL6524)	+= gpio-pcal6524.o
+obj-$(CONFIG_SEC_PM_DEBUG)	+= sec-pinmux.o
+obj-$(CONFIG_SEC_GPIO_DVS)	+= secgpio_dvs.o
+
+ifeq ($(CONFIG_SEC_FACTORY),y)
+    obj-$(CONFIG_SEC_CONNECTOR_DETECTOR)      += sec-detect-conn.o
+endif

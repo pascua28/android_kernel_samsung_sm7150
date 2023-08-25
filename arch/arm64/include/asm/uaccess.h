@@ -28,6 +28,7 @@
 #include <linux/bitops.h>
 #include <linux/kasan-checks.h>
 #include <linux/string.h>
+#include <linux/sched.h>
 
 #include <asm/cpufeature.h>
 #include <asm/ptrace.h>

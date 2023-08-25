@@ -34,6 +34,7 @@ void mmc_gpio_set_cd_isr(struct mmc_host *host,
 void mmc_gpiod_free_cd_irq(struct mmc_host *host);
 void mmc_gpiod_restore_cd_irq(struct mmc_host *host);
 void mmc_gpiod_request_cd_irq(struct mmc_host *host);
+void mmc_gpiod_update_status(struct mmc_host *host, int present);
 bool mmc_can_gpio_cd(struct mmc_host *host);
 void mmc_register_extcon(struct mmc_host *host);
 void mmc_unregister_extcon(struct mmc_host *host);

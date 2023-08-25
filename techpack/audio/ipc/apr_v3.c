@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016, 2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,16 +21,10 @@
 
 #define DEST_ID APR_DEST_MODEM
 
-/**
- * apr_get_subsys_state - get modem subsys status
- *
- * Returns apr_subsys_state
- */
 enum apr_subsys_state apr_get_subsys_state(void)
 {
 	return apr_get_modem_state();
 }
-EXPORT_SYMBOL(apr_get_subsys_state);
 
 void apr_set_subsys_state(void)
 {

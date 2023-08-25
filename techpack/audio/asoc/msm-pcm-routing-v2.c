@@ -39,7 +39,6 @@
 #include <dsp/q6core.h>
 #include <dsp/q6common.h>
 #include <dsp/audio_cal_utils.h>
-#include <dsp/msm_audio_ion.h>
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-pcm-routing-devdep.h"
@@ -73,48 +72,23 @@ static int quat_mi2s_switch_enable;
 static int quin_mi2s_switch_enable;
 static int fm_pcmrx_switch_enable;
 static int usb_switch_enable;
-static int lsm_port_index;
+static int lsm_port_index[MAX_LSM_SESSIONS];
 static int slim0_rx_aanc_fb_port;
 static int msm_route_ec_ref_rx;
 static int msm_ec_ref_ch = 4;
-static int msm_ec_ref_ch_downmixed = 4;
 static int msm_ec_ref_bit_format = SNDRV_PCM_FORMAT_S16_LE;
 static int msm_ec_ref_sampling_rate = 48000;
 static uint32_t voc_session_id = ALL_SESSION_VSID;
 static int msm_route_ext_ec_ref;
 static bool is_custom_stereo_on;
 static bool is_ds2_on;
-static bool ffecns_freeze_event;
 static bool swap_ch;
+static bool hifi_filter_enabled;
 static int aanc_level;
-static int msm_ec_ref_port_id;
-static int afe_loopback_tx_port_index;
-static int afe_loopback_tx_port_id = -1;
-
-static uint32_t adm_pp_reg_event_opcode[] = {
-	ADM_CMD_REGISTER_EVENT
-};
-
-struct msm_adsp_ion_info {
-	int32_t adsp_lib_ion_fd;
-	int32_t adsp_shmpp_ion_fd[MSM_BACKEND_DAI_MAX][MAX_COPPS_PER_PORT]
-		[MSM_FRONTEND_DAI_MAX];
-	bool adsp_lib_ion_fd_assigned;
-	int32_t adsp_shmpp_ion_fd_assigned[MSM_BACKEND_DAI_MAX]
-		[MAX_COPPS_PER_PORT];
-	void *mem_hdl_lib_ion;
-	void *mem_hdl_shmpp;
-};
-static struct msm_adsp_ion_info	adsp_ion_info;
-
+static int num_app_cfg_types;
 #define WEIGHT_0_DB 0x4000
 /* all the FEs which can support channel mixer */
 static struct msm_pcm_channel_mixer channel_mixer[MSM_FRONTEND_DAI_MM_SIZE];
-
-/* all the FES which can support channel mixer for bidirection */
-static struct msm_pcm_channel_mixer
-	channel_mixer_v2[MSM_FRONTEND_DAI_MM_SIZE][2];
-
 /* input BE for each FE */
 static int channel_input[MSM_FRONTEND_DAI_MM_SIZE][ADM_MAX_CHANNELS];
 
@@ -142,7 +116,6 @@ enum {
 #define VA_CDC_DMA_TX_1_TEXT "VA_CDC_DMA_TX_1"
 #define TX_CDC_DMA_TX_3_TEXT "TX_CDC_DMA_TX_3"
 #define QUIN_TDM_TX_TEXT "QUIN_TDM_TX_0"
-#define TERT_TDM_TX_TEXT "TERT_TDM_TX_0"
 
 #define LSM_FUNCTION_TEXT "LSM Function"
 static const char * const lsm_port_text[] = {
@@ -151,7 +124,7 @@ static const char * const lsm_port_text[] = {
 	SLIMBUS_3_TX_TEXT, SLIMBUS_4_TX_TEXT, SLIMBUS_5_TX_TEXT,
 	TERT_MI2S_TX_TEXT, QUAT_MI2S_TX_TEXT, ADM_LSM_TX_TEXT,
 	INT3_MI2S_TX_TEXT, VA_CDC_DMA_TX_0_TEXT, VA_CDC_DMA_TX_1_TEXT,
-	TX_CDC_DMA_TX_3_TEXT, QUIN_TDM_TX_TEXT, TERT_TDM_TX_TEXT
+	TX_CDC_DMA_TX_3_TEXT, QUIN_TDM_TX_TEXT
 };
 
 struct msm_pcm_route_bdai_pp_params {
@@ -164,7 +137,6 @@ struct msm_pcm_route_bdai_pp_params {
 static struct msm_pcm_route_bdai_pp_params
 	msm_bedais_pp_params[MSM_BACKEND_DAI_PP_PARAMS_REQ_MAX] = {
 	{HDMI_RX, 0, 0, 0},
-	{HDMI_RX_MS, 0, 0, 0},
 	{DISPLAY_PORT_RX, 0, 0, 0},
 };
 
@@ -310,8 +282,7 @@ static void msm_pcm_routng_cfg_matrix_map_pp(struct route_payload payload,
 	    is_custom_stereo_on) {
 		for (itr = 0; itr < payload.num_copps; itr++) {
 			if ((payload.port_id[itr] != SLIMBUS_0_RX) &&
-			    (payload.port_id[itr] != RT_PROXY_PORT_001_RX) &&
-			    (payload.port_id[itr] != RT_PROXY_PORT_002_RX)) {
+			    (payload.port_id[itr] != RT_PROXY_PORT_001_RX)) {
 				continue;
 			}
 
@@ -355,8 +326,6 @@ struct msm_pcm_routing_bdai_data msm_bedais[MSM_BACKEND_DAI_MAX] = {
 	  LPASS_BE_VOICE2_PLAYBACK_TX},
 	{ VOICE_RECORD_RX, 0, {0}, {0}, 0, 0, 0, 0,
 	  LPASS_BE_INCALL_RECORD_RX},
-	{ VOICE2_RECORD_RX, 0, {0}, {0}, 0, 0, 0, 0,
-	  LPASS_BE_INCALL2_RECORD_RX},
 	{ VOICE_RECORD_TX, 0, {0}, {0}, 0, 0, 0, 0,
 	  LPASS_BE_INCALL_RECORD_TX},
 	{ MI2S_RX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_MI2S_RX},
@@ -679,14 +648,8 @@ struct msm_pcm_routing_bdai_data msm_bedais[MSM_BACKEND_DAI_MAX] = {
 	  LPASS_BE_SEC_SPDIF_TX},
 	{ SLIMBUS_9_RX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_SLIMBUS_9_RX},
 	{ SLIMBUS_9_TX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_SLIMBUS_9_TX},
-	{ AFE_LOOPBACK_TX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_AFE_LOOPBACK_TX},
-	{ AFE_PORT_ID_PRIMARY_META_MI2S_RX, 0, {0}, {0}, 0, 0, 0, 0,
-	  LPASS_BE_PRI_META_MI2S_RX},
-	{ AFE_PORT_ID_SECONDARY_META_MI2S_RX, 0, {0}, {0}, 0, 0, 0, 0,
-	  LPASS_BE_SEC_META_MI2S_RX},
-	{ HDMI_RX_MS, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_HDMI_MS},
-	{ RT_PROXY_PORT_002_RX, 0, {0}, {0}, 0, 0, 0, 0,
-	  LPASS_BE_AFE_PCM_RX1},
+	{ RT_PROXY_PORT_002_RX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_PROXY_RX},
+	{ RT_PROXY_PORT_002_TX, 0, {0}, {0}, 0, 0, 0, 0, LPASS_BE_PROXY_TX},
 };
 
 /* Track ASM playback & capture sessions of DAI
@@ -757,18 +720,6 @@ static struct msm_pcm_routing_fdai_data
 	/* MULTIMEDIA21 */
 	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
 	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
-	/* MULTIMEDIA22 */
-	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
-	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
-	/* MULTIMEDIA23 */
-	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
-	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
-	/* MULTIMEDIA24 */
-	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
-	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
-	/* MULTIMEDIA25 */
-	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
-	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
 	/* MULTIMEDIA26 */
 	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
 	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
@@ -782,6 +733,9 @@ static struct msm_pcm_routing_fdai_data
 	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
 	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
 	/* MULTIMEDIA30 */
+	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
+	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
+	/* MULTIMEDIA31 */
 	{{0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM},
 	 {0, INVALID_SESSION, LEGACY_PCM_MODE, {NULL, NULL}, LEGACY_PCM} },
 	/* VOIP */
@@ -849,119 +803,6 @@ static struct msm_pcm_stream_app_type_cfg
 
 static int last_be_id_configured[MSM_FRONTEND_DAI_MAX][MAX_SESSION_TYPES];
 
-static int msm_map_adsp_lib_ion_fd(int fd, int id)
-{
-	dma_addr_t paddr = 0;
-	size_t pa_len = 0;
-	int ret = 0, sec_key = 0;
-
-	ret = msm_audio_ion_phys_assign(&adsp_ion_info.mem_hdl_lib_ion, fd,
-					&paddr, &pa_len, HLOS_TO_ADSP, id);
-
-	if (ret) {
-		pr_err("%s: audio lib ION phys failed, rc = %d\n",
-			__func__, ret);
-		return ret;
-	}
-
-	ret = q6core_add_remove_pool_pages(paddr, pa_len,
-				 ADSP_MEMORY_MAP_HLOS_PHYSPOOL, true);
-	if (ret) {
-		pr_debug("%s: add remove pages failed, rc = %d\n",
-							__func__, ret);
-		/* Assign back to HLOS if add pages cmd failed */
-		/* GET THE KEY AND Go for free */
-		ret = msm_audio_is_hypervisor_supported();
-		if (!ret) {
-			ret = q6core_get_unlock_key(id, &sec_key,
-						&paddr, &pa_len);
-			if (ret) {
-				pr_err("%s Failed to get the key\n", __func__);
-				return ret;
-			}
-		}
-
-		msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_lib_ion,
-					&paddr, &pa_len, ADSP_TO_HLOS,
-					id, sec_key);
-	}
-
-	return ret;
-}
-
-static int msm_unmap_adsp_lib_ion_fd(int id)
-{
-	dma_addr_t paddr = 0;
-	size_t pa_len = 0;
-	int ret = 0;
-	int sec_key = 0;
-
-	if (!adsp_ion_info.mem_hdl_lib_ion) {
-		pr_err("%s: ion_client NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	ret = msm_audio_is_hypervisor_supported();
-	if (!ret) {
-		ret = q6core_get_unlock_key(id, &sec_key, &paddr, &pa_len);
-		if (ret) {
-			pr_err("%s: get_key_unlock failed, rc = %d\n",
-			__func__, ret);
-			return ret;
-		}
-	}
-
-	ret = msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_lib_ion,
-				      &paddr, &pa_len, ADSP_TO_HLOS,
-				      id, sec_key);
-	if (ret) {
-		pr_err("%s: audio lib ION phys failed, rc = %d\n",
-			__func__, ret);
-		return ret;
-	}
-
-	ret = q6core_add_remove_pool_pages(paddr, pa_len,
-				 ADSP_MEMORY_MAP_HLOS_PHYSPOOL, false);
-	if (ret)
-		pr_err("%s: add remove pages failed, rc = %d\n", __func__, ret);
-
-	return ret;
-}
-
-int msm_audio_ion_shm_phyfree(int id)
-{
-	dma_addr_t paddr = 0;
-	size_t pa_len = 0;
-	int ret = 0;
-	int sec_key = 0;
-
-	if (!adsp_ion_info.mem_hdl_shmpp) {
-		pr_err("%s: ion_client NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	ret = msm_audio_is_hypervisor_supported();
-
-	if (!ret) {
-		ret = q6core_get_unlock_key(id, &sec_key, &paddr, &pa_len);
-		if (ret) {
-			pr_err("%s: get_key_unlock failed, rc = %d\n",
-			__func__, ret);
-			return ret;
-		}
-	}
-
-	ret = msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_shmpp,
-				      &paddr, &pa_len, ADSP_TO_HLOS,
-				      id, sec_key);
-	if (ret) {
-		pr_err("%s: audio shm ION for subsystem phys failed, rc = %d\n",
-			__func__, ret);
-	}
-
-	return ret;
-}
-
 /* The caller of this should acquire routing lock */
 void msm_pcm_routing_get_bedai_info(int be_idx,
 				    struct msm_pcm_routing_bdai_data *be_dai)
@@ -1014,24 +855,6 @@ static int msm_pcm_routing_get_lsm_app_type_idx(int app_type)
 	}
 	pr_debug("%s: App type not available, fallback to default\n", __func__);
 	return 0;
-}
-
-static int get_port_id(int port_id)
-{
-	int ret = port_id;
-
-	if (port_id == AFE_LOOPBACK_TX) {
-		/*
-		 * Return afe_loopback_tx_port_id if set. Else return
-		 * msm_ec_ref_port_id to maintain backward compatibility.
-		 */
-		if (afe_loopback_tx_port_id != -1)
-			ret = afe_loopback_tx_port_id;
-		else
-			ret = msm_ec_ref_port_id;
-	}
-
-	return ret;
 }
 
 static bool is_mm_lsm_fe_id(int fe_id)
@@ -1108,51 +931,6 @@ int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
 	return 0;
 }
 EXPORT_SYMBOL(msm_pcm_routing_send_chmix_cfg);
-
-/**
- * msm_pcm_routing_set_channel_mixer_cfg - cache channel mixer
- * setting before use case start.
- *
- * @fe_id: frontend idx
- * @type: stream direction type
- * @params: parameters of channel mixer setting
- *
- * Return 0 for success
- */
-int msm_pcm_routing_set_channel_mixer_cfg(
-	int fe_id, int type,
-	struct msm_pcm_channel_mixer *params)
-{
-	int i, j = 0;
-
-	channel_mixer_v2[fe_id][type].enable = params->enable;
-	channel_mixer_v2[fe_id][type].rule = params->rule;
-	channel_mixer_v2[fe_id][type].input_channel =
-		params->input_channel;
-	channel_mixer_v2[fe_id][type].output_channel =
-		params->output_channel;
-	channel_mixer_v2[fe_id][type].port_idx = params->port_idx;
-
-	for (i = 0; i < ADM_MAX_CHANNELS; i++)
-		channel_mixer_v2[fe_id][type].in_ch_map[i] =
-			params->in_ch_map[i];
-	for (i = 0; i < ADM_MAX_CHANNELS; i++)
-		channel_mixer_v2[fe_id][type].out_ch_map[i] =
-			params->out_ch_map[i];
-
-	for (i = 0; i < ADM_MAX_CHANNELS; i++)
-		for (j = 0; j < ADM_MAX_CHANNELS; j++)
-			channel_mixer_v2[fe_id][type].channel_weight[i][j] =
-				params->channel_weight[i][j];
-
-	channel_mixer_v2[fe_id][type].override_in_ch_map =
-			params->override_in_ch_map;
-	channel_mixer_v2[fe_id][type].override_out_ch_map =
-			params->override_out_ch_map;
-
-	return 0;
-}
-EXPORT_SYMBOL(msm_pcm_routing_set_channel_mixer_cfg);
 
 int msm_pcm_routing_reg_stream_app_type_cfg(
 	int fedai_id, int session_type, int be_id,
@@ -1408,12 +1186,12 @@ static void msm_pcm_routing_build_matrix(int fedai_id, int sess_type,
 		   (afe_get_port_type(msm_bedais[i].port_id) == port_type) &&
 		   (msm_bedais[i].active) &&
 		   (test_bit(fedai_id, &msm_bedais[i].fe_sessions[0]))) {
-			int port_id = get_port_id(msm_bedais[i].port_id);
 			for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
 				unsigned long copp =
 				      session_copp_map[fedai_id][sess_type][i];
 				if (test_bit(j, &copp)) {
-					payload.port_id[num_copps] = port_id;
+					payload.port_id[num_copps] =
+							msm_bedais[i].port_id;
 					payload.copp_idx[num_copps] = j;
 					payload.app_type[num_copps] =
 						fe_dai_app_type_cfg
@@ -1487,9 +1265,10 @@ static bool route_check_fe_id_adm_support(int fe_id)
 	if ((fe_id >= MSM_FRONTEND_DAI_LSM1) &&
 		 (fe_id <= MSM_FRONTEND_DAI_LSM8)) {
 		/* fe id is listen while port is set to afe */
-		if (lsm_port_index != ADM_LSM_PORT_INDEX) {
+		if (lsm_port_index[fe_id - MSM_FRONTEND_DAI_LSM1] !=
+			ADM_LSM_PORT_INDEX) {
 			pr_debug("%s: fe_id %d, lsm mux slim port %d\n",
-				__func__, fe_id, lsm_port_index);
+				__func__, fe_id, lsm_port_index[fe_id - MSM_FRONTEND_DAI_LSM1]);
 			rc = false;
 		}
 	}
@@ -1538,7 +1317,7 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 	int num_copps = 0;
 	struct route_payload payload;
 	u32 channels, sample_rate;
-	u16 bit_width = 16;
+	u16 bit_width = 16, be_bit_width;
 	bool is_lsm;
 
 	pr_debug("%s:fe_id[%d] perf_mode[%d] id[%d] stream_type[%d] passt[%d]",
@@ -1593,7 +1372,6 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 			(msm_bedais[i].active) &&
 			(test_bit(fe_id, &msm_bedais[i].fe_sessions[0]))) {
 			int app_type, app_type_idx, copp_idx, acdb_dev_id;
-			int port_id = get_port_id(msm_bedais[i].port_id);
 
 			/*
 			 * check if ADM needs to be configured with different
@@ -1641,11 +1419,19 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 			pr_debug("%s: Before adm open topology %d\n", __func__,
 				topology);
 
+			be_bit_width = msm_routing_get_bit_width(
+						msm_bedais[i].format);
+			if (hifi_filter_enabled && (msm_bedais[i].sample_rate
+				== 384000 || msm_bedais[i].sample_rate ==
+				352800) && be_bit_width == 32)
+				bit_width = msm_routing_get_bit_width(
+						SNDRV_PCM_FORMAT_S32_LE);
+
 			copp_idx =
-				adm_open(port_id, path_type, sample_rate,
-					 channels, topology, perf_mode,
-					 bit_width, app_type, acdb_dev_id,
-					 session_type, passthr_mode);
+				adm_open(msm_bedais[i].port_id,
+					 path_type, sample_rate, channels,
+					 topology, perf_mode, bit_width,
+					 app_type, acdb_dev_id);
 			if ((copp_idx < 0) ||
 				(copp_idx >= MAX_COPPS_PER_PORT)) {
 				pr_err("%s:adm open failed coppid:%d\n",
@@ -1661,14 +1447,16 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 			if (msm_is_resample_needed(
 				sample_rate,
 				msm_bedais[i].sample_rate))
-				adm_copp_mfc_cfg(port_id, copp_idx,
+				adm_copp_mfc_cfg(
+					msm_bedais[i].port_id, copp_idx,
 					msm_bedais[i].sample_rate);
 
 			for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
 				unsigned long copp =
 				session_copp_map[fe_id][session_type][i];
 				if (test_bit(j, &copp)) {
-					payload.port_id[num_copps] = port_id;
+					payload.port_id[num_copps] =
+					msm_bedais[i].port_id;
 					payload.copp_idx[num_copps] = j;
 					payload.app_type[num_copps] =
 						fe_dai_app_type_cfg
@@ -1688,8 +1476,9 @@ int msm_pcm_routing_reg_phy_compr_stream(int fe_id, int perf_mode,
 			if (passthr_mode != COMPRESSED_PASSTHROUGH_DSD
 			    && passthr_mode != COMPRESSED_PASSTHROUGH_GEN
 			    && passthr_mode != COMPRESSED_PASSTHROUGH_IEC61937)
-				msm_routing_send_device_pp_params(port_id,
-				copp_idx, fe_id);
+				msm_routing_send_device_pp_params(
+						msm_bedais[i].port_id,
+						copp_idx, fe_id);
 		}
 	}
 	if (num_copps) {
@@ -1727,60 +1516,6 @@ static u32 msm_pcm_routing_get_voc_sessionid(u16 val)
 	return session_id;
 }
 
-static int msm_pcm_routing_channel_mixer_v2(int fe_id, bool perf_mode,
-				int dspst_id, int stream_type)
-{
-	int copp_idx = 0;
-	int sess_type = 0;
-	int j = 0, be_id = 0;
-	int ret = 0;
-
-	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
-		pr_err("%s: invalid FE %d\n", __func__, fe_id);
-		return 0;
-	}
-
-	if (stream_type == SNDRV_PCM_STREAM_PLAYBACK)
-		sess_type = SESSION_TYPE_RX;
-	else
-		sess_type = SESSION_TYPE_TX;
-
-	if (!(channel_mixer_v2[fe_id][sess_type].enable)) {
-		pr_debug("%s: channel mixer not enabled for FE %d direction %d\n",
-			__func__, fe_id, sess_type);
-		return 0;
-	}
-
-	be_id = channel_mixer_v2[fe_id][sess_type].port_idx - 1;
-	channel_mixer_v2[fe_id][sess_type].input_channels[0] =
-		channel_mixer_v2[fe_id][sess_type].input_channel;
-
-	pr_debug("%s sess type %d,fe_id %d,override in:%d out:%d,be active %d\n",
-			__func__, sess_type, fe_id,
-			channel_mixer_v2[fe_id][sess_type].override_in_ch_map,
-			channel_mixer_v2[fe_id][sess_type].override_out_ch_map,
-			msm_bedais[be_id].active);
-
-	if ((msm_bedais[be_id].active) &&
-		test_bit(fe_id, &msm_bedais[be_id].fe_sessions[0])) {
-		unsigned long copp =
-			session_copp_map[fe_id][sess_type][be_id];
-		for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
-			if (test_bit(j, &copp)) {
-				copp_idx = j;
-				break;
-			}
-		}
-
-		ret = adm_programable_channel_mixer(
-			msm_bedais[be_id].port_id,
-			copp_idx, dspst_id, sess_type,
-			&channel_mixer_v2[fe_id][sess_type], 0);
-	}
-
-	return ret;
-}
-
 static int msm_pcm_routing_channel_mixer(int fe_id, bool perf_mode,
 				int dspst_id, int stream_type)
 {
@@ -1788,14 +1523,6 @@ static int msm_pcm_routing_channel_mixer(int fe_id, bool perf_mode,
 	int sess_type = 0;
 	int i = 0, j = 0, be_id;
 	int ret = 0;
-
-	ret = msm_pcm_routing_channel_mixer_v2(fe_id, perf_mode,
-				dspst_id, stream_type);
-	if (ret) {
-		pr_err("%s channel mixer v2 cmd  set failure%d\n", __func__,
-				fe_id);
-		return ret;
-	}
 
 	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
 		pr_err("%s: invalid FE %d\n", __func__, fe_id);
@@ -1836,7 +1563,7 @@ static int msm_pcm_routing_channel_mixer(int fe_id, bool perf_mode,
 				fe_id, be_id, msm_bedais[be_id].channel,
 				copp_idx);
 			ret = adm_programable_channel_mixer(
-					get_port_id(msm_bedais[be_id].port_id),
+					msm_bedais[be_id].port_id,
 					copp_idx, dspst_id, sess_type,
 					channel_mixer + fe_id, i);
 		}
@@ -1845,129 +1572,13 @@ static int msm_pcm_routing_channel_mixer(int fe_id, bool perf_mode,
 	return ret;
 }
 
-/**
- * msm_pcm_routing_set_channel_mixer_runtime - apply channel mixer
- * setting during runtime.
- *
- * @be_id: backend index
- * @session_id: session index
- * @session_type: session type
- * @params: parameters for channel mixer
- *
- * Retuen: 0 for success, else error
- */
-int msm_pcm_routing_set_channel_mixer_runtime(int be_id, int session_id,
-			int session_type,
-			struct msm_pcm_channel_mixer *params)
-{
-	int rc = 0;
-	int port_id, copp_idx = 0;
-
-	be_id--;
-	if (be_id < 0 || be_id >= MSM_BACKEND_DAI_MAX) {
-		pr_err("%s: invalid backend id %d\n", __func__,
-				be_id);
-		return -EINVAL;
-	}
-
-	port_id = msm_bedais[be_id].port_id;
-	copp_idx = adm_get_default_copp_idx(port_id);
-	pr_debug("%s: port_id - %d, copp_idx %d session id - %d\n",
-		 __func__, port_id, copp_idx, session_id);
-
-	if ((params->input_channel < 0) ||
-		(params->input_channel > ADM_MAX_CHANNELS)) {
-		pr_err("%s: invalid input channel %d\n", __func__,
-				params->input_channel);
-		return -EINVAL;
-	}
-
-	if ((params->output_channel < 0) ||
-		(params->output_channel > ADM_MAX_CHANNELS)) {
-		pr_err("%s: invalid output channel %d\n", __func__,
-				params->output_channel);
-		return -EINVAL;
-	}
-
-	params->input_channels[0] = params->input_channel;
-
-	pr_debug("%s sess type %d,override in:%d out:%d,be active %d\n",
-			__func__, session_type,
-			params->override_in_ch_map,
-			params->override_out_ch_map,
-			msm_bedais[be_id].active);
-
-	rc = adm_programable_channel_mixer(port_id,
-					copp_idx,
-					session_id,
-					session_type,
-					params,
-					0);
-	if (rc) {
-		pr_err("%s: send params failed rc=%d\n", __func__, rc);
-		rc = -EINVAL;
-	}
-	return rc;
-}
-EXPORT_SYMBOL(msm_pcm_routing_set_channel_mixer_runtime);
-
-/*
- * msm_pcm_routing_get_portid_copp_idx:
- *	update the port_id and copp_idx for a given
- *	fe_id
- *
- * @fe_id: front end id
- * @session_type: indicates session is of type TX or RX
- * port_i: port_id to be updated as output
- * copp_idx: copp_idx is updated as output
- * @stream_type: indicates either Audio or Listen stream type
- */
-bool msm_pcm_routing_get_portid_copp_idx(int fe_id,
-				int session_type, int *port_i, int *copp_idx)
-{
-	int idx = 0;
-	bool found = false;
-	int be_index = 0, port_id;
-
-	pr_debug("%s:fe_id[%d] sess_type [%d]\n",
-		 __func__, fe_id, session_type);
-	if (!is_mm_lsm_fe_id(fe_id)) {
-		/* bad ID assigned in machine driver */
-		pr_err("%s: bad MM ID %d\n", __func__, fe_id);
-		return -EINVAL;
-	}
-
-	for (be_index = 0; be_index < MSM_BACKEND_DAI_MAX; be_index++) {
-		port_id = msm_bedais[be_index].port_id;
-		if (!msm_bedais[be_index].active ||
-		    !test_bit(fe_id, &msm_bedais[be_index].fe_sessions[0]))
-			continue;
-
-		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
-			unsigned long copp =
-				session_copp_map[fe_id][session_type][be_index];
-			if (test_bit(idx, &copp)) {
-				pr_debug("%s: port_id: %d, copp_idx:%d\n",
-				       __func__, port_id, idx);
-				*port_i = port_id;
-				*copp_idx = idx;
-				found = true;
-				break;
-			}
-		}
-	}
-
-	return found;
-}
-EXPORT_SYMBOL(msm_pcm_routing_get_portid_copp_idx);
-
 int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 					int dspst_id, int stream_type)
 {
 	int i, j, session_type, path_type, port_type, topology, num_copps = 0;
 	struct route_payload payload;
 	u32 channels, sample_rate;
-	uint16_t bits_per_sample = 16;
+	uint16_t bits_per_sample = 16, be_bit_width;
 	uint32_t passthr_mode = LEGACY_PCM;
 	int ret = 0;
 
@@ -2002,8 +1613,6 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 		   (msm_bedais[i].active) &&
 		   (test_bit(fedai_id, &msm_bedais[i].fe_sessions[0]))) {
 			int app_type, app_type_idx, copp_idx, acdb_dev_id;
-			int port_id = get_port_id(msm_bedais[i].port_id);
-
 			/*
 			 * check if ADM needs to be configured with different
 			 * channel mapping than backend
@@ -2035,11 +1644,18 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 			topology = msm_routing_get_adm_topology(fedai_id,
 								session_type,
 								i);
-			copp_idx = adm_open(port_id, path_type,
+			be_bit_width = msm_routing_get_bit_width(
+						msm_bedais[i].format);
+
+			if (hifi_filter_enabled && (msm_bedais[i].sample_rate ==
+				384000 ||msm_bedais[i].sample_rate == 352800)
+				&& be_bit_width == 32)
+				bits_per_sample = msm_routing_get_bit_width(
+							SNDRV_PCM_FORMAT_S32_LE);
+			 copp_idx = adm_open(msm_bedais[i].port_id, path_type,
 					    sample_rate, channels, topology,
 					    perf_mode, bits_per_sample,
-					    app_type, acdb_dev_id,
-					    session_type, passthr_mode);
+					    app_type, acdb_dev_id);
 			if ((copp_idx < 0) ||
 				(copp_idx >= MAX_COPPS_PER_PORT)) {
 				pr_err("%s: adm open failed copp_idx:%d\n",
@@ -2055,14 +1671,16 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 			if (msm_is_resample_needed(
 				sample_rate,
 				msm_bedais[i].sample_rate))
-				adm_copp_mfc_cfg(port_id, copp_idx,
+				adm_copp_mfc_cfg(
+					msm_bedais[i].port_id, copp_idx,
 					msm_bedais[i].sample_rate);
 
 			for (j = 0; j < MAX_COPPS_PER_PORT; j++) {
 				unsigned long copp =
 				    session_copp_map[fedai_id][session_type][i];
 				if (test_bit(j, &copp)) {
-					payload.port_id[num_copps] = port_id;
+					payload.port_id[num_copps] =
+							msm_bedais[i].port_id;
 					payload.copp_idx[num_copps] = j;
 					payload.app_type[num_copps] =
 						fe_dai_app_type_cfg
@@ -2080,8 +1698,8 @@ int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 				}
 			}
 			if (perf_mode == LEGACY_PCM_MODE)
-				msm_pcm_routing_cfg_pp(port_id, copp_idx,
-						       topology, channels);
+				msm_pcm_routing_cfg_pp(msm_bedais[i].port_id,
+						copp_idx, topology, channels);
 		}
 	}
 	if (num_copps) {
@@ -2116,7 +1734,7 @@ int msm_pcm_routing_reg_phy_stream_v2(int fedai_id, int perf_mode,
 
 void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
 {
-	int i, port_type, session_type, path_type, topology, port_id, ret;
+	int i, port_type, session_type, path_type, topology;
 	struct msm_pcm_routing_fdai_data *fdai;
 
 	if (!is_mm_lsm_fe_id(fedai_id)) {
@@ -2155,33 +1773,20 @@ void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
 								__func__);
 				continue;
 			}
-			port_id = get_port_id(msm_bedais[i].port_id);
 			topology = adm_get_topology_for_port_copp_idx(
-					port_id, idx);
+					msm_bedais[i].port_id, idx);
 			msm_routing_unload_topology(topology);
-			adm_close(port_id, fdai->perf_mode, idx);
+			adm_close(msm_bedais[i].port_id, fdai->perf_mode, idx);
 			pr_debug("%s:copp:%ld,idx bit fe:%d,type:%d,be:%d\n",
 				 __func__, copp, fedai_id, session_type, i);
-			if (adsp_ion_info.adsp_shmpp_ion_fd[i][idx][fedai_id]
-					> 0 &&
-			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[i]
-					   [idx]))) {
-				ret = msm_audio_ion_shm_phyfree(
-						   DOLBY_ADM_SHM_SUB_SYSTEM);
-				if (ret)
-					pr_err("%s: fail to phy free adsp pool %d\n",
-							__func__, ret);
-				else
-					adsp_ion_info.adsp_shmpp_ion_fd[i]
-						   [idx][fedai_id] = 0;
-			}
-			clear_bit(idx, &session_copp_map[fedai_id]
-					[session_type][i]);
+			clear_bit(idx,
+				  &session_copp_map[fedai_id][session_type][i]);
 			if ((topology == DOLBY_ADM_COPP_TOPOLOGY_ID ||
 				topology == DS2_ADM_COPP_TOPOLOGY_ID) &&
 			    (fdai->perf_mode == LEGACY_PCM_MODE) &&
 			    (fdai->passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_deinit_pp(port_id, topology);
+				msm_pcm_routing_deinit_pp(msm_bedais[i].port_id,
+							  topology);
 		}
 	}
 
@@ -2210,21 +1815,15 @@ static bool msm_pcm_routing_route_is_set(u16 be_id, u16 fe_id)
 static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 {
 	int session_type, path_type, topology;
-	u32 channels, sample_rate, ret;
-	uint16_t bits_per_sample = 16;
+	u32 channels, sample_rate;
+	uint16_t bits_per_sample = 16, be_bit_width;
 	struct msm_pcm_routing_fdai_data *fdai;
 	uint32_t passthr_mode;
 	bool is_lsm;
 
 	pr_debug("%s: reg %x val %x set %x\n", __func__, reg, val, set);
 
-	if (val == MSM_FRONTEND_DAI_DTMF_RX &&
-		afe_get_port_type(msm_bedais[reg].port_id) ==
-			MSM_AFE_PORT_TYPE_RX) {
-		pr_debug("%s(): set=%d port id=0x%x for dtmf generation\n",
-			__func__, set, msm_bedais[reg].port_id);
-		afe_set_dtmf_gen_rx_portid(msm_bedais[reg].port_id, set);
-	} else if (!is_mm_lsm_fe_id(val)) {
+	if (!is_mm_lsm_fe_id(val)) {
 		/* recheck FE ID in the mixer control defined in this file */
 		pr_err("%s: bad MM ID\n", __func__);
 		return;
@@ -2233,10 +1832,6 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 	if (!route_check_fe_id_adm_support(val)) {
 		/* ignore adm open if not supported for fe_id */
 		pr_debug("%s: No ADM support for fe id %d\n", __func__, val);
-		if (set)
-			set_bit(val, &msm_bedais[reg].fe_sessions[0]);
-		else
-			clear_bit(val, &msm_bedais[reg].fe_sessions[0]);
 		return;
 	}
 
@@ -2270,7 +1865,6 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 		if (msm_bedais[reg].active && fdai->strm_id !=
 			INVALID_SESSION) {
 			int app_type, app_type_idx, copp_idx, acdb_dev_id;
-			int port_id = get_port_id(msm_bedais[reg].port_id);
 			/*
 			 * check if ADM needs to be configured with different
 			 * channel mapping than backend
@@ -2321,11 +1915,18 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 								reg);
 			acdb_dev_id =
 			fe_dai_app_type_cfg[val][session_type][reg].acdb_dev_id;
-			copp_idx = adm_open(port_id, path_type,
+
+			be_bit_width = msm_routing_get_bit_width(
+						msm_bedais[reg].format);
+			if (hifi_filter_enabled && (msm_bedais[reg].sample_rate
+				== 384000 ||msm_bedais[reg].sample_rate ==
+				352800) && be_bit_width == 32)
+				bits_per_sample = msm_routing_get_bit_width(
+							SNDRV_PCM_FORMAT_S32_LE);
+			copp_idx = adm_open(msm_bedais[reg].port_id, path_type,
 					    sample_rate, channels, topology,
 					    fdai->perf_mode, bits_per_sample,
-					    app_type, acdb_dev_id,
-					    session_type, passthr_mode);
+					    app_type, acdb_dev_id);
 			if ((copp_idx < 0) ||
 			    (copp_idx >= MAX_COPPS_PER_PORT)) {
 				pr_err("%s: adm open failed\n", __func__);
@@ -2340,7 +1941,8 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 			if (msm_is_resample_needed(
 				sample_rate,
 				msm_bedais[reg].sample_rate))
-				adm_copp_mfc_cfg(port_id, copp_idx,
+				adm_copp_mfc_cfg(
+					msm_bedais[reg].port_id, copp_idx,
 					msm_bedais[reg].sample_rate);
 
 			if (session_type == SESSION_TYPE_RX &&
@@ -2355,8 +1957,9 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 						     passthr_mode);
 			if ((fdai->perf_mode == LEGACY_PCM_MODE) &&
 				(passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_cfg_pp(port_id, copp_idx,
-						       topology, channels);
+				msm_pcm_routing_cfg_pp(msm_bedais[reg].port_id,
+						       copp_idx, topology,
+						       channels);
 		}
 	} else {
 		if (test_bit(val, &msm_bedais[reg].fe_sessions[0]) &&
@@ -2380,44 +1983,32 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 				mutex_unlock(&routing_lock);
 				return;
 			}
-			port_id = get_port_id(msm_bedais[reg].port_id);
+			port_id = msm_bedais[reg].port_id;
 			topology = adm_get_topology_for_port_copp_idx(port_id,
 								      idx);
 			msm_routing_unload_topology(topology);
-			adm_close(port_id, fdai->perf_mode, idx);
+			adm_close(msm_bedais[reg].port_id, fdai->perf_mode,
+				  idx);
 			pr_debug("%s: copp: %ld, reset idx bit fe:%d, type: %d, be:%d topology=0x%x\n",
 				 __func__, copp, val, session_type, reg,
 				 topology);
-			if (adsp_ion_info.adsp_shmpp_ion_fd[reg][idx][val]
-					> 0 &&
-			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[reg]
-					   [idx]))) {
-				ret = msm_audio_ion_shm_phyfree(
-						DOLBY_ADM_SHM_SUB_SYSTEM);
-				if (ret)
-					pr_err("%s: fail to free from adsp pool %d\n",
-								__func__, ret);
-				else
-					adsp_ion_info.adsp_shmpp_ion_fd[reg]
-						[idx][val] = 0;
-			}
-
 			clear_bit(idx,
 				  &session_copp_map[val][session_type][reg]);
 			if ((topology == DOLBY_ADM_COPP_TOPOLOGY_ID ||
 				topology == DS2_ADM_COPP_TOPOLOGY_ID) &&
 			    (fdai->perf_mode == LEGACY_PCM_MODE) &&
 			    (passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_deinit_pp(port_id, topology);
+				msm_pcm_routing_deinit_pp(
+						msm_bedais[reg].port_id,
+						topology);
 			msm_pcm_routing_build_matrix(val, session_type,
 						     path_type,
 						     fdai->perf_mode,
 						     passthr_mode);
 		}
 	}
-	if ((msm_bedais[reg].port_id == VOICE_RECORD_RX) ||
-		(msm_bedais[reg].port_id == VOICE_RECORD_TX) ||
-		(msm_bedais[reg].port_id == VOICE2_RECORD_RX))
+	if ((msm_bedais[reg].port_id == VOICE_RECORD_RX)
+			|| (msm_bedais[reg].port_id == VOICE_RECORD_TX))
 		voc_start_record(msm_bedais[reg].port_id, set, voc_session_id);
 
 	mutex_unlock(&routing_lock);
@@ -2517,6 +2108,11 @@ static void msm_pcm_routing_process_voice(u16 reg, u16 val, int set)
 	pr_debug("%s: reg %x val %x set %x\n", __func__, reg, val, set);
 
 	session_id = msm_pcm_routing_get_voc_sessionid(val);
+
+	if (!session_id) {
+		pr_err("%s: Invalid session_id %x\n", __func__, session_id);
+		return;
+	}
 
 	pr_debug("%s: FE DAI 0x%x session_id 0x%x\n",
 		__func__, val, session_id);
@@ -3076,10 +2672,44 @@ static int msm_routing_put_fm_pcmrx_switch_mixer(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+static void msm_routing_get_lsm_fe_idx(struct snd_kcontrol *kcontrol,
+		u8 *fe_idx)
+{
+	int fe_id = MSM_FRONTEND_DAI_LSM1;
+	
+	if (strnstr(kcontrol->id.name, "LSM1", sizeof("LSM1"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM1;
+	} else if (strnstr(kcontrol->id.name, "LSM2", sizeof("LSM2"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM2;
+	} else if (strnstr(kcontrol->id.name, "LSM3", sizeof("LSM3"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM3;
+	} else if (strnstr(kcontrol->id.name, "LSM4", sizeof("LSM4"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM4;
+	} else if (strnstr(kcontrol->id.name, "LSM5", sizeof("LSM5"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM5;
+	} else if (strnstr(kcontrol->id.name, "LSM6", sizeof("LSM6"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM6;
+	} else if (strnstr(kcontrol->id.name, "LSM7", sizeof("LSM7"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM7;
+	} else if (strnstr(kcontrol->id.name, "LSM8", sizeof("LSM8"))) {
+		fe_id = MSM_FRONTEND_DAI_LSM8;
+	} else {
+		pr_err("%s: Invalid kcontrol name:%s\n", __func__,
+				kcontrol->id.name);
+		return;
+	}
+
+	*fe_idx = fe_id - MSM_FRONTEND_DAI_LSM1;
+	pr_debug("%s: fe_id: %d, fe_idx:%d\n", __func__, fe_id, *fe_idx);
+}
+
+
 static int msm_routing_lsm_port_get(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = lsm_port_index;
+	u8 fe_idx = 0;
+	msm_routing_get_lsm_fe_idx(kcontrol, &fe_idx);
+	ucontrol->value.integer.value[0] = lsm_port_index[fe_idx];
 	return 0;
 }
 
@@ -3089,7 +2719,9 @@ static int msm_routing_lsm_port_put(struct snd_kcontrol *kcontrol,
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 	int mux = ucontrol->value.enumerated.item[0];
 	int lsm_port = AFE_PORT_ID_SLIMBUS_MULTI_CHAN_5_TX;
-
+	int lsm_port_idx = 0;
+	u8 fe_idx = 0;
+	
 	if (mux >= e->items) {
 		pr_err("%s: Invalid mux value %d\n", __func__, mux);
 		return -EINVAL;
@@ -3097,6 +2729,7 @@ static int msm_routing_lsm_port_put(struct snd_kcontrol *kcontrol,
 
 	pr_debug("%s: LSM enable %ld\n", __func__,
 			ucontrol->value.integer.value[0]);
+	lsm_port_idx = ucontrol->value.integer.value[0];			
 	switch (ucontrol->value.integer.value[0]) {
 	case 1:
 		lsm_port = AFE_PORT_ID_SLIMBUS_MULTI_CHAN_0_TX;
@@ -3140,16 +2773,18 @@ static int msm_routing_lsm_port_put(struct snd_kcontrol *kcontrol,
 	case 14:
 		lsm_port = AFE_PORT_ID_QUINARY_TDM_TX;
 		break;
-	case 15:
-		lsm_port = AFE_PORT_ID_TERTIARY_TDM_TX;
-		break;
 	default:
 		pr_err("Default lsm port");
 		break;
 	}
 	set_lsm_port(lsm_port);
-	lsm_port_index = ucontrol->value.integer.value[0];
-
+	msm_routing_get_lsm_fe_idx(kcontrol, &fe_idx);
+	lsm_port_index[fe_idx] = ucontrol->value.integer.value[0];
+        /* Set the default AFE LSM Port to 0xffff */
+	if(lsm_port_idx <= 0 || lsm_port_idx >= ARRAY_SIZE(lsm_port_text))
+		lsm_port = 0xffff;
+	afe_set_lsm_afe_port_id(fe_idx, lsm_port);
+	
 	return 0;
 }
 
@@ -3160,7 +2795,7 @@ static int msm_routing_lsm_func_get(struct snd_kcontrol *kcontrol,
 	u16 port_id;
 	enum afe_mad_type mad_type;
 
-	pr_debug("%s: id name %s\n", __func__, kcontrol->id.name);
+	pr_debug("%s: enter\n", __func__);
 	for (i = 0; i < ARRAY_SIZE(lsm_port_text); i++)
 		if (!strnstr(kcontrol->id.name, lsm_port_text[i],
 			    strlen(lsm_port_text[i])))
@@ -3195,10 +2830,6 @@ static int msm_routing_lsm_func_get(struct snd_kcontrol *kcontrol,
 			strlen(lsm_port_text[14])))
 		port_id = AFE_PORT_ID_QUINARY_TDM_TX;
 
-	if (strnstr(kcontrol->id.name, lsm_port_text[15],
-			strlen(lsm_port_text[15])))
-		port_id = AFE_PORT_ID_TERTIARY_TDM_TX;
-
 	mad_type = afe_port_get_mad_type(port_id);
 	pr_debug("%s: port_id 0x%x, mad_type %d\n", __func__, port_id,
 		 mad_type);
@@ -3232,7 +2863,7 @@ static int msm_routing_lsm_func_put(struct snd_kcontrol *kcontrol,
 	u16 port_id;
 	enum afe_mad_type mad_type;
 
-	pr_debug("%s: id name %s\n", __func__, kcontrol->id.name);
+	pr_debug("%s: enter\n", __func__);
 	for (i = 0; i < ARRAY_SIZE(lsm_port_text); i++)
 		if (strnstr(kcontrol->id.name, lsm_port_text[i],
 			    strlen(lsm_port_text[i])))
@@ -3287,10 +2918,6 @@ static int msm_routing_lsm_func_put(struct snd_kcontrol *kcontrol,
 			strlen(lsm_port_text[14])))
 		port_id = AFE_PORT_ID_QUINARY_TDM_TX;
 
-	if (strnstr(kcontrol->id.name, lsm_port_text[15],
-			strlen(lsm_port_text[15])))
-		port_id = AFE_PORT_ID_TERTIARY_TDM_TX;
-
 	pr_debug("%s: port_id 0x%x, mad_type %d\n", __func__, port_id,
 		 mad_type);
 	return afe_port_set_mad_type(port_id, mad_type);
@@ -3298,7 +2925,7 @@ static int msm_routing_lsm_func_put(struct snd_kcontrol *kcontrol,
 
 static const char *const adm_override_chs_text[] = {"Zero", "One", "Two"};
 
-static SOC_ENUM_SINGLE_EXT_DECL(adm_override_chs,
+static SOC_ENUM_SINGLE_EXT_DECL(slim_7_rx_adm_override_chs,
 				adm_override_chs_text);
 
 static int msm_routing_adm_get_backend_idx(struct snd_kcontrol *kcontrol)
@@ -3307,8 +2934,6 @@ static int msm_routing_adm_get_backend_idx(struct snd_kcontrol *kcontrol)
 
 	if (strnstr(kcontrol->id.name, "SLIM7_RX", sizeof("SLIM7_RX"))) {
 		backend_id = MSM_BACKEND_DAI_SLIMBUS_7_RX;
-	} else if (strnstr(kcontrol->id.name, "SLIM9_TX", sizeof("SLIM9_TX"))) {
-		backend_id = MSM_BACKEND_DAI_SLIMBUS_9_TX;
 	} else {
 		pr_err("%s: unsupported backend id: %s",
 			__func__, kcontrol->id.name);
@@ -3317,7 +2942,6 @@ static int msm_routing_adm_get_backend_idx(struct snd_kcontrol *kcontrol)
 
 	return backend_id;
 }
-
 static int msm_routing_adm_channel_config_get(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
@@ -3356,10 +2980,7 @@ static int msm_routing_adm_channel_config_put(
 }
 
 static const struct snd_kcontrol_new adm_channel_config_controls[] = {
-	SOC_ENUM_EXT("SLIM7_RX ADM Channels", adm_override_chs,
-			msm_routing_adm_channel_config_get,
-			msm_routing_adm_channel_config_put),
-	SOC_ENUM_EXT("SLIM9_TX ADM Channels", adm_override_chs,
+	SOC_ENUM_EXT("SLIM7_RX ADM Channels", slim_7_rx_adm_override_chs,
 			msm_routing_adm_channel_config_get,
 			msm_routing_adm_channel_config_put),
 };
@@ -3541,9 +3162,8 @@ static const char *const be_name[] = {
 "SLIM_0_TX", "HDMI_RX", "INT_BT_SCO_RX", "INT_BT_SCO_TX",
 "INT_FM_RX", "INT_FM_TX", "AFE_PCM_RX", "AFE_PCM_TX",
 "AUXPCM_RX", "AUXPCM_TX", "VOICE_PLAYBACK_TX", "VOICE2_PLAYBACK_TX",
-"INCALL_RECORD_RX", "INCALL2_RECORD_RX", "INCALL_RECORD_TX",
-"MI2S_RX", "MI2S_TX", "SEC_I2S_RX",
-"SLIM_1_RX", "SLIM_1_TX", "SLIM_2_RX",
+"INCALL_RECORD_RX", "INCALL_RECORD_TX", "MI2S_RX", "MI2S_TX",
+"SEC_I2S_RX", "SLIM_1_RX", "SLIM_1_TX", "SLIM_2_RX",
 "SLIM_2_TX", "SLIM_3_RX", "SLIM_3_TX", "SLIM_4_RX",
 "SLIM_4_TX", "SLIM_5_RX", "SLIM_5_TX", "SLIM_6_RX",
 "SLIM_6_TX", "SLIM_7_RX", "SLIM_7_TX", "SLIM_8_RX",
@@ -3572,21 +3192,20 @@ static const char *const be_name[] = {
 "QUIN_TDM_RX_2", "QUIN_TDM_TX_2", "QUIN_TDM_RX_3", "QUIN_TDM_TX_3",
 "QUIN_TDM_RX_4", "QUIN_TDM_TX_4", "QUIN_TDM_RX_5", "QUIN_TDM_TX_5",
 "QUIN_TDM_RX_6", "QUIN_TDM_TX_6", "QUIN_TDM_RX_7", "QUIN_TDM_TX_7",
-"INT_BT_A2DP_RX", "USB_RX", "USB_TX", "DISPLAY_PORT_RX",
-"DISPLAY_PORT_RX1", "TERT_AUXPCM_RX", "TERT_AUXPCM_TX", "QUAT_AUXPCM_RX",
-"QUAT_AUXPCM_TX", "QUIN_AUXPCM_RX", "QUIN_AUXPCM_TX", "INT0_MI2S_RX",
-"INT0_MI2S_TX", "INT1_MI2S_RX", "INT1_MI2S_TX", "INT2_MI2S_RX",
-"INT2_MI2S_TX", "INT3_MI2S_RX", "INT3_MI2S_TX", "INT4_MI2S_RX",
-"INT4_MI2S_TX", "INT5_MI2S_RX", "INT5_MI2S_TX", "INT6_MI2S_RX",
-"INT6_MI2S_TX", "SEN_AUXPCM_RX", "SEN_AUXPCM_TX", "SENARY_MI2S_RX",
-"WSA_CDC_DMA_RX_0", "WSA_CDC_DMA_TX_0", "WSA_CDC_DMA_RX_1", "WSA_CDC_DMA_TX_1",
-"WSA_CDC_DMA_TX_2", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_1", "RX_CDC_DMA_RX_0",
-"TX_CDC_DMA_TX_0", "RX_CDC_DMA_RX_1", "TX_CDC_DMA_TX_1", "RX_CDC_DMA_RX_2",
-"TX_CDC_DMA_TX_2", "RX_CDC_DMA_RX_3", "TX_CDC_DMA_TX_3", "RX_CDC_DMA_RX_4",
-"TX_CDC_DMA_TX_4", "RX_CDC_DMA_RX_5", "TX_CDC_DMA_TX_5", "RX_CDC_DMA_RX_6",
-"RX_CDC_DMA_RX_7", "PRI_SPDIF_TX", "SEC_SPDIF_RX", "SEC_SPDIF_TX",
-"SLIM_9_RX", "SLIM_9_TX", "AFE_LOOPBACK_TX", "PRI_META_MI2S_RX",
-"SEC_META_MI2S_RX", "HDMI_RX_MS", "AFE_PCM_RX1"
+"INT_BT_A2DP_RX", "USB_RX", "USB_TX", "DISPLAY_PORT_RX", "DISPLAY_PORT_RX1",
+"TERT_AUXPCM_RX", "TERT_AUXPCM_TX", "QUAT_AUXPCM_RX", "QUAT_AUXPCM_TX",
+"QUIN_AUXPCM_RX", "QUIN_AUXPCM_TX",
+"INT0_MI2S_RX", "INT0_MI2S_TX", "INT1_MI2S_RX", "INT1_MI2S_TX",
+"INT2_MI2S_RX", "INT2_MI2S_TX", "INT3_MI2S_RX", "INT3_MI2S_TX",
+"INT4_MI2S_RX", "INT4_MI2S_TX", "INT5_MI2S_RX", "INT5_MI2S_TX",
+"INT6_MI2S_RX", "INT6_MI2S_TX", "WSA_CDC_DMA_RX_0",
+"WSA_CDC_DMA_TX_0", "WSA_CDC_DMA_RX_1", "WSA_CDC_DMA_TX_1",
+"WSA_CDC_DMA_TX_2", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_1",
+"RX_CDC_DMA_RX_0", "TX_CDC_DMA_TX_0", "RX_CDC_DMA_RX_1", "TX_CDC_DMA_TX_1",
+"RX_CDC_DMA_RX_2", "TX_CDC_DMA_TX_2", "RX_CDC_DMA_RX_3", "TX_CDC_DMA_TX_3",
+"RX_CDC_DMA_RX_4", "TX_CDC_DMA_TX_4", "RX_CDC_DMA_RX_5", "TX_CDC_DMA_TX_5",
+"RX_CDC_DMA_RX_6", "RX_CDC_DMA_RX_7",
+"PRI_SPDIF_TX", "SEC_SPDIF_RX", "SEC_SPDIF_TX", "PROXY_RX", "PROXY_TX",
 };
 
 static SOC_ENUM_SINGLE_DECL(mm1_channel_mux,
@@ -3597,16 +3216,6 @@ static SOC_ENUM_SINGLE_DECL(mm3_channel_mux,
 	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA3, ch_mixer);
 static SOC_ENUM_SINGLE_DECL(mm4_channel_mux,
 	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA4, ch_mixer);
-static SOC_ENUM_SINGLE_DECL(mm18_channel_mux,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA18, ch_mixer);
-static SOC_ENUM_SINGLE_DECL(mm19_channel_mux,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA19, ch_mixer);
-static SOC_ENUM_SINGLE_DECL(mm28_channel_mux,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA28, ch_mixer);
-static SOC_ENUM_SINGLE_DECL(mm29_channel_mux,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA29, ch_mixer);
-static SOC_ENUM_SINGLE_DECL(mm30_channel_mux,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA30, ch_mixer);
 
 static SOC_ENUM_DOUBLE_DECL(mm1_ch1_enum,
 	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA1, 0, be_name);
@@ -3624,26 +3233,6 @@ static SOC_ENUM_DOUBLE_DECL(mm1_ch7_enum,
 	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA1, 6, be_name);
 static SOC_ENUM_DOUBLE_DECL(mm1_ch8_enum,
 	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA1, 7, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm18_ch1_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA18, 0, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm18_ch2_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA18, 1, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm19_ch1_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA19, 0, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm19_ch2_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA19, 1, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm28_ch1_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA28, 0, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm28_ch2_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA28, 1, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm29_ch1_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA29, 0, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm29_ch2_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA29, 1, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm30_ch1_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA30, 0, be_name);
-static SOC_ENUM_DOUBLE_DECL(mm30_ch2_enum,
-	SND_SOC_NOPM, MSM_FRONTEND_DAI_MULTIMEDIA30, 1, be_name);
 
 static int msm_pcm_get_ctl_enum_info(struct snd_ctl_elem_info *uinfo,
 		unsigned int channels,
@@ -3859,67 +3448,6 @@ static int msm_pcm_channel_weight_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int msm_pcm_channel_output_map_info(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = PCM_FORMAT_MAX_NUM_CHANNEL_V8;
-	/* Valid channel map value ranges from 1 to 64 */
-	uinfo->value.integer.min = 0;
-	uinfo->value.integer.max = 64;
-
-	return 0;
-}
-
-static int msm_pcm_channel_output_map_put(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	u16 fe_id = 0;
-	int i, ch_map;
-
-	fe_id = ((struct soc_multi_mixer_control *)
-			kcontrol->private_value)->shift;
-	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
-		pr_err("%s: invalid FE %d\n", __func__, fe_id);
-		return -EINVAL;
-	}
-
-	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL_V8; ++i) {
-		ch_map = ucontrol->value.integer.value[i];
-		channel_mixer[fe_id].out_ch_map[i] = ch_map;
-		pr_debug("%s: FE_ID %d, channel %d channel map %d\n",
-			__func__, fe_id, i, channel_mixer[fe_id].out_ch_map[i]);
-	}
-
-	/* Make override_out_ch_map false if ch map is reset */
-	if (channel_mixer[fe_id].out_ch_map[0] == 0)
-		channel_mixer[fe_id].override_out_ch_map = false;
-	else
-		channel_mixer[fe_id].override_out_ch_map = true;
-
-	return 0;
-}
-
-static int msm_pcm_channel_output_map_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	u16 fe_id = 0;
-	int i;
-
-	fe_id = ((struct soc_multi_mixer_control *)
-			kcontrol->private_value)->shift;
-	if (fe_id >= MSM_FRONTEND_DAI_MM_SIZE) {
-		pr_err("%s: invalid FE %d\n", __func__, fe_id);
-		return -EINVAL;
-	}
-
-	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL_V8; ++i)
-		ucontrol->value.integer.value[i] =
-			channel_mixer[fe_id].out_ch_map[i];
-
-	return 0;
-}
-
 static const struct snd_kcontrol_new channel_mixer_controls[] = {
 	SOC_SINGLE_EXT("MultiMedia1 Channel Rule", SND_SOC_NOPM,
 			MSM_FRONTEND_DAI_MULTIMEDIA1, 8, 0,
@@ -3945,29 +3473,9 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 			MSM_FRONTEND_DAI_MULTIMEDIA6, 8, 0,
 			msm_pcm_get_channel_rule_index,
 			msm_pcm_put_channel_rule_index),
-	SOC_SINGLE_EXT("MultiMedia18 Channel Rule", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA18, 8, 0,
-			msm_pcm_get_channel_rule_index,
-			msm_pcm_put_channel_rule_index),
-	SOC_SINGLE_EXT("MultiMedia19 Channel Rule", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA19, 8, 0,
-			msm_pcm_get_channel_rule_index,
-			msm_pcm_put_channel_rule_index),
-	SOC_SINGLE_EXT("MultiMedia28 Channel Rule", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA28, 8, 0,
-			msm_pcm_get_channel_rule_index,
-			msm_pcm_put_channel_rule_index),
-	SOC_SINGLE_EXT("MultiMedia29 Channel Rule", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA29, 8, 0,
-			msm_pcm_get_channel_rule_index,
-			msm_pcm_put_channel_rule_index),
-	SOC_SINGLE_EXT("MultiMedia30 Channel Rule", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA30, 8, 0,
-			msm_pcm_get_channel_rule_index,
-			msm_pcm_put_channel_rule_index),
 
 	SOC_SINGLE_EXT("MultiMedia1 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA1, 14, 0,
+			MSM_FRONTEND_DAI_MULTIMEDIA1, 8, 0,
 			msm_pcm_get_out_chs,
 			msm_pcm_put_out_chs),
 	SOC_SINGLE_EXT("MultiMedia2 Channels", SND_SOC_NOPM,
@@ -3988,26 +3496,6 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 			msm_pcm_put_out_chs),
 	SOC_SINGLE_EXT("MultiMedia6 Channels", SND_SOC_NOPM,
 			MSM_FRONTEND_DAI_MULTIMEDIA6, 8, 0,
-			msm_pcm_get_out_chs,
-			msm_pcm_put_out_chs),
-	SOC_SINGLE_EXT("MultiMedia18 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA18, 14, 0,
-			msm_pcm_get_out_chs,
-			msm_pcm_put_out_chs),
-	SOC_SINGLE_EXT("MultiMedia19 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA19, 14, 0,
-			msm_pcm_get_out_chs,
-			msm_pcm_put_out_chs),
-	SOC_SINGLE_EXT("MultiMedia28 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA28, 14, 0,
-			msm_pcm_get_out_chs,
-			msm_pcm_put_out_chs),
-	SOC_SINGLE_EXT("MultiMedia29 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA29, 14, 0,
-			msm_pcm_get_out_chs,
-			msm_pcm_put_out_chs),
-	SOC_SINGLE_EXT("MultiMedia30 Channels", SND_SOC_NOPM,
-			MSM_FRONTEND_DAI_MULTIMEDIA30, 14, 0,
 			msm_pcm_get_out_chs,
 			msm_pcm_put_out_chs),
 	{
@@ -4045,51 +3533,6 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 	.get = msm_pcm_channel_mixer_get,
 	.put = msm_pcm_channel_mixer_put,
 	.private_value = (unsigned long)&(mm4_channel_mux)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Channel Mixer",
-	.info = msm_pcm_channel_mixer_info,
-	.get = msm_pcm_channel_mixer_get,
-	.put = msm_pcm_channel_mixer_put,
-	.private_value = (unsigned long)&(mm18_channel_mux)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Channel Mixer",
-	.info = msm_pcm_channel_mixer_info,
-	.get = msm_pcm_channel_mixer_get,
-	.put = msm_pcm_channel_mixer_put,
-	.private_value = (unsigned long)&(mm19_channel_mux)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Channel Mixer",
-	.info = msm_pcm_channel_mixer_info,
-	.get = msm_pcm_channel_mixer_get,
-	.put = msm_pcm_channel_mixer_put,
-	.private_value = (unsigned long)&(mm28_channel_mux)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Channel Mixer",
-	.info = msm_pcm_channel_mixer_info,
-	.get = msm_pcm_channel_mixer_get,
-	.put = msm_pcm_channel_mixer_put,
-	.private_value = (unsigned long)&(mm29_channel_mux)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Channel Mixer",
-	.info = msm_pcm_channel_mixer_info,
-	.get = msm_pcm_channel_mixer_get,
-	.put = msm_pcm_channel_mixer_put,
-	.private_value = (unsigned long)&(mm30_channel_mux)
 	},
 	{
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -4174,66 +3617,6 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 	{
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1, .rshift = 13,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
 	.name = "MultiMedia2 Output Channel1",
 	.info = msm_pcm_channel_weight_info,
 	.get = msm_pcm_channel_weight_get,
@@ -4280,706 +3663,6 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 	.put = msm_pcm_channel_weight_put,
 	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
 		{.shift = MSM_FRONTEND_DAI_MULTIMEDIA3, .rshift = 1,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel1",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 0,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel2",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 1, }
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel3",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel4",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel5",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel6",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel7",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel8",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 7,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18, .rshift = 13,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel1",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 0,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel2",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 1, }
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel3",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel4",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel5",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel6",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel7",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel8",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 7,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19, .rshift = 13,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel1",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 0,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel2",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 1, }
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel3",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel4",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel5",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel6",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel7",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel8",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 7,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28, .rshift = 13,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel1",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 0,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel2",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 1, }
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel3",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel4",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel5",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel6",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel7",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel8",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 7,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29, .rshift = 13,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel1",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 0,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel2",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 1, }
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel3",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel4",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel5",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel6",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel7",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel8",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 7,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel9",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 8,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel10",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 9,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel11",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 10,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel12",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 11,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel13",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 12,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel14",
-	.info = msm_pcm_channel_weight_info,
-	.get = msm_pcm_channel_weight_get,
-	.put = msm_pcm_channel_weight_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30, .rshift = 13,}
 	},
 	{
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -5053,208 +3736,7 @@ static const struct snd_kcontrol_new channel_mixer_controls[] = {
 	.put = msm_pcm_channel_input_be_put,
 	.private_value = (unsigned long)&(mm1_ch8_enum)
 	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Channel1",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm18_ch1_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Channel2",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm18_ch2_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Channel1",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm19_ch1_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Channel2",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm19_ch2_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Channel1",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm28_ch1_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Channel2",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm28_ch2_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Channel1",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm29_ch1_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Channel2",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm29_ch2_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Channel1",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm30_ch1_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Channel2",
-	.info = msm_pcm_channel_input_be_info,
-	.get = msm_pcm_channel_input_be_get,
-	.put = msm_pcm_channel_input_be_put,
-	.private_value = (unsigned long)&(mm30_ch2_enum)
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia1 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA1,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia2 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA2,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia3 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA3,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia4 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA4,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia5 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA5,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia6 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA6,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia18 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA18,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia19 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA19,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia28 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA28,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia29 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA29,}
-	},
-	{
-	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
-	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-	.name = "MultiMedia30 Output Channel Map",
-	.info = msm_pcm_channel_output_map_info,
-	.get = msm_pcm_channel_output_map_get,
-	.put = msm_pcm_channel_output_map_put,
-	.private_value = (unsigned long)&(struct soc_multi_mixer_control)
-		{ .shift = MSM_FRONTEND_DAI_MULTIMEDIA30,}
-	},
 };
-
 static int msm_ec_ref_ch_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
 {
@@ -5273,45 +3755,8 @@ static int msm_ec_ref_ch_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int msm_ec_ref_ch_downmixed_get(struct snd_kcontrol *kcontrol,
-			       struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = msm_ec_ref_ch_downmixed;
-	pr_debug("%s: msm_ec_ref_downmixed_ch = %ld\n", __func__,
-		ucontrol->value.integer.value[0]);
-	return 0;
-}
-
-static int msm_ec_ref_ch_downmixed_put(struct snd_kcontrol *kcontrol,
-			       struct snd_ctl_elem_value *ucontrol)
-{
-	msm_ec_ref_ch_downmixed = ucontrol->value.integer.value[0];
-	pr_debug("%s: msm_ec_ref_downmixed_ch = %d\n",
-		__func__, msm_ec_ref_ch_downmixed);
-	adm_num_ec_ref_rx_chans_downmixed(msm_ec_ref_ch_downmixed);
-	return 0;
-}
-
-static int msm_ec_ref_chmixer_weights_put(struct snd_kcontrol *kcontrol,
-			       struct snd_ctl_elem_value *ucontrol)
-{
-	int i = 0, ret = 0;
-	uint16_t weights[PCM_FORMAT_MAX_NUM_CHANNEL_V8] = {0};
-	int out_channel_idx = ((struct soc_multi_mixer_control *)
-				kcontrol->private_value)->shift;
-
-	for (; i < PCM_FORMAT_MAX_NUM_CHANNEL_V8; i++)
-		weights[i] = ucontrol->value.integer.value[i];
-
-	ret = adm_ec_ref_chmixer_weights(out_channel_idx,
-					weights, PCM_FORMAT_MAX_NUM_CHANNEL_V8);
-	pr_debug("%s: ch_index = %d, ret = %d\n", __func__, out_channel_idx, ret);
-	return ret;
-}
-
 static const char *const ec_ref_ch_text[] = {"Zero", "One", "Two", "Three",
-	"Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven",
-	"Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen"};
+	"Four", "Five", "Six", "Seven", "Eight"};
 
 static int msm_ec_ref_bit_format_get(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_value *ucontrol)
@@ -5412,203 +3857,205 @@ static int msm_ec_ref_rate_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int get_ec_ref_port_id(int value, int *index)
-{
-	int port_id;
-
-	switch (value) {
-	case 0:
-		*index = 0;
-		port_id = AFE_PORT_INVALID;
-		break;
-	case 1:
-		*index = 1;
-		port_id = SLIMBUS_0_RX;
-		break;
-	case 2:
-		*index = 2;
-		port_id = AFE_PORT_ID_PRIMARY_MI2S_RX;
-		break;
-	case 3:
-		*index = 3;
-		port_id = AFE_PORT_ID_PRIMARY_MI2S_TX;
-		break;
-	case 4:
-		*index = 4;
-		port_id = AFE_PORT_ID_SECONDARY_MI2S_TX;
-		break;
-	case 5:
-		*index = 5;
-		port_id = AFE_PORT_ID_TERTIARY_MI2S_TX;
-		break;
-	case 6:
-		*index = 6;
-		port_id = AFE_PORT_ID_QUATERNARY_MI2S_TX;
-		break;
-	case 7:
-		*index = 7;
-		port_id = AFE_PORT_ID_SECONDARY_MI2S_RX;
-		break;
-	case 9:
-		*index = 9;
-		port_id = SLIMBUS_5_RX;
-		break;
-	case 10:
-		*index = 10;
-		port_id = SLIMBUS_1_TX;
-		break;
-	case 11:
-		*index = 11;
-		port_id = AFE_PORT_ID_QUATERNARY_TDM_TX_1;
-		break;
-	case 12:
-		*index = 12;
-		port_id = AFE_PORT_ID_QUATERNARY_TDM_RX;
-		break;
-	case 13:
-		*index = 13;
-		port_id = AFE_PORT_ID_QUATERNARY_TDM_RX_1;
-		break;
-	case 14:
-		*index = 14;
-		port_id = AFE_PORT_ID_QUATERNARY_TDM_RX_2;
-		break;
-	case 15:
-		*index = 15;
-		port_id = SLIMBUS_6_RX;
-		break;
-	case 16:
-		*index = 16;
-		port_id = AFE_PORT_ID_TERTIARY_MI2S_RX;
-		break;
-	case 17:
-		*index = 17;
-		port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
-		break;
-	case 18:
-		*index = 18;
-		port_id = AFE_PORT_ID_TERTIARY_TDM_TX;
-		break;
-	case 19:
-		*index = 19;
-		port_id = AFE_PORT_ID_USB_RX;
-		break;
-	case 20:
-		*index = 20;
-		port_id = AFE_PORT_ID_INT0_MI2S_RX;
-		break;
-	case 21:
-		*index = 21;
-		port_id = AFE_PORT_ID_INT4_MI2S_RX;
-		break;
-	case 22:
-		*index = 22;
-		port_id = AFE_PORT_ID_INT3_MI2S_TX;
-		break;
-	case 23:
-		*index = 23;
-		port_id = AFE_PORT_ID_HDMI_OVER_DP_RX;
-		break;
-	case 24:
-		*index = 24;
-		port_id = AFE_PORT_ID_WSA_CODEC_DMA_RX_0;
-		break;
-	case 25:
-		*index = 25;
-		port_id = AFE_PORT_ID_WSA_CODEC_DMA_RX_1;
-		break;
-	case 26:
-		*index = 26;
-		port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_0;
-		break;
-	case 27:
-		*index = 27;
-		port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_1;
-		break;
-	case 28:
-		*index = 28;
-		port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_2;
-		break;
-	case 29:
-		*index = 29;
-		port_id = SLIMBUS_7_RX;
-		break;
-	case 30:
-		*index = 30;
-		port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_0;
-		break;
-	case 31:
-		*index = 31;
-		port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_1;
-		break;
-	case 32:
-		*index = 32;
-		port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_2;
-		break;
-	case 33:
-		*index = 33;
-		port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_3;
-		break;
-	case 34:
-		*index = 34;
-		port_id = AFE_PORT_ID_TX_CODEC_DMA_TX_0;
-		break;
-	case 35:
-		*index = 35;
-		port_id = AFE_PORT_ID_TERTIARY_TDM_RX_2;
-		break;
-	case 36:
-		*index = 36;
-		port_id = AFE_PORT_ID_SECONDARY_TDM_TX;
-		break;
-	case 37:
-		*index = 37;
-		port_id = AFE_PORT_ID_QUINARY_TDM_TX;
-		break;
-	default:
-		*index = 0; /* NONE */
-		pr_err("%s: Invalid value %d\n", __func__, value);
-		port_id = AFE_PORT_INVALID;
-		break;
-	}
-
-	return port_id;
-}
-
-static int msm_routing_afe_lb_tx_port_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	pr_debug("%s: port index = %d", __func__, afe_loopback_tx_port_index);
-	mutex_lock(&routing_lock);
-	ucontrol->value.integer.value[0] = afe_loopback_tx_port_index;
-	mutex_unlock(&routing_lock);
-
-	return 0;
-}
-
-static int msm_routing_afe_lb_tx_port_put(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	int value = ucontrol->value.integer.value[0];
-
-	mutex_lock(&routing_lock);
-	afe_loopback_tx_port_id = get_ec_ref_port_id(value,
-			&afe_loopback_tx_port_index);
-	pr_debug("%s: afe_loopback_tx_port_index = %d\n",
-	    __func__, afe_loopback_tx_port_index);
-	mutex_unlock(&routing_lock);
-
-	return 0;
-}
-
 static const char *const ec_ref_rate_text[] = {"0", "8000", "16000",
 	"32000", "44100", "48000", "96000", "192000", "384000"};
 
 static const struct soc_enum msm_route_ec_ref_params_enum[] = {
-	SOC_ENUM_SINGLE_EXT(17, ec_ref_ch_text),
+	SOC_ENUM_SINGLE_EXT(9, ec_ref_ch_text),
 	SOC_ENUM_SINGLE_EXT(3, ec_ref_bit_format_text),
 	SOC_ENUM_SINGLE_EXT(9, ec_ref_rate_text),
 };
+
+static const struct snd_kcontrol_new ec_ref_param_controls[] = {
+	SOC_ENUM_EXT("EC Reference Channels", msm_route_ec_ref_params_enum[0],
+		msm_ec_ref_ch_get, msm_ec_ref_ch_put),
+	SOC_ENUM_EXT("EC Reference Bit Format", msm_route_ec_ref_params_enum[1],
+		msm_ec_ref_bit_format_get, msm_ec_ref_bit_format_put),
+	SOC_ENUM_EXT("EC Reference SampleRate", msm_route_ec_ref_params_enum[2],
+		msm_ec_ref_rate_get, msm_ec_ref_rate_put),
+};
+
+static int msm_routing_ec_ref_rx_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	pr_debug("%s: ec_ref_rx  = %d", __func__, msm_route_ec_ref_rx);
+	mutex_lock(&routing_lock);
+	ucontrol->value.integer.value[0] = msm_route_ec_ref_rx;
+	mutex_unlock(&routing_lock);
+	return 0;
+}
+
+static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	int ec_ref_port_id;
+	struct snd_soc_dapm_widget *widget =
+		snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
+	struct snd_soc_dapm_update *update = NULL;
+
+
+	mutex_lock(&routing_lock);
+	switch (ucontrol->value.integer.value[0]) {
+	case 0:
+		msm_route_ec_ref_rx = 0;
+		ec_ref_port_id = AFE_PORT_INVALID;
+		break;
+	case 1:
+		msm_route_ec_ref_rx = 1;
+		ec_ref_port_id = SLIMBUS_0_RX;
+		break;
+	case 2:
+		msm_route_ec_ref_rx = 2;
+		ec_ref_port_id = AFE_PORT_ID_PRIMARY_MI2S_RX;
+		break;
+	case 3:
+		msm_route_ec_ref_rx = 3;
+		ec_ref_port_id = AFE_PORT_ID_PRIMARY_MI2S_TX;
+		break;
+	case 4:
+		msm_route_ec_ref_rx = 4;
+		ec_ref_port_id = AFE_PORT_ID_SECONDARY_MI2S_TX;
+		break;
+	case 5:
+		msm_route_ec_ref_rx = 5;
+		ec_ref_port_id = AFE_PORT_ID_TERTIARY_MI2S_TX;
+		break;
+	case 6:
+		msm_route_ec_ref_rx = 6;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_TX;
+		break;
+	case 7:
+		msm_route_ec_ref_rx = 7;
+		ec_ref_port_id = AFE_PORT_ID_SECONDARY_MI2S_RX;
+		break;
+	case 9:
+		msm_route_ec_ref_rx = 9;
+		ec_ref_port_id = SLIMBUS_5_RX;
+		break;
+	case 10:
+		msm_route_ec_ref_rx = 10;
+		ec_ref_port_id = SLIMBUS_1_TX;
+		break;
+	case 11:
+		msm_route_ec_ref_rx = 11;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_TDM_TX_1;
+		break;
+	case 12:
+		msm_route_ec_ref_rx = 12;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_TDM_RX;
+		break;
+	case 13:
+		msm_route_ec_ref_rx = 13;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_TDM_RX_1;
+		break;
+	case 14:
+		msm_route_ec_ref_rx = 14;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_TDM_RX_2;
+		break;
+	case 15:
+		msm_route_ec_ref_rx = 15;
+		ec_ref_port_id = SLIMBUS_6_RX;
+		break;
+	case 16:
+		msm_route_ec_ref_rx = 16;
+		ec_ref_port_id = AFE_PORT_ID_TERTIARY_MI2S_RX;
+		break;
+	case 17:
+		msm_route_ec_ref_rx = 17;
+		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
+		break;
+	case 18:
+		msm_route_ec_ref_rx = 18;
+		ec_ref_port_id = AFE_PORT_ID_TERTIARY_TDM_TX;
+		break;
+	case 19:
+		msm_route_ec_ref_rx = 19;
+		ec_ref_port_id = AFE_PORT_ID_USB_RX;
+		break;
+	case 20:
+		msm_route_ec_ref_rx = 20;
+		ec_ref_port_id = AFE_PORT_ID_INT0_MI2S_RX;
+		break;
+	case 21:
+		msm_route_ec_ref_rx = 21;
+		ec_ref_port_id = AFE_PORT_ID_INT4_MI2S_RX;
+		break;
+	case 22:
+		msm_route_ec_ref_rx = 22;
+		ec_ref_port_id = AFE_PORT_ID_INT3_MI2S_TX;
+		break;
+	case 23:
+		msm_route_ec_ref_rx = 23;
+		ec_ref_port_id = AFE_PORT_ID_HDMI_OVER_DP_RX;
+		break;
+	case 24:
+		msm_route_ec_ref_rx = 24;
+		ec_ref_port_id = AFE_PORT_ID_WSA_CODEC_DMA_RX_0;
+		break;
+	case 25:
+		msm_route_ec_ref_rx = 25;
+		ec_ref_port_id = AFE_PORT_ID_WSA_CODEC_DMA_RX_1;
+		break;
+	case 26:
+		msm_route_ec_ref_rx = 26;
+		ec_ref_port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_0;
+		break;
+	case 27:
+		msm_route_ec_ref_rx = 27;
+		ec_ref_port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_1;
+		break;
+	case 28:
+		msm_route_ec_ref_rx = 28;
+		ec_ref_port_id = AFE_PORT_ID_WSA_CODEC_DMA_TX_2;
+		break;
+	case 29:
+		msm_route_ec_ref_rx = 29;
+		ec_ref_port_id = SLIMBUS_7_RX;
+		break;
+	case 30:
+		msm_route_ec_ref_rx = 30;
+		ec_ref_port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_0;
+		break;
+	case 31:
+		msm_route_ec_ref_rx = 31;
+		ec_ref_port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_1;
+		break;
+	case 32:
+		msm_route_ec_ref_rx = 32;
+		ec_ref_port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_2;
+		break;
+	case 33:
+		msm_route_ec_ref_rx = 33;
+		ec_ref_port_id = AFE_PORT_ID_RX_CODEC_DMA_RX_3;
+		break;
+	case 34:
+		msm_route_ec_ref_rx = 34;
+		ec_ref_port_id = AFE_PORT_ID_TX_CODEC_DMA_TX_0;
+		break;
+	case 35:
+		msm_route_ec_ref_rx = 35;
+		ec_ref_port_id = AFE_PORT_ID_TERTIARY_TDM_RX_2;
+		break;
+	case 36:
+		msm_route_ec_ref_rx = 36;
+		ec_ref_port_id = AFE_PORT_ID_SECONDARY_TDM_TX;
+		break;
+	default:
+		msm_route_ec_ref_rx = 0; /* NONE */
+		pr_err("%s EC ref rx %ld not valid\n",
+			__func__, ucontrol->value.integer.value[0]);
+		ec_ref_port_id = AFE_PORT_INVALID;
+		break;
+	}
+	adm_ec_ref_rx_id(ec_ref_port_id);
+	pr_debug("%s: msm_route_ec_ref_rx = %d\n",
+	    __func__, msm_route_ec_ref_rx);
+	mutex_unlock(&routing_lock);
+	snd_soc_dapm_mux_update_power(widget->dapm, kcontrol,
+					msm_route_ec_ref_rx, e, update);
+	return 0;
+}
 
 static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"PRI_MI2S_TX", "SEC_MI2S_TX",
@@ -5621,82 +4068,11 @@ static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"WSA_CDC_DMA_TX_0", "WSA_CDC_DMA_TX_1", "WSA_CDC_DMA_TX_2",
 	"SLIM_7_RX", "RX_CDC_DMA_RX_0", "RX_CDC_DMA_RX_1", "RX_CDC_DMA_RX_2",
 	"RX_CDC_DMA_RX_3", "TX_CDC_DMA_TX_0", "TERT_TDM_RX_2", "SEC_TDM_TX_0",
-	"QUIN_TDM_TX_0",
 };
 
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ec_ref_rx), ec_ref_rx),
 };
-
-static const struct snd_kcontrol_new ec_ref_param_controls[] = {
-	SOC_ENUM_EXT("EC Reference Channels", msm_route_ec_ref_params_enum[0],
-		msm_ec_ref_ch_get, msm_ec_ref_ch_put),
-	SOC_ENUM_EXT("EC Reference Bit Format", msm_route_ec_ref_params_enum[1],
-		msm_ec_ref_bit_format_get, msm_ec_ref_bit_format_put),
-	SOC_ENUM_EXT("EC Reference SampleRate", msm_route_ec_ref_params_enum[2],
-		msm_ec_ref_rate_get, msm_ec_ref_rate_put),
-	SOC_ENUM_EXT("EC Reference Downmixed Channels",
-		msm_route_ec_ref_params_enum[0],
-		msm_ec_ref_ch_downmixed_get, msm_ec_ref_ch_downmixed_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch1", SND_SOC_NOPM,
-		0, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch2", SND_SOC_NOPM,
-		1, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch3", SND_SOC_NOPM,
-		2, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch4", SND_SOC_NOPM,
-		3, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch5", SND_SOC_NOPM,
-		4, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch6", SND_SOC_NOPM,
-		5, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch7", SND_SOC_NOPM,
-		6, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_SINGLE_MULTI_EXT("EC Reference ChMixer Weights Ch8", SND_SOC_NOPM,
-		7, 16384, 0, PCM_FORMAT_MAX_NUM_CHANNEL_V8, NULL,
-		msm_ec_ref_chmixer_weights_put),
-	SOC_ENUM_EXT("AFE_LOOPBACK_TX Port", msm_route_ec_ref_rx_enum[0],
-		msm_routing_afe_lb_tx_port_get, msm_routing_afe_lb_tx_port_put),
-};
-
-static int msm_routing_ec_ref_rx_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	pr_debug("%s: ec_ref_rx  = %d", __func__, msm_route_ec_ref_rx);
-	mutex_lock(&routing_lock);
-	ucontrol->value.integer.value[0] = msm_route_ec_ref_rx;
-	mutex_unlock(&routing_lock);
-
-	return 0;
-}
-
-static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	int value = ucontrol->value.integer.value[0];
-	struct snd_soc_dapm_widget *widget =
-		snd_soc_dapm_kcontrol_widget(kcontrol);
-	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
-	struct snd_soc_dapm_update *update = NULL;
-
-	mutex_lock(&routing_lock);
-	msm_ec_ref_port_id = get_ec_ref_port_id(value, &msm_route_ec_ref_rx);
-	adm_ec_ref_rx_id(msm_ec_ref_port_id);
-	pr_debug("%s: msm_route_ec_ref_rx = %d\n",
-	    __func__, msm_route_ec_ref_rx);
-	mutex_unlock(&routing_lock);
-
-	snd_soc_dapm_mux_update_power(widget->dapm, kcontrol,
-					msm_route_ec_ref_rx, e, update);
-	return 0;
-}
 
 static const struct snd_kcontrol_new ext_ec_ref_mux_ul1 =
 	SOC_DAPM_ENUM_EXT("AUDIO_REF_EC_UL1 MUX Mux",
@@ -5950,10 +4326,6 @@ static const struct snd_kcontrol_new pri_i2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_I2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_I2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_i2s_rx_mixer_controls[] = {
@@ -6044,10 +4416,6 @@ static const struct snd_kcontrol_new sec_i2s_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_I2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_I2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -6140,10 +4508,6 @@ static const struct snd_kcontrol_new pri_spdif_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_SPDIF_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_SPDIF_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_spdif_rx_mixer_controls[] = {
@@ -6234,10 +4598,6 @@ static const struct snd_kcontrol_new sec_spdif_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_SPDIF_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -6401,10 +4761,6 @@ static const struct snd_kcontrol_new slimbus_5_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_5_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_5_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new slimbus_rx_mixer_controls[] = {
@@ -6495,10 +4851,6 @@ static const struct snd_kcontrol_new slimbus_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_0_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_0_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -6591,10 +4943,6 @@ static const struct snd_kcontrol_new mi2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new quaternary_mi2s_rx_mixer_controls[] = {
@@ -6674,10 +5022,6 @@ static const struct snd_kcontrol_new quaternary_mi2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("MultiMedia26", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA26, 1, 0, msm_routing_get_audio_mixer,
@@ -6689,10 +5033,6 @@ static const struct snd_kcontrol_new quaternary_mi2s_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -6785,10 +5125,6 @@ static const struct snd_kcontrol_new quinary_mi2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 
 };
 
@@ -6872,10 +5208,6 @@ static const struct snd_kcontrol_new tertiary_mi2s_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -6975,10 +5307,6 @@ static const struct snd_kcontrol_new secondary_mi2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new primary_mi2s_rx_mixer_controls[] = {
@@ -7070,14 +5398,7 @@ static const struct snd_kcontrol_new primary_mi2s_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
-	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
+
 };
 
 static const struct snd_kcontrol_new int0_mi2s_rx_mixer_controls[] = {
@@ -7214,189 +5535,6 @@ static const struct snd_kcontrol_new int4_mi2s_rx_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 };
 
-static const struct snd_kcontrol_new pri_meta_mi2s_rx_mixer_controls[] = {
-	SOC_DOUBLE_EXT("MultiMedia1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia4", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia5", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia6", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia7", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA7, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia8", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia10", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia12", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA12, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia13", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA13, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia14", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA14, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia15", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA15, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia17", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia18", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia19", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia26", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA26, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia28", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-
-};
-
-static const struct snd_kcontrol_new sec_meta_mi2s_rx_mixer_controls[] = {
-	SOC_DOUBLE_EXT("MultiMedia1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia4", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia5", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia6", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia7", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA7, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia8", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia10", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia12", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA12, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia13", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA13, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia14", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA14, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia15", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA15, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia17", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia18", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia19", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia26", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA26, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia28", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
 static const struct snd_kcontrol_new hdmi_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_HDMI_RX,
@@ -7485,105 +5623,6 @@ static const struct snd_kcontrol_new hdmi_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_HDMI_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new hdmi_ms_mixer_controls[] = {
-	SOC_DOUBLE_EXT("MultiMedia1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia4", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia5", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia6", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia7", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA7, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia8", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia10", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia12", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA12, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia13", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA13, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia14", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA14, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia15", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA15, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia17", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia18", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia19", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia26", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA26, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia28", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -7739,10 +5778,6 @@ static const struct snd_kcontrol_new incall_music_delivery_mixer_controls[] = {
 	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia4", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("MultiMedia5", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
@@ -7750,6 +5785,10 @@ static const struct snd_kcontrol_new incall_music_delivery_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -7769,6 +5808,10 @@ static const struct snd_kcontrol_new incall_music2_delivery_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_VOICE2_PLAYBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
+	msm_routing_put_audio_mixer),
+	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_VOICE2_PLAYBACK_TX,
+	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -8873,10 +6916,6 @@ static const struct snd_kcontrol_new int_bt_sco_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_INT_BT_SCO_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INT_BT_SCO_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new int_bt_a2dp_rx_mixer_controls[] = {
@@ -9039,10 +7078,6 @@ static const struct snd_kcontrol_new int_fm_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_INT_FM_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INT_FM_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new afe_pcm_rx_mixer_controls[] = {
@@ -9133,105 +7168,6 @@ static const struct snd_kcontrol_new afe_pcm_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_AFE_PCM_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new afe_pcm_rx_1_mixer_controls[] = {
-	SOC_DOUBLE_EXT("MultiMedia1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia4", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia5", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia6", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia7", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA7, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia8", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia9", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia10", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia11", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA11, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia12", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA12, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia13", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA13, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia14", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA14, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia15", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA15, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia17", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia18", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia19", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia26", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA26, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia28", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_RX1,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -9328,10 +7264,6 @@ static const struct snd_kcontrol_new auxpcm_rx_mixer_controls[] = {
 	MSM_BACKEND_DAI_AUXPCM_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AUXPCM_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_auxpcm_rx_mixer_controls[] = {
@@ -9426,10 +7358,6 @@ static const struct snd_kcontrol_new sec_auxpcm_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia29", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_AUXPCM_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_AUXPCM_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -9714,22 +7642,6 @@ static const struct snd_kcontrol_new pri_tdm_rx_0_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_TDM_RX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new pri_tdm_rx_1_mixer_controls[] = {
@@ -9800,22 +7712,6 @@ static const struct snd_kcontrol_new pri_tdm_rx_1_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_PRI_TDM_RX_1,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -9888,22 +7784,6 @@ static const struct snd_kcontrol_new pri_tdm_rx_2_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_TDM_RX_2,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new pri_tdm_rx_3_mixer_controls[] = {
@@ -9975,22 +7855,6 @@ static const struct snd_kcontrol_new pri_tdm_rx_3_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_TDM_RX_3,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new pri_tdm_tx_0_mixer_controls[] = {
@@ -10057,18 +7921,6 @@ static const struct snd_kcontrol_new pri_tdm_tx_0_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_PRI_TDM_TX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -10141,22 +7993,6 @@ static const struct snd_kcontrol_new sec_tdm_rx_0_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_TDM_RX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_tdm_rx_1_mixer_controls[] = {
@@ -10227,22 +8063,6 @@ static const struct snd_kcontrol_new sec_tdm_rx_1_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_TDM_RX_1,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -10315,22 +8135,6 @@ static const struct snd_kcontrol_new sec_tdm_rx_2_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_TDM_RX_2,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_tdm_rx_3_mixer_controls[] = {
@@ -10402,22 +8206,6 @@ static const struct snd_kcontrol_new sec_tdm_rx_3_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_TDM_RX_3,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new sec_tdm_tx_0_mixer_controls[] = {
@@ -10484,18 +8272,6 @@ static const struct snd_kcontrol_new sec_tdm_tx_0_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_TDM_TX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -10568,22 +8344,6 @@ static const struct snd_kcontrol_new tert_tdm_rx_0_mixer_controls[] = {
 	MSM_BACKEND_DAI_TERT_TDM_RX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new tert_tdm_tx_0_mixer_controls[] = {
@@ -10650,18 +8410,6 @@ static const struct snd_kcontrol_new tert_tdm_tx_0_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERT_TDM_TX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -10734,22 +8482,6 @@ static const struct snd_kcontrol_new tert_tdm_rx_1_mixer_controls[] = {
 	MSM_BACKEND_DAI_TERT_TDM_RX_1,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new tert_tdm_rx_2_mixer_controls[] = {
@@ -10820,22 +8552,6 @@ static const struct snd_kcontrol_new tert_tdm_rx_2_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERT_TDM_RX_2,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -10908,22 +8624,6 @@ static const struct snd_kcontrol_new tert_tdm_rx_3_mixer_controls[] = {
 	MSM_BACKEND_DAI_TERT_TDM_RX_3,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new tert_tdm_rx_4_mixer_controls[] = {
@@ -10994,22 +8694,6 @@ static const struct snd_kcontrol_new tert_tdm_rx_4_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERT_TDM_RX_4,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_4,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_4,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_4,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_RX_4,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11086,21 +8770,13 @@ static const struct snd_kcontrol_new quat_tdm_rx_0_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUAT_TDM_RX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia31", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA31, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11168,18 +8844,6 @@ static const struct snd_kcontrol_new quat_tdm_tx_0_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11256,21 +8920,13 @@ static const struct snd_kcontrol_new quat_tdm_rx_1_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUAT_TDM_RX_1,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia31", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA31, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11347,21 +9003,13 @@ static const struct snd_kcontrol_new quat_tdm_rx_2_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUAT_TDM_RX_2,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia31", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA31, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11438,21 +9086,13 @@ static const struct snd_kcontrol_new quat_tdm_rx_3_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUAT_TDM_RX_3,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia30", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
+	SOC_DOUBLE_EXT("MultiMedia31", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUAT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA31, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11529,22 +9169,6 @@ static const struct snd_kcontrol_new quin_tdm_rx_0_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUIN_TDM_RX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new quin_tdm_tx_0_mixer_controls[] = {
@@ -11611,18 +9235,6 @@ static const struct snd_kcontrol_new quin_tdm_tx_0_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia16", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11699,22 +9311,6 @@ static const struct snd_kcontrol_new quin_tdm_rx_1_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUIN_TDM_RX_1,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new quin_tdm_rx_2_mixer_controls[] = {
@@ -11790,22 +9386,6 @@ static const struct snd_kcontrol_new quin_tdm_rx_2_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUIN_TDM_RX_2,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new quin_tdm_rx_3_mixer_controls[] = {
@@ -11880,22 +9460,6 @@ static const struct snd_kcontrol_new quin_tdm_rx_3_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MultiMedia21", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUIN_TDM_RX_3,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia22", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia23", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia24", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("MultiMedia25", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_RX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -11974,10 +9538,6 @@ static const struct snd_kcontrol_new mmul1_mixer_controls[] = {
 		msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_INCALL_RECORD_RX,
-		MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC2_REC_DL", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_INCALL2_RECORD_RX,
 		MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
 		msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
@@ -12142,10 +9702,6 @@ static const struct snd_kcontrol_new mmul1_mixer_controls[] = {
 		msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_SLIMBUS_9_TX,
-		MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 		MSM_FRONTEND_DAI_MULTIMEDIA1, 1, 0, msm_routing_get_audio_mixer,
 		msm_routing_put_audio_mixer),
 };
@@ -12341,10 +9897,6 @@ static const struct snd_kcontrol_new mmul2_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_9_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA2, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_AUX_PCM_TX", SND_SOC_NOPM,
@@ -12546,10 +10098,6 @@ static const struct snd_kcontrol_new mmul3_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA3, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul4_mixer_controls[] = {
@@ -12579,10 +10127,6 @@ static const struct snd_kcontrol_new mmul4_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INCALL_RECORD_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC2_REC_DL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL2_RECORD_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
@@ -12743,10 +10287,6 @@ static const struct snd_kcontrol_new mmul4_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA4, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -12968,10 +10508,6 @@ static const struct snd_kcontrol_new mmul5_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_9_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA5, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul6_mixer_controls[] = {
@@ -13167,10 +10703,6 @@ static const struct snd_kcontrol_new mmul6_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA6, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul8_mixer_controls[] = {
@@ -13220,10 +10752,6 @@ static const struct snd_kcontrol_new mmul8_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INCALL_RECORD_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC2_REC_DL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL2_RECORD_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
@@ -13374,12 +10902,12 @@ static const struct snd_kcontrol_new mmul8_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_9_TX,
+	SOC_DOUBLE_EXT("SLIM_8_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_8_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
+	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_9_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA8, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -13431,10 +10959,6 @@ static const struct snd_kcontrol_new mmul16_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INCALL_RECORD_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC2_REC_DL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL2_RECORD_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
@@ -13591,12 +11115,12 @@ static const struct snd_kcontrol_new mmul16_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_9_TX,
+	SOC_DOUBLE_EXT("SLIM_8_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_8_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
+	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_9_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA16, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -13628,10 +11152,6 @@ static const struct snd_kcontrol_new mmul9_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INCALL_RECORD_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC2_REC_DL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL2_RECORD_RX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
@@ -13740,10 +11260,6 @@ static const struct snd_kcontrol_new mmul9_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA9, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -13919,10 +11435,6 @@ static const struct snd_kcontrol_new mmul10_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_9_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA10, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 static const struct snd_kcontrol_new mmul17_mixer_controls[] = {
 	SOC_DOUBLE_EXT("SLIM_0_TX", SND_SOC_NOPM,
@@ -14025,10 +11537,6 @@ static const struct snd_kcontrol_new mmul17_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -14140,14 +11648,6 @@ static const struct snd_kcontrol_new mmul18_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SLIM_9_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_9_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA18, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul19_mixer_controls[] = {
@@ -14185,10 +11685,6 @@ static const struct snd_kcontrol_new mmul19_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INCALL_RECORD_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX", SND_SOC_NOPM,
@@ -14255,10 +11751,6 @@ static const struct snd_kcontrol_new mmul19_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA19, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -14416,10 +11908,6 @@ static const struct snd_kcontrol_new mmul20_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA20, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA20, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul21_mixer_controls[] = {
@@ -14563,342 +12051,6 @@ static const struct snd_kcontrol_new mmul21_mixer_controls[] = {
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA21, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new mmul22_mixer_controls[] = {
-	SOC_DOUBLE_EXT("PRI_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA22, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new mmul23_mixer_controls[] = {
-	SOC_DOUBLE_EXT("PRI_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA23, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new mmul24_mixer_controls[] = {
-	SOC_DOUBLE_EXT("PRI_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA24, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new mmul25_mixer_controls[] = {
-	SOC_DOUBLE_EXT("PRI_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUAT_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_3", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUIN_TDM_TX_3,
-	MSM_FRONTEND_DAI_MULTIMEDIA25, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul27_mixer_controls[] = {
@@ -14950,10 +12102,6 @@ static const struct snd_kcontrol_new mmul27_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_9_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA27, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA27, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 };
 
 static const struct snd_kcontrol_new mmul28_mixer_controls[] = {
@@ -14993,17 +12141,13 @@ static const struct snd_kcontrol_new mmul28_mixer_controls[] = {
 	MSM_BACKEND_DAI_INCALL_RECORD_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("QUAT_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
+	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("WSA_CDC_DMA_TX_0", SND_SOC_NOPM,
 			MSM_BACKEND_DAI_WSA_CDC_DMA_TX_0,
@@ -15061,10 +12205,6 @@ static const struct snd_kcontrol_new mmul28_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA28, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
@@ -15106,10 +12246,6 @@ static const struct snd_kcontrol_new mmul29_mixer_controls[] = {
 	MSM_BACKEND_DAI_INCALL_RECORD_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
@@ -15175,123 +12311,6 @@ static const struct snd_kcontrol_new mmul29_mixer_controls[] = {
 	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SEC_SPDIF_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA29, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-};
-
-static const struct snd_kcontrol_new mmul30_mixer_controls[] = {
-	SOC_DOUBLE_EXT("SLIM_0_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_0_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SLIM_1_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SLIMBUS_1_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("INT3_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INT3_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("INTERNAL_FM_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INT_FM_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("INTERNAL_BT_SCO_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INT_BT_SCO_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_PCM_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_PCM_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC_REC_DL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL_RECORD_RX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VOC_REC_UL", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_INCALL_RECORD_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TERT_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("QUAT_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("WSA_CDC_DMA_TX_0", SND_SOC_NOPM,
-			MSM_BACKEND_DAI_WSA_CDC_DMA_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("WSA_CDC_DMA_TX_1", SND_SOC_NOPM,
-			MSM_BACKEND_DAI_WSA_CDC_DMA_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("WSA_CDC_DMA_TX_2", SND_SOC_NOPM,
-			MSM_BACKEND_DAI_WSA_CDC_DMA_TX_2,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VA_CDC_DMA_TX_0", SND_SOC_NOPM,
-			MSM_BACKEND_DAI_VA_CDC_DMA_TX_0,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("VA_CDC_DMA_TX_1", SND_SOC_NOPM,
-			MSM_BACKEND_DAI_VA_CDC_DMA_TX_1,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_0,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_1", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_1,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_2", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_2,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_3", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_3,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_4", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_4,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_5", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TX_CDC_DMA_TX_5,
-		MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0,
-		msm_routing_get_audio_mixer,
-		msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("PRI_SPDIF_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("SEC_SPDIF_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SEC_SPDIF_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
-	msm_routing_put_audio_mixer),
-	SOC_DOUBLE_EXT("AFE_LOOPBACK_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
-	MSM_FRONTEND_DAI_MULTIMEDIA30, 1, 0, msm_routing_get_audio_mixer,
 	msm_routing_put_audio_mixer),
 };
 
@@ -15338,14 +12357,6 @@ static const struct snd_kcontrol_new sec_mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SECONDARY_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
@@ -15385,6 +12396,10 @@ static const struct snd_kcontrol_new slimbus_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_SLIMBUS_0_RX,
 	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_0_RX,
+	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
+	msm_routing_put_voice_stub_mixer),
 };
 
 static const struct snd_kcontrol_new slimbus_6_rx_voice_mixer_controls[] = {
@@ -15408,6 +12423,10 @@ MSM_BACKEND_DAI_SLIMBUS_6_RX,
 MSM_BACKEND_DAI_SLIMBUS_6_RX,
 	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_6_RX,
+	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
+	msm_routing_put_voice_stub_mixer),
 };
 
 static const struct snd_kcontrol_new usb_audio_rx_voice_mixer_controls[] = {
@@ -15507,14 +12526,6 @@ static const struct snd_kcontrol_new mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
@@ -15535,31 +12546,23 @@ static const struct snd_kcontrol_new mi2s_rx_voice_mixer_controls[] = {
 
 static const struct snd_kcontrol_new pri_mi2s_rx_voice_mixer_controls[] = {
 	SOC_DOUBLE_EXT("Voip", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
+MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
+MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("QCHAT", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
+MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_QCHAT, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
+MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
+MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 };
@@ -15615,14 +12618,6 @@ static const struct snd_kcontrol_new tert_mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
@@ -15646,14 +12641,6 @@ static const struct snd_kcontrol_new quat_mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
@@ -15670,6 +12657,10 @@ static const struct snd_kcontrol_new quat_mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
+	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
+	msm_routing_put_voice_stub_mixer),
 };
 
 static const struct snd_kcontrol_new quin_mi2s_rx_voice_mixer_controls[] = {
@@ -15677,14 +12668,6 @@ static const struct snd_kcontrol_new quin_mi2s_rx_voice_mixer_controls[] = {
 	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
 	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
 	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
@@ -16147,146 +13130,6 @@ static const struct snd_kcontrol_new rx_cdc_dma_rx_7_voice_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 };
 
-static const struct snd_kcontrol_new pri_tdm_rx_0_voice_mixer_controls[] = {
-	SOC_DOUBLE_EXT("Voip", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("VoLTE Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOLTE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QCHAT", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_QCHAT, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_0,
-	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-};
-
-static const struct snd_kcontrol_new pri_tdm_rx_1_voice_mixer_controls[] = {
-	SOC_DOUBLE_EXT("Voip", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("VoLTE Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOLTE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QCHAT", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_QCHAT, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_1,
-	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-};
-
-static const struct snd_kcontrol_new pri_tdm_rx_2_voice_mixer_controls[] = {
-	SOC_DOUBLE_EXT("Voip", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("VoLTE Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOLTE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QCHAT", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_QCHAT, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_2,
-	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-};
-
-static const struct snd_kcontrol_new pri_tdm_rx_3_voice_mixer_controls[] = {
-	SOC_DOUBLE_EXT("Voip", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("Voice Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOICE_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("Voice2 Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("VoLTE Stub", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOLTE_STUB, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("DTMF", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_DTMF_RX, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QCHAT", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_QCHAT, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_RX_3,
-	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
-};
-
 static const struct snd_kcontrol_new stub_rx_mixer_controls[] = {
 	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_EXTPROC_RX,
@@ -16320,6 +13163,17 @@ static const struct snd_kcontrol_new slimbus_3_rx_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 };
 
+static const struct snd_kcontrol_new proxy_rx_voice_mixer_controls[] = {
+	SOC_DOUBLE_EXT("VoiceMMode1", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_PROXY_RX,
+	MSM_FRONTEND_DAI_VOICEMMODE1, 1, 0, msm_routing_get_voice_mixer,
+	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("VoiceMMode2", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_PROXY_RX,
+	MSM_FRONTEND_DAI_VOICEMMODE2, 1, 0, msm_routing_get_voice_mixer,
+	msm_routing_put_voice_mixer),
+};
+
 static const struct snd_kcontrol_new tx_voicemmode1_mixer_controls[] = {
 	SOC_DOUBLE_EXT("PRI_TX_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_PRI_I2S_TX,
@@ -16331,6 +13185,9 @@ static const struct snd_kcontrol_new tx_voicemmode1_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("SLIM_0_TX_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_0_TX, MSM_FRONTEND_DAI_VOICEMMODE1, 1,
+	0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("SLIM_1_TX_MMode1", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_1_TX, MSM_FRONTEND_DAI_VOICEMMODE1, 1,
 	0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT_BT_SCO_TX_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INT_BT_SCO_TX, MSM_FRONTEND_DAI_VOICEMMODE1, 1,
@@ -16358,6 +13215,9 @@ static const struct snd_kcontrol_new tx_voicemmode1_mixer_controls[] = {
 	msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
+	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("QUAT_MI2S_TX_MMode1", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT3_MI2S_TX_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INT3_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
@@ -16399,17 +13259,8 @@ MSM_BACKEND_DAI_QUAT_TDM_TX_0, MSM_FRONTEND_DAI_VOICEMMODE1,
 	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_5_MMode1", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TX_CDC_DMA_TX_5, MSM_FRONTEND_DAI_VOICEMMODE1,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QUAT_MI2S_TX_MMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QUIN_MI2S_TX_MMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUINARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3_MMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3, MSM_FRONTEND_DAI_VOICEMMODE1,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX_MMode1", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
+	SOC_DOUBLE_EXT("PROXY_TX_MMode1", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_PROXY_TX, MSM_FRONTEND_DAI_VOICEMMODE1,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 };
 
@@ -16424,6 +13275,9 @@ static const struct snd_kcontrol_new tx_voicemmode2_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("SLIM_0_TX_MMode2", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_0_TX, MSM_FRONTEND_DAI_VOICEMMODE2, 1,
+	0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("SLIM_1_TX_MMode2", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_1_TX, MSM_FRONTEND_DAI_VOICEMMODE2, 1,
 	0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT_BT_SCO_TX_MMode2", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INT_BT_SCO_TX, MSM_FRONTEND_DAI_VOICEMMODE2, 1,
@@ -16451,6 +13305,9 @@ static const struct snd_kcontrol_new tx_voicemmode2_mixer_controls[] = {
 	msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX_MMode2", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
+	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("QUAT_MI2S_TX_MMode2", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT3_MI2S_TX_MMode2", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_INT3_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
@@ -16488,17 +13345,8 @@ static const struct snd_kcontrol_new tx_voicemmode2_mixer_controls[] = {
 	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_5_MMode2", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TX_CDC_DMA_TX_5, MSM_FRONTEND_DAI_VOICEMMODE2,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QUAT_MI2S_TX_MMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("QUIN_MI2S_TX_MMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_QUINARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("PRI_TDM_TX_3_MMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_TDM_TX_3, MSM_FRONTEND_DAI_VOICEMMODE2,
-	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_DOUBLE_EXT("SEC_MI2S_TX_MMode2", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_SECONDARY_MI2S_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
+	SOC_DOUBLE_EXT("PROXY_TX_MMode2", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_PROXY_TX, MSM_FRONTEND_DAI_VOICEMMODE2,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
 };
 
@@ -16513,6 +13361,10 @@ static const struct snd_kcontrol_new tx_voip_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("SLIM_0_TX_Voip", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_0_TX,
+	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
+	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("SLIM_1_TX_Voip", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_SLIMBUS_1_TX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INTERNAL_BT_SCO_TX_Voip", SND_SOC_NOPM,
@@ -16549,6 +13401,10 @@ static const struct snd_kcontrol_new tx_voip_mixer_controls[] = {
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("TERT_MI2S_TX_Voip", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
+	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
+	msm_routing_put_voice_mixer),
+	SOC_DOUBLE_EXT("QUAT_MI2S_TX_Voip", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
 	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
 	msm_routing_put_voice_mixer),
 	SOC_DOUBLE_EXT("INT3_MI2S_TX_Voip", SND_SOC_NOPM,
@@ -16591,9 +13447,6 @@ static const struct snd_kcontrol_new tx_voip_mixer_controls[] = {
 	SOC_DOUBLE_EXT("TX_CDC_DMA_TX_5_Voip", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TX_CDC_DMA_TX_5, MSM_FRONTEND_DAI_VOIP,
 	1, 0, msm_routing_get_voice_mixer, msm_routing_put_voice_mixer),
-	SOC_SINGLE_EXT("PRI_TDM_TX_3_Voip", MSM_BACKEND_DAI_PRI_TDM_TX_3,
-	MSM_FRONTEND_DAI_VOIP, 1, 0, msm_routing_get_voice_mixer,
-	msm_routing_put_voice_mixer),
 };
 
 static const struct snd_kcontrol_new tx_voice_stub_mixer_controls[] = {
@@ -16758,10 +13611,6 @@ static const struct snd_kcontrol_new tx_voice2_stub_mixer_controls[] = {
 	msm_routing_put_voice_stub_mixer),
 	SOC_DOUBLE_EXT("QUAT_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
-	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
-	msm_routing_put_voice_stub_mixer),
-	SOC_DOUBLE_EXT("TERT_MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_TERTIARY_MI2S_TX,
 	MSM_FRONTEND_DAI_VOICE2_STUB, 1, 0, msm_routing_get_voice_stub_mixer,
 	msm_routing_put_voice_stub_mixer),
 	SOC_DOUBLE_EXT("SLIM_7_TX", SND_SOC_NOPM,
@@ -17099,10 +13948,6 @@ static const struct snd_kcontrol_new wsa_cdc_dma_rx_0_port_mixer_controls[] = {
 	MSM_BACKEND_DAI_WSA_CDC_DMA_RX_0,
 	MSM_BACKEND_DAI_SLIMBUS_8_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("SLIM_7_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_WSA_CDC_DMA_RX_0,
-	MSM_BACKEND_DAI_SLIMBUS_7_TX, 1, 0, msm_routing_get_port_mixer,
-	msm_routing_put_port_mixer),
 };
 
 static const struct snd_kcontrol_new rx_cdc_dma_rx_0_port_mixer_controls[] = {
@@ -17239,10 +14084,6 @@ static const struct snd_kcontrol_new aux_pcm_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_AUXPCM_RX,
 	MSM_BACKEND_DAI_SECONDARY_MI2S_TX, 1, 0, msm_routing_get_port_mixer,
-	msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_AUXPCM_RX,
-	MSM_BACKEND_DAI_TERT_TDM_TX_0, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
 };
 
@@ -17445,13 +14286,6 @@ static const struct snd_kcontrol_new hdmi_rx_port_mixer_controls[] = {
 	msm_routing_put_port_mixer),
 };
 
-static const struct snd_kcontrol_new hdmi_rx_ms_port_mixer_controls[] = {
-	SOC_DOUBLE_EXT("MI2S_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_HDMI_RX_MS,
-	MSM_BACKEND_DAI_MI2S_TX, 1, 0, msm_routing_get_port_mixer,
-	msm_routing_put_port_mixer),
-};
-
 static const struct snd_kcontrol_new display_port_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_DISPLAY_PORT_RX,
@@ -17525,16 +14359,16 @@ static const struct snd_kcontrol_new primary_mi2s_rx_port_mixer_controls[] = {
 	MSM_BACKEND_DAI_PRI_MI2S_RX,
 	MSM_BACKEND_DAI_SEC_AUXPCM_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("SLIM_7_TX", SND_SOC_NOPM,
-	MSM_BACKEND_DAI_PRI_MI2S_RX,
-	MSM_BACKEND_DAI_SLIMBUS_7_TX, 1, 0, msm_routing_get_port_mixer,
-	msm_routing_put_port_mixer),
 };
 
 static const struct snd_kcontrol_new usb_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("USB_AUDIO_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_USB_RX,
 	MSM_BACKEND_DAI_USB_TX, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+	SOC_DOUBLE_EXT("SLIM_8_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_USB_RX,
+	MSM_BACKEND_DAI_SLIMBUS_8_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
 };
 
@@ -17558,6 +14392,10 @@ static const struct snd_kcontrol_new quat_mi2s_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("SLIM_0_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
 	MSM_BACKEND_DAI_SLIMBUS_0_TX, 1, 0, msm_routing_get_port_mixer,
+	msm_routing_put_port_mixer),
+	SOC_DOUBLE_EXT("SLIM_1_TX", SND_SOC_NOPM,
+	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
+	MSM_BACKEND_DAI_SLIMBUS_1_TX, 1, 0, msm_routing_get_port_mixer,
 	msm_routing_put_port_mixer),
 	SOC_DOUBLE_EXT("SEC_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
@@ -19264,19 +16102,6 @@ static const struct snd_kcontrol_new quat_tdm_rx_3_port_mixer_controls[] = {
 		msm_routing_put_port_mixer),
 };
 
-static const struct snd_kcontrol_new quat_tdm_rx_7_port_mixer_controls[] = {
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_7", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_QUAT_TDM_RX_7,
-		MSM_BACKEND_DAI_QUAT_TDM_TX_7, 1, 0,
-		msm_routing_get_port_mixer,
-		msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_7", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_QUAT_TDM_RX_7,
-		MSM_BACKEND_DAI_QUIN_TDM_TX_7, 1, 0,
-		msm_routing_get_port_mixer,
-		msm_routing_put_port_mixer),
-};
-
 static const struct snd_kcontrol_new quin_tdm_rx_0_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("PRI_MI2S_TX", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_QUIN_TDM_RX_0,
@@ -19689,24 +16514,6 @@ static const struct snd_kcontrol_new quin_tdm_rx_3_port_mixer_controls[] = {
 		msm_routing_put_port_mixer),
 };
 
-static const struct snd_kcontrol_new quin_tdm_rx_7_port_mixer_controls[] = {
-	SOC_DOUBLE_EXT("TERT_TDM_TX_7", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_QUIN_TDM_RX_7,
-		MSM_BACKEND_DAI_TERT_TDM_TX_7, 1, 0,
-		msm_routing_get_port_mixer,
-		msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("QUAT_TDM_TX_7", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_QUIN_TDM_RX_7,
-		MSM_BACKEND_DAI_QUAT_TDM_TX_7, 1, 0,
-		msm_routing_get_port_mixer,
-		msm_routing_put_port_mixer),
-	SOC_DOUBLE_EXT("QUIN_TDM_TX_7", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_QUIN_TDM_RX_7,
-		MSM_BACKEND_DAI_QUIN_TDM_TX_7, 1, 0,
-		msm_routing_get_port_mixer,
-		msm_routing_put_port_mixer),
-};
-
 static const struct snd_kcontrol_new tert_mi2s_rx_port_mixer_controls[] = {
 	SOC_DOUBLE_EXT("PRI_MI2S_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_TERTIARY_MI2S_RX,
@@ -19826,10 +16633,6 @@ static const struct snd_kcontrol_new lsm1_mixer_controls[] = {
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM1, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM1, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
 };
 
 static const struct snd_kcontrol_new lsm2_mixer_controls[] = {
@@ -19880,10 +16683,6 @@ static const struct snd_kcontrol_new lsm2_mixer_controls[] = {
 		msm_routing_put_listen_mixer),
 	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM2, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM2, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
 };
@@ -19937,10 +16736,6 @@ static const struct snd_kcontrol_new lsm3_mixer_controls[] = {
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM3, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM3, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
 };
 
 static const struct snd_kcontrol_new lsm4_mixer_controls[] = {
@@ -19990,10 +16785,6 @@ static const struct snd_kcontrol_new lsm4_mixer_controls[] = {
 		msm_routing_put_listen_mixer),
 	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM4, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM4, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
 };
@@ -20047,10 +16838,6 @@ static const struct snd_kcontrol_new lsm5_mixer_controls[] = {
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM5, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM5, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
 };
 
 static const struct snd_kcontrol_new lsm6_mixer_controls[] = {
@@ -20100,10 +16887,6 @@ static const struct snd_kcontrol_new lsm6_mixer_controls[] = {
 		msm_routing_put_listen_mixer),
 	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM6, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM6, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
 };
@@ -20157,10 +16940,6 @@ static const struct snd_kcontrol_new lsm7_mixer_controls[] = {
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM7, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM7, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
 };
 
 static const struct snd_kcontrol_new lsm8_mixer_controls[] = {
@@ -20210,10 +16989,6 @@ static const struct snd_kcontrol_new lsm8_mixer_controls[] = {
 		msm_routing_put_listen_mixer),
 	SOC_DOUBLE_EXT("QUIN_TDM_TX_0", SND_SOC_NOPM,
 		MSM_BACKEND_DAI_QUIN_TDM_TX_0,
-		MSM_FRONTEND_DAI_LSM8, 1, 0, msm_routing_get_listen_mixer,
-		msm_routing_put_listen_mixer),
-	SOC_DOUBLE_EXT("TERT_TDM_TX_0", SND_SOC_NOPM,
-		MSM_BACKEND_DAI_TERT_TDM_TX_0,
 		MSM_FRONTEND_DAI_LSM8, 1, 0, msm_routing_get_listen_mixer,
 		msm_routing_put_listen_mixer),
 };
@@ -20356,8 +17131,6 @@ static const struct snd_kcontrol_new lsm_controls[] = {
 		    msm_routing_lsm_func_get, msm_routing_lsm_func_put),
 	SOC_ENUM_EXT(QUIN_TDM_TX_TEXT" "LSM_FUNCTION_TEXT, lsm_func_enum,
 		    msm_routing_lsm_func_get, msm_routing_lsm_func_put),
-	SOC_ENUM_EXT(TERT_TDM_TX_TEXT" "LSM_FUNCTION_TEXT, lsm_func_enum,
-		    msm_routing_lsm_func_get, msm_routing_lsm_func_put),
 	/* kcontrol of lsm_port */
 	SOC_ENUM_EXT("LSM1 Port", lsm_port_enum,
 			  msm_routing_lsm_port_get,
@@ -20464,7 +17237,6 @@ static int msm_routing_put_stereo_to_custom_stereo_control(
 			continue;
 		if ((port_id != SLIMBUS_0_RX) &&
 		     (port_id != RT_PROXY_PORT_001_RX) &&
-		     (port_id != RT_PROXY_PORT_002_RX) &&
 			(port_id != AFE_PORT_ID_PRIMARY_MI2S_RX) &&
 			(port_id != AFE_PORT_ID_INT4_MI2S_RX))
 			continue;
@@ -20619,7 +17391,7 @@ static int msm_routing_put_app_type_gain_control(struct snd_kcontrol *kcontrol,
 
 static const struct snd_kcontrol_new app_type_cfg_controls[] = {
 	SOC_SINGLE_MULTI_EXT("App Type Config", SND_SOC_NOPM, 0,
-	0x7FFFFFFF, 0, 128, msm_routing_get_app_type_cfg_control,
+	0xFFFFFFFF, 0, 128, msm_routing_get_app_type_cfg_control,
 	msm_routing_put_app_type_cfg_control),
 	SOC_SINGLE_MULTI_EXT("App Type Gain", SND_SOC_NOPM, 0,
 	0x2000, 0, 4, NULL, msm_routing_put_app_type_gain_control)
@@ -20727,6 +17499,25 @@ static int msm_routing_get_lsm_app_type_cfg_control(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
+	int shift = ((struct soc_multi_mixer_control *)
+				kcontrol->private_value)->shift;
+	int i = 0, j = 0;
+
+	mutex_lock(&routing_lock);
+	ucontrol->value.integer.value[i] = num_app_cfg_types;
+
+	for (j = 0; j < num_app_cfg_types; ++j) {
+		ucontrol->value.integer.value[++i] =
+				lsm_app_type_cfg[j].app_type;
+		ucontrol->value.integer.value[++i] =
+				lsm_app_type_cfg[j].sample_rate;
+		ucontrol->value.integer.value[++i] =
+				lsm_app_type_cfg[j].bit_width;
+		if (shift == 1)
+			ucontrol->value.integer.value[++i] =
+				lsm_app_type_cfg[j].num_out_channels;
+	}
+	mutex_unlock(&routing_lock);
 	return 0;
 }
 
@@ -20739,16 +17530,18 @@ static int msm_routing_put_lsm_app_type_cfg_control(
 	int i = 0, j;
 	int num_app_types;
 
+	mutex_lock(&routing_lock);
 	if (ucontrol->value.integer.value[0] > MAX_APP_TYPES) {
 		pr_err("%s: number of app types exceed the max supported\n",
 			__func__);
+		mutex_unlock(&routing_lock);
 		return -EINVAL;
 	}
 
 	num_app_types = ucontrol->value.integer.value[i++];
 	memset(lsm_app_type_cfg, 0, MAX_APP_TYPES*
-	       sizeof(struct msm_pcm_routing_app_type_data));
-
+		sizeof(struct msm_pcm_routing_app_type_data));
+	
 	for (j = 0; j < num_app_types; j++) {
 		lsm_app_type_cfg[j].app_type =
 				ucontrol->value.integer.value[i++];
@@ -20761,7 +17554,7 @@ static int msm_routing_put_lsm_app_type_cfg_control(
 			lsm_app_type_cfg[j].num_out_channels =
 				ucontrol->value.integer.value[i++];
 	}
-
+	mutex_unlock(&routing_lock);
 	return 0;
 }
 
@@ -20796,34 +17589,26 @@ static const struct snd_kcontrol_new use_ds1_or_ds2_controls[] = {
 	msm_routing_put_use_ds1_or_ds2_control),
 };
 
-static int msm_routing_get_ffecns_freeze_event_control(
+static int msm_routing_get_hifi_filter_control(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = ffecns_freeze_event;
+	ucontrol->value.integer.value[0] = hifi_filter_enabled;
 	return 0;
 }
 
-static int msm_routing_put_ffecns_freeze_event_control(
+static int msm_routing_put_hifi_filter_control(
 					struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
-	int ret = -EINVAL;
-
-	ffecns_freeze_event = ucontrol->value.integer.value[0];
-
-	ret = adm_set_ffecns_freeze_event(ffecns_freeze_event);
-	if (ret)
-		pr_err("%s: failed to set ffecns imc event to%d\n",
-			__func__, ffecns_freeze_event);
-
-	return ret;
+	hifi_filter_enabled = ucontrol->value.integer.value[0];
+	return 0;
 }
 
-static const struct snd_kcontrol_new use_ffecns_freeze_event_controls[] = {
-	SOC_SINGLE_EXT("FFECNS Freeze Event", SND_SOC_NOPM, 0,
-	1, 0, msm_routing_get_ffecns_freeze_event_control,
-	msm_routing_put_ffecns_freeze_event_control),
+static const struct snd_kcontrol_new hifi_filter_controls[] = {
+	SOC_SINGLE_EXT("HiFi Filter", SND_SOC_NOPM, 0,
+		1, 0, msm_routing_get_hifi_filter_control,
+		msm_routing_put_hifi_filter_control),
 };
 
 int msm_routing_get_rms_value_control(struct snd_kcontrol *kcontrol,
@@ -20972,50 +17757,6 @@ done:
 	return ret;
 }
 
-static int msm_audio_get_copp_idx_fe_idx_from_be_id(int be_idx
-		, int session_type, int *copp_idx, int *fe_idx)
-{
-	int i, idx, port_id, topology;
-	int ret = 0;
-	unsigned long copp;
-
-	if (be_idx >= MSM_BACKEND_DAI_MAX) {
-		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
-		ret = -EINVAL;
-		goto done;
-	}
-	port_id = msm_bedais[be_idx].port_id;
-
-	for_each_set_bit(i, &msm_bedais[be_idx].fe_sessions[0],
-			 MSM_FRONTEND_DAI_MM_SIZE) {
-		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
-			copp = session_copp_map[i][session_type][be_idx];
-			if (test_bit(idx, &copp)) {
-				topology = msm_routing_get_adm_topology(i,
-						SESSION_TYPE_RX, be_idx);
-				if (!(adsp_ion_info.adsp_shmpp_ion_fd[be_idx]
-							[idx][i]))
-					break;
-			}
-		}
-		if (idx >= MAX_COPPS_PER_PORT)
-			continue;
-		else
-			break;
-	}
-
-	if (i >= MSM_FRONTEND_DAI_MM_SIZE) {
-		pr_err("%s: Invalid FE, exiting\n", __func__);
-		ret = -EINVAL;
-		return ret;
-	}
-	*copp_idx = idx;
-	*fe_idx = i;
-
-done:
-	return ret;
-}
-
 static int msm_audio_get_copp_idx_from_port_id(int port_id, int session_type,
 					 int *copp_idx)
 {
@@ -21046,11 +17787,7 @@ static int msm_audio_get_copp_idx_from_port_id(int port_id, int session_type,
 	}
 
 	for_each_set_bit(i, &msm_bedais[be_idx].fe_sessions[0],
-			 MSM_FRONTEND_DAI_MAX) {
-		if (!(is_mm_lsm_fe_id(i) &&
-				route_check_fe_id_adm_support(i)))
-			continue;
-
+			 MSM_FRONTEND_DAI_MM_SIZE) {
 		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
 			copp = session_copp_map[i]
 				[session_type][be_idx];
@@ -21062,7 +17799,7 @@ static int msm_audio_get_copp_idx_from_port_id(int port_id, int session_type,
 		else
 			break;
 	}
-	if (i >= MSM_FRONTEND_DAI_MAX) {
+	if (i >= MSM_FRONTEND_DAI_MM_SIZE) {
 		pr_debug("%s: Invalid FE, exiting\n", __func__);
 
 		ret = -EINVAL;
@@ -21074,6 +17811,112 @@ static int msm_audio_get_copp_idx_from_port_id(int port_id, int session_type,
 done:
 	return ret;
 }
+
+#ifdef CONFIG_SEC_SND_ADAPTATION
+int q6audio_determine_curr_copp_idx(int stream, int func_type, int sb_val)
+{
+	int ret = 0;
+
+	switch (func_type) {
+	case 1: /* Sound Booster */
+		if (sb_val == 1) { /* offload or FM ASM loopback */
+			if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA4) ||
+			    (stream == MSM_FRONTEND_DAI_MULTIMEDIA6)) {
+				pr_info("%s: offload/fm case. stream=%d\n",
+					__func__, stream);
+				ret = 1;
+			}
+		} else if (sb_val == 2) { /* ringtone */
+			if (stream == MSM_FRONTEND_DAI_MULTIMEDIA11) {
+				pr_info("%s: ringtone case. stream=%d\n",
+					__func__, stream);
+				ret = 1;
+			}
+		} else if (sb_val == 0) { /* disable */
+			if ((stream == MSM_FRONTEND_DAI_MULTIMEDIA4) ||
+			    (stream == MSM_FRONTEND_DAI_MULTIMEDIA6) ||
+			    (stream == MSM_FRONTEND_DAI_MULTIMEDIA11)) {
+				pr_info("%s: disable sound booster. stream=%d\n",
+					__func__, stream);
+				ret = 1;
+			}
+		}
+		break;
+	case 2: /* rotation */
+		if (stream == MSM_FRONTEND_DAI_MULTIMEDIA4) {
+			pr_info("%s: offload rotation case. stream=%d\n",
+				__func__, stream);
+			ret = 1;
+		}
+		break;
+	default:
+		pr_debug("%s: unknown function\n", __func__);
+		break;
+	}
+
+	return ret;
+}
+
+int q6audio_get_copp_idx_from_port_id(int port_id, int func_type,
+					int sb_val, int *copp_idx)
+{
+	int i, idx, be_idx;
+	int ret = 0;
+	unsigned long copp;
+
+	pr_info("%s: port_id=0x%x, func_type=%d, sb=%d\n",
+		__func__, port_id, func_type, sb_val);
+
+	ret = q6audio_validate_port(port_id);
+	if (ret < 0) {
+		pr_err("%s: port validation failed id 0x%x ret %d\n",
+			__func__, port_id, ret);
+
+		ret = -EINVAL;
+		goto done;
+	}
+
+	for (be_idx = 0; be_idx < MSM_BACKEND_DAI_MAX; be_idx++) {
+		if (msm_bedais[be_idx].port_id == port_id)
+			break;
+	}
+	if (be_idx >= MSM_BACKEND_DAI_MAX) {
+		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
+
+		ret = -EINVAL;
+		goto done;
+	}
+
+	for_each_set_bit(i, &msm_bedais[be_idx].fe_sessions[0],
+			 MSM_FRONTEND_DAI_MM_SIZE) {
+		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
+			copp = session_copp_map[i]
+				[SESSION_TYPE_RX][be_idx];
+			if (test_bit(idx, &copp)) {
+				if (q6audio_determine_curr_copp_idx
+					(i, func_type, sb_val))
+					break;
+			}
+		}
+		if (idx >= MAX_COPPS_PER_PORT)
+			continue;
+		else
+			break;
+	}
+	if (i >= MSM_FRONTEND_DAI_MM_SIZE) {
+		pr_debug("%s: Invalid FE, exiting\n", __func__);
+
+		ret = -EINVAL;
+		goto done;
+	}
+	*copp_idx = idx;
+	pr_info("%s: copp_idx=%d\n", __func__, *copp_idx);
+
+done:
+	return ret;
+}
+EXPORT_SYMBOL(q6audio_get_copp_idx_from_port_id);
+#endif
 
 static int msm_audio_sound_focus_derive_port_id(struct snd_kcontrol *kcontrol,
 					    const char *prefix, int *port_id)
@@ -21105,9 +17948,6 @@ static int msm_audio_sound_focus_derive_port_id(struct snd_kcontrol *kcontrol,
 	} else if (!strcmp(kcontrol->id.name + strlen(prefix),
 					"QUIN_TDM_TX_0")) {
 		*port_id = AFE_PORT_ID_QUINARY_TDM_TX;
-	} else if (!strcmp(kcontrol->id.name + strlen(prefix),
-					"PRIMARY_TDM")) {
-		*port_id = AFE_PORT_ID_PRIMARY_TDM_TX;
 	} else {
 		pr_err("%s: mixer ctl name=%s, could not derive valid port id\n",
 			__func__, kcontrol->id.name);
@@ -21247,59 +18087,6 @@ static int msm_audio_source_tracking_get(struct snd_kcontrol *kcontrol,
 	memcpy(ucontrol->value.bytes.data, (void *)&sourceTrackingData,
 		sizeof(struct source_tracking_param));
 
-done:
-	return ret;
-}
-
-static int msm_doa_tracking_mon_info(struct snd_kcontrol *kcontrol,
-				    struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
-	uinfo->count = sizeof(struct doa_tracking_mon_param);
-
-	return 0;
-}
-
-static int msm_doa_tracking_mon_get(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int ret = 0;
-	struct doa_tracking_mon_param doa_tracking_data;
-	int port_id, copp_idx;
-
-	memset(&doa_tracking_data, 0, sizeof(struct doa_tracking_mon_param));
-	ret = msm_audio_sound_focus_derive_port_id(kcontrol,
-				"Doa Tracking Monitor Listen ", &port_id);
-	if (ret) {
-		pr_err("%s: Error in deriving port id, err=%d\n",
-			  __func__, ret);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	/*
-	 * If copp id exists for given port id, query adm to get doa data.
-	 * Else query afe for doa tracking params.
-	 * This is to support in cases where LSM directly connects to
-	 * AFE for FFNS.
-	 */
-	ret = msm_audio_get_copp_idx_from_port_id(port_id, SESSION_TYPE_TX,
-					    &copp_idx);
-	if (!ret)
-		ret = adm_get_doa_tracking_mon(port_id, copp_idx,
-					&doa_tracking_data);
-	else
-		ret = afe_get_doa_tracking_mon(port_id, &doa_tracking_data);
-
-	if (ret) {
-		pr_err("%s: Error getting Doa Tracking Params, err=%d\n",
-			  __func__, ret);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	memcpy(ucontrol->value.bytes.data, (void *)&doa_tracking_data,
-		sizeof(struct doa_tracking_mon_param));
 done:
 	return ret;
 }
@@ -21485,28 +18272,6 @@ static const struct snd_kcontrol_new msm_source_tracking_controls[] = {
 		.info	= msm_source_tracking_info,
 		.get	= msm_audio_source_tracking_get,
 	},
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name   = "Sound Focus Audio Tx PRIMARY_TDM",
-		.info   = msm_sound_focus_info,
-		.get    = msm_audio_sound_focus_get,
-		.put    = msm_audio_sound_focus_put,
-	},
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READ,
-		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name   = "Source Tracking Audio Tx PRIMARY_TDM",
-		.info   = msm_source_tracking_info,
-		.get    = msm_audio_source_tracking_get,
-	},
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READ,
-		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name	= "Doa Tracking Monitor Listen VA_CDC_DMA_TX_0",
-		.info	= msm_doa_tracking_mon_info,
-		.get	= msm_doa_tracking_mon_get,
-	},
 };
 
 static int spkr_prot_put_vi_lch_port(struct snd_kcontrol *kcontrol,
@@ -21628,32 +18393,32 @@ static const char * const int4_mi2s_rx_vi_fb_tx_stereo_mux_text[] = {
 	"ZERO", "INT5_MI2S_TX"
 };
 
-static const int slim0_rx_vi_fb_tx_lch_value[] = {
+static const int const slim0_rx_vi_fb_tx_lch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_SLIMBUS_4_TX
 };
 
-static const int slim0_rx_vi_fb_tx_rch_value[] = {
+static const int const slim0_rx_vi_fb_tx_rch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_SLIMBUS_4_TX
 };
 
-static const int wsa_rx_0_vi_fb_tx_lch_value[] = {
+static const int const wsa_rx_0_vi_fb_tx_lch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_WSA_CDC_DMA_TX_0
 };
 
-static const int wsa_rx_0_vi_fb_tx_rch_value[] = {
+static const int const wsa_rx_0_vi_fb_tx_rch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_WSA_CDC_DMA_TX_0
 };
 
 
-static const int mi2s_rx_vi_fb_tx_value[] = {
+static const int const mi2s_rx_vi_fb_tx_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_SENARY_MI2S_TX
 };
 
-static const int int4_mi2s_rx_vi_fb_tx_mono_ch_value[] = {
+static const int const int4_mi2s_rx_vi_fb_tx_mono_ch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_INT5_MI2S_TX
 };
 
-static const int int4_mi2s_rx_vi_fb_tx_stereo_ch_value[] = {
+static const int const int4_mi2s_rx_vi_fb_tx_stereo_ch_value[] = {
 	MSM_BACKEND_DAI_MAX, MSM_BACKEND_DAI_INT5_MI2S_TX
 };
 
@@ -21752,11 +18517,9 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_AIF_IN("MM_DL16", "MultiMedia16 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("MM_DL20", "MultiMedia20 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("MM_DL21", "MultiMedia21 Playback", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("MM_DL22", "MultiMedia22 Playback", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("MM_DL23", "MultiMedia23 Playback", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("MM_DL24", "MultiMedia24 Playback", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("MM_DL25", "MultiMedia25 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("MM_DL26", "MultiMedia26 Playback", 0, 0, 0, 0),
+	SND_SOC_DAPM_AIF_IN("MM_DL30", "MultiMedia30 Playback", 0, 0, 0, 0),
+	SND_SOC_DAPM_AIF_IN("MM_DL31", "MultiMedia31 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("VOIP_DL", "VoIP Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL1", "MultiMedia1 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL2", "MultiMedia2 Capture", 0, 0, 0, 0),
@@ -21773,14 +18536,9 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("MM_UL19", "MultiMedia19 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL20", "MultiMedia20 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL21", "MultiMedia21 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("MM_UL22", "MultiMedia22 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("MM_UL23", "MultiMedia23 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("MM_UL24", "MultiMedia24 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("MM_UL25", "MultiMedia25 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL27", "MultiMedia27 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL28", "MultiMedia28 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("MM_UL29", "MultiMedia29 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("MM_UL30", "MultiMedia30 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("VOIP_UL", "VoIP Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("VOICEMMODE1_DL",
 		"VoiceMMode1 Playback", 0, 0, 0, 0),
@@ -22173,7 +18931,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_2_RX", "Slimbus2 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_5_RX", "Slimbus5 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("HDMI", "HDMI Playback", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("HDMI_MS", "HDMI MS Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("DISPLAY_PORT", "Display Port Playback",
 			     0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("DISPLAY_PORT1", "Display Port1 Playback",
@@ -22239,8 +18996,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_AIF_OUT("PCM_RX", "AFE Playback",
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("PCM_TX", "AFE Capture",
-				0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("PCM_RX1", "AFE Playback1",
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("PRI_TDM_RX_0", "Primary TDM0 Playback",
 				0, 0, 0, 0),
@@ -22402,10 +19157,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("QUIN_TDM_TX_7", "Quinary TDM7 Capture",
 				0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("PRI_META_MI2S_RX", "Primary META MI2S Playback",
-			     0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_OUT("SEC_META_MI2S_RX", "Secondary META MI2S Playback",
-			     0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("WSA_CDC_DMA_RX_0", "WSA CDC DMA0 Playback",
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("WSA_CDC_DMA_TX_0", "WSA CDC DMA0 Capture",
@@ -22459,8 +19210,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("INCALL_RECORD_RX", "Voice Downlink Capture",
 				0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("INCALL2_RECORD_RX", "Voice2 Downlink Capture",
-				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_4_TX", "Slimbus4 Capture",
 				0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SENARY_TX", "Senary_mi2s Capture",
@@ -22505,8 +19254,7 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	/* In- call recording */
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_6_RX", "Slimbus6 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_6_TX", "Slimbus6 Capture", 0, 0, 0, 0),
-	SND_SOC_DAPM_AIF_IN("AFE_LOOPBACK_TX", "AFE Loopback Capture",
-				0, 0, 0, 0),
+
 	SND_SOC_DAPM_AIF_OUT("SLIMBUS_7_RX", "Slimbus7 Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_7_TX", "Slimbus7 Capture", 0, 0, 0, 0),
 
@@ -22516,6 +19264,8 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_9_TX", "Slimbus9 Capture", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_OUT("USB_AUDIO_RX", "USB Audio Playback", 0, 0, 0, 0),
 	SND_SOC_DAPM_AIF_IN("USB_AUDIO_TX", "USB Audio Capture", 0, 0, 0, 0),
+	SND_SOC_DAPM_AIF_OUT("PROXY_RX", "Proxy Playback", 0, 0, 0, 0),
+	SND_SOC_DAPM_AIF_IN("PROXY_TX", "Proxy Capture", 0, 0, 0, 0),
 
 	/* Switch Definitions */
 	SND_SOC_DAPM_SWITCH("SLIMBUS_DL_HL", SND_SOC_NOPM, 0, 0,
@@ -22578,8 +19328,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	slimbus_9_rx_mixer_controls, ARRAY_SIZE(slimbus_9_rx_mixer_controls)),
 	SND_SOC_DAPM_MIXER("HDMI Mixer", SND_SOC_NOPM, 0, 0,
 	hdmi_mixer_controls, ARRAY_SIZE(hdmi_mixer_controls)),
-	SND_SOC_DAPM_MIXER("HDMI_MS Mixer", SND_SOC_NOPM, 0, 0,
-	hdmi_ms_mixer_controls, ARRAY_SIZE(hdmi_ms_mixer_controls)),
 	SND_SOC_DAPM_MIXER("DISPLAY_PORT Mixer", SND_SOC_NOPM, 0, 0,
 	display_port_mixer_controls, ARRAY_SIZE(display_port_mixer_controls)),
 	SND_SOC_DAPM_MIXER("DISPLAY_PORT1 Mixer", SND_SOC_NOPM, 0, 0,
@@ -22692,12 +19440,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_MIXER("QUIN_TDM_RX_3 Audio Mixer", SND_SOC_NOPM, 0, 0,
 				quin_tdm_rx_3_mixer_controls,
 				ARRAY_SIZE(quin_tdm_rx_3_mixer_controls)),
-	SND_SOC_DAPM_MIXER("PRI_META_MI2S_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
-				pri_meta_mi2s_rx_mixer_controls,
-				ARRAY_SIZE(pri_meta_mi2s_rx_mixer_controls)),
-	SND_SOC_DAPM_MIXER("SEC_META_MI2S_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
-				sec_meta_mi2s_rx_mixer_controls,
-				ARRAY_SIZE(sec_meta_mi2s_rx_mixer_controls)),
 	SND_SOC_DAPM_MIXER("WSA_CDC_DMA_RX_0 Audio Mixer", SND_SOC_NOPM, 0, 0,
 				wsa_cdc_dma_rx_0_mixer_controls,
 				ARRAY_SIZE(wsa_cdc_dma_rx_0_mixer_controls)),
@@ -22758,22 +19500,12 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	mmul20_mixer_controls, ARRAY_SIZE(mmul20_mixer_controls)),
 	SND_SOC_DAPM_MIXER("MultiMedia21 Mixer", SND_SOC_NOPM, 0, 0,
 	mmul21_mixer_controls, ARRAY_SIZE(mmul21_mixer_controls)),
-	SND_SOC_DAPM_MIXER("MultiMedia22 Mixer", SND_SOC_NOPM, 0, 0,
-	mmul22_mixer_controls, ARRAY_SIZE(mmul22_mixer_controls)),
-	SND_SOC_DAPM_MIXER("MultiMedia23 Mixer", SND_SOC_NOPM, 0, 0,
-	mmul23_mixer_controls, ARRAY_SIZE(mmul23_mixer_controls)),
-	SND_SOC_DAPM_MIXER("MultiMedia24 Mixer", SND_SOC_NOPM, 0, 0,
-	mmul24_mixer_controls, ARRAY_SIZE(mmul24_mixer_controls)),
-	SND_SOC_DAPM_MIXER("MultiMedia25 Mixer", SND_SOC_NOPM, 0, 0,
-	mmul25_mixer_controls, ARRAY_SIZE(mmul25_mixer_controls)),
 	SND_SOC_DAPM_MIXER("MultiMedia27 Mixer", SND_SOC_NOPM, 0, 0,
 	mmul27_mixer_controls, ARRAY_SIZE(mmul27_mixer_controls)),
 	SND_SOC_DAPM_MIXER("MultiMedia28 Mixer", SND_SOC_NOPM, 0, 0,
 	mmul28_mixer_controls, ARRAY_SIZE(mmul28_mixer_controls)),
 	SND_SOC_DAPM_MIXER("MultiMedia29 Mixer", SND_SOC_NOPM, 0, 0,
 	mmul29_mixer_controls, ARRAY_SIZE(mmul29_mixer_controls)),
-	SND_SOC_DAPM_MIXER("MultiMedia30 Mixer", SND_SOC_NOPM, 0, 0,
-	mmul30_mixer_controls, ARRAY_SIZE(mmul30_mixer_controls)),
 	SND_SOC_DAPM_MIXER("AUX_PCM_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
 	auxpcm_rx_mixer_controls, ARRAY_SIZE(auxpcm_rx_mixer_controls)),
 	SND_SOC_DAPM_MIXER("SEC_AUX_PCM_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
@@ -22879,34 +19611,22 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 				SND_SOC_NOPM, 0, 0,
 				quin_mi2s_rx_voice_mixer_controls,
 				ARRAY_SIZE(quin_mi2s_rx_voice_mixer_controls)),
-	SND_SOC_DAPM_MIXER("PRI_TDM_RX_0_Voice Mixer",
-				SND_SOC_NOPM, 0, 0,
-				pri_tdm_rx_0_voice_mixer_controls,
-				ARRAY_SIZE(pri_tdm_rx_0_voice_mixer_controls)),
-	SND_SOC_DAPM_MIXER("PRI_TDM_RX_1_Voice Mixer",
-				SND_SOC_NOPM, 0, 0,
-				pri_tdm_rx_1_voice_mixer_controls,
-				ARRAY_SIZE(pri_tdm_rx_1_voice_mixer_controls)),
-	SND_SOC_DAPM_MIXER("PRI_TDM_RX_2_Voice Mixer",
-				SND_SOC_NOPM, 0, 0,
-				pri_tdm_rx_2_voice_mixer_controls,
-				ARRAY_SIZE(pri_tdm_rx_2_voice_mixer_controls)),
-	SND_SOC_DAPM_MIXER("PRI_TDM_RX_3_Voice Mixer",
-				SND_SOC_NOPM, 0, 0,
-				pri_tdm_rx_3_voice_mixer_controls,
-				ARRAY_SIZE(pri_tdm_rx_3_voice_mixer_controls)),
 	SND_SOC_DAPM_MIXER("QUAT_TDM_RX_2_Voice Mixer",
 				SND_SOC_NOPM, 0, 0,
 				quat_tdm_rx_2_voice_mixer_controls,
 				ARRAY_SIZE(quat_tdm_rx_2_voice_mixer_controls)),
 	SND_SOC_DAPM_MIXER("WSA_CDC_DMA_RX_0_Voice Mixer",
-			   SND_SOC_NOPM, 0, 0,
-			   wsa_cdc_dma_rx_0_voice_mixer_controls,
-			   ARRAY_SIZE(wsa_cdc_dma_rx_0_voice_mixer_controls)),
+				SND_SOC_NOPM, 0, 0,
+				wsa_cdc_dma_rx_0_voice_mixer_controls,
+				ARRAY_SIZE(wsa_cdc_dma_rx_0_voice_mixer_controls)),
+	SND_SOC_DAPM_MIXER("PROXY_RX_Voice Mixer",
+				SND_SOC_NOPM, 0, 0,
+				proxy_rx_voice_mixer_controls,
+				ARRAY_SIZE(proxy_rx_voice_mixer_controls)),
 	SND_SOC_DAPM_MIXER("RX_CDC_DMA_RX_0_Voice Mixer",
-			   SND_SOC_NOPM, 0, 0,
-			   rx_cdc_dma_rx_0_voice_mixer_controls,
-			   ARRAY_SIZE(rx_cdc_dma_rx_0_voice_mixer_controls)),
+				SND_SOC_NOPM, 0, 0,
+				rx_cdc_dma_rx_0_voice_mixer_controls,
+				ARRAY_SIZE(rx_cdc_dma_rx_0_voice_mixer_controls)),
 	SND_SOC_DAPM_MIXER("Voip_Tx Mixer",
 				SND_SOC_NOPM, 0, 0, tx_voip_mixer_controls,
 				ARRAY_SIZE(tx_voip_mixer_controls)),
@@ -22925,8 +19645,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	int_fm_rx_mixer_controls, ARRAY_SIZE(int_fm_rx_mixer_controls)),
 	SND_SOC_DAPM_MIXER("AFE_PCM_RX Audio Mixer", SND_SOC_NOPM, 0, 0,
 	afe_pcm_rx_mixer_controls, ARRAY_SIZE(afe_pcm_rx_mixer_controls)),
-	SND_SOC_DAPM_MIXER("AFE_PCM_RX1 Audio Mixer", SND_SOC_NOPM, 0, 0,
-	afe_pcm_rx_1_mixer_controls, ARRAY_SIZE(afe_pcm_rx_1_mixer_controls)),
 	SND_SOC_DAPM_MIXER("Voice Stub Tx Mixer", SND_SOC_NOPM, 0, 0,
 	tx_voice_stub_mixer_controls, ARRAY_SIZE(tx_voice_stub_mixer_controls)),
 	SND_SOC_DAPM_MIXER("Voice2 Stub Tx Mixer", SND_SOC_NOPM, 0, 0,
@@ -22981,9 +19699,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_MIXER("HDMI_RX Port Mixer",
 	SND_SOC_NOPM, 0, 0, hdmi_rx_port_mixer_controls,
 	ARRAY_SIZE(hdmi_rx_port_mixer_controls)),
-	SND_SOC_DAPM_MIXER("HDMI_RX_MS Port Mixer",
-	SND_SOC_NOPM, 0, 0, hdmi_rx_ms_port_mixer_controls,
-	ARRAY_SIZE(hdmi_rx_ms_port_mixer_controls)),
 	SND_SOC_DAPM_MIXER("DISPLAY_PORT_RX Port Mixer",
 	SND_SOC_NOPM, 0, 0, display_port_rx_port_mixer_controls,
 	ARRAY_SIZE(display_port_rx_port_mixer_controls)),
@@ -23067,9 +19782,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_MIXER("QUAT_TDM_RX_3 Port Mixer", SND_SOC_NOPM, 0, 0,
 	quat_tdm_rx_3_port_mixer_controls,
 	ARRAY_SIZE(quat_tdm_rx_3_port_mixer_controls)),
-	SND_SOC_DAPM_MIXER("QUAT_TDM_RX_7 Port Mixer", SND_SOC_NOPM, 0, 0,
-	quat_tdm_rx_7_port_mixer_controls,
-	ARRAY_SIZE(quat_tdm_rx_7_port_mixer_controls)),
 	SND_SOC_DAPM_MIXER("QUIN_TDM_RX_0 Port Mixer", SND_SOC_NOPM, 0, 0,
 	quin_tdm_rx_0_port_mixer_controls,
 	ARRAY_SIZE(quin_tdm_rx_0_port_mixer_controls)),
@@ -23082,9 +19794,6 @@ static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	SND_SOC_DAPM_MIXER("QUIN_TDM_RX_3 Port Mixer", SND_SOC_NOPM, 0, 0,
 	quin_tdm_rx_3_port_mixer_controls,
 	ARRAY_SIZE(quin_tdm_rx_3_port_mixer_controls)),
-	SND_SOC_DAPM_MIXER("QUIN_TDM_RX_7 Port Mixer", SND_SOC_NOPM, 0, 0,
-	quin_tdm_rx_7_port_mixer_controls,
-	ARRAY_SIZE(quin_tdm_rx_7_port_mixer_controls)),
 	SND_SOC_DAPM_MIXER("INT0_MI2S_RX Port Mixer", SND_SOC_NOPM, 0, 0,
 	int0_mi2s_rx_port_mixer_controls,
 	ARRAY_SIZE(int0_mi2s_rx_port_mixer_controls)),
@@ -23487,25 +20196,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"HDMI Mixer", "MultiMedia26", "MM_DL26"},
 	{"HDMI", NULL, "HDMI Mixer"},
 
-	{"HDMI_MS Mixer", "MultiMedia1", "MM_DL1"},
-	{"HDMI_MS Mixer", "MultiMedia2", "MM_DL2"},
-	{"HDMI_MS Mixer", "MultiMedia3", "MM_DL3"},
-	{"HDMI_MS Mixer", "MultiMedia4", "MM_DL4"},
-	{"HDMI_MS Mixer", "MultiMedia5", "MM_DL5"},
-	{"HDMI_MS Mixer", "MultiMedia6", "MM_DL6"},
-	{"HDMI_MS Mixer", "MultiMedia7", "MM_DL7"},
-	{"HDMI_MS Mixer", "MultiMedia8", "MM_DL8"},
-	{"HDMI_MS Mixer", "MultiMedia9", "MM_DL9"},
-	{"HDMI_MS Mixer", "MultiMedia10", "MM_DL10"},
-	{"HDMI_MS Mixer", "MultiMedia11", "MM_DL11"},
-	{"HDMI_MS Mixer", "MultiMedia12", "MM_DL12"},
-	{"HDMI_MS Mixer", "MultiMedia13", "MM_DL13"},
-	{"HDMI_MS Mixer", "MultiMedia14", "MM_DL14"},
-	{"HDMI_MS Mixer", "MultiMedia15", "MM_DL15"},
-	{"HDMI_MS Mixer", "MultiMedia16", "MM_DL16"},
-	{"HDMI_MS Mixer", "MultiMedia26", "MM_DL26"},
-	{"HDMI_MS", NULL, "HDMI_MS Mixer"},
-
 	{"DISPLAY_PORT Mixer", "MultiMedia1", "MM_DL1"},
 	{"DISPLAY_PORT Mixer", "MultiMedia2", "MM_DL2"},
 	{"DISPLAY_PORT Mixer", "MultiMedia3", "MM_DL3"},
@@ -23585,14 +20275,15 @@ static const struct snd_soc_dapm_route intercon[] = {
 	/* incall */
 	{"Incall_Music Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"Incall_Music Audio Mixer", "MultiMedia2", "MM_DL2"},
-	{"Incall_Music Audio Mixer", "MultiMedia4", "MM_DL4"},
 	{"Incall_Music Audio Mixer", "MultiMedia5", "MM_DL5"},
 	{"Incall_Music Audio Mixer", "MultiMedia9", "MM_DL9"},
+	{"Incall_Music Audio Mixer", "MultiMedia11", "MM_DL11"},
 	{"VOICE_PLAYBACK_TX", NULL, "Incall_Music Audio Mixer"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia2", "MM_DL2"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia5", "MM_DL5"},
 	{"Incall_Music_2 Audio Mixer", "MultiMedia9", "MM_DL9"},
+	{"Incall_Music_2 Audio Mixer", "MultiMedia11", "MM_DL11"},
 	{"VOICE2_PLAYBACK_TX", NULL, "Incall_Music_2 Audio Mixer"},
 	{"SLIMBUS_4_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"SLIMBUS_4_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -23679,22 +20370,18 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia1 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia4 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia8 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
+	{"MultiMedia9 Mixer", "VOC_REC_UL", "INCALL_RECORD_TX"},
 	{"MultiMedia1 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia4 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia8 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
 	{"MultiMedia9 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
-	{"MultiMedia16 Mixer", "VOC_REC_DL", "INCALL_RECORD_RX"},
-	{"MultiMedia1 Mixer", "VOC2_REC_DL", "INCALL2_RECORD_RX"},
-	{"MultiMedia4 Mixer", "VOC2_REC_DL", "INCALL2_RECORD_RX"},
-	{"MultiMedia8 Mixer", "VOC2_REC_DL", "INCALL2_RECORD_RX"},
-	{"MultiMedia9 Mixer", "VOC2_REC_DL", "INCALL2_RECORD_RX"},
-	{"MultiMedia16 Mixer", "VOC2_REC_DL", "INCALL2_RECORD_RX"},
 	{"MultiMedia1 Mixer", "SLIM_4_TX", "SLIMBUS_4_TX"},
 	{"MultiMedia1 Mixer", "SLIM_6_TX", "SLIMBUS_6_TX"},
 	{"MultiMedia1 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia1 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia1 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia8 Mixer", "SLIM_6_TX", "SLIMBUS_6_TX"},
+	{"MultiMedia8 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia8 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia8 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia4 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
@@ -23709,8 +20396,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia28 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"MultiMedia29 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia29 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
-	{"MultiMedia30 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
-	{"MultiMedia30 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"MultiMedia8 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia8 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"MultiMedia2 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
@@ -23720,25 +20405,18 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia28 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia29 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
-	{"MultiMedia30 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia8 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia18 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
-	{"MultiMedia19 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
-	{"MultiMedia28 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
-	{"MultiMedia29 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
-	{"MultiMedia30 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"MultiMedia17 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"MultiMedia18 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"MultiMedia19 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"MultiMedia28 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"MultiMedia29 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
-	{"MultiMedia30 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"MultiMedia17 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia18 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia19 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia28 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia29 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
-	{"MultiMedia30 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia8 Mixer", "INT3_MI2S_TX", "INT3_MI2S_TX"},
 	{"MultiMedia3 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia3 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
@@ -23747,22 +20425,15 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia10 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia10 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"MultiMedia16 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
-	{"MultiMedia16 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
+	{"MultiMedia16 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
+	{"MultiMedia16 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia5 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia5 Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"MultiMedia5 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia10 Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"MultiMedia10 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
 	{"MultiMedia18 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
-	{"MultiMedia19 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
-	{"MultiMedia28 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
-	{"MultiMedia29 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
-	{"MultiMedia30 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia18 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia19 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia28 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia29 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia30 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
 
 	{"MI2S_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"MI2S_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -23798,7 +20469,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_MI2S_RX Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"QUAT_MI2S_RX Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"QUAT_MI2S_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"QUAT_MI2S_RX Audio Mixer", "MultiMedia21", "MM_DL21"},
 	{"QUAT_MI2S_RX Audio Mixer", "MultiMedia26", "MM_DL26"},
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX Audio Mixer"},
 
@@ -23824,6 +20494,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia3", "MM_DL3"},
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia4", "MM_DL4"},
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia5", "MM_DL5"},
+	{"SEC_MI2S_RX Audio Mixer", "MultiMedia6", "MM_DL6"},	
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia7", "MM_DL7"},
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia8", "MM_DL8"},
 	{"SEC_MI2S_RX Audio Mixer", "MultiMedia10", "MM_DL10"},
@@ -23850,7 +20521,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia6", "MM_DL6"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia7", "MM_DL7"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia8", "MM_DL8"},
-	{"PRI_MI2S_RX Audio Mixer", "MultiMedia9", "MM_DL9"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia10", "MM_DL10"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia11", "MM_DL11"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia12", "MM_DL12"},
@@ -23860,7 +20530,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PRI_MI2S_RX Audio Mixer", "MultiMedia26", "MM_DL26"},
 	{"PRI_MI2S_RX", NULL, "PRI_MI2S_RX Audio Mixer"},
-	{"PRI_MI2S_RX Audio Mixer", "DTMF", "DTMF_DL_HL"},
 
 	{"INT0_MI2S_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"INT0_MI2S_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -23915,44 +20584,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_MI2S_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUIN_MI2S_RX", NULL, "QUIN_MI2S_RX Audio Mixer"},
 
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia3", "MM_DL3"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia4", "MM_DL4"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia5", "MM_DL5"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia6", "MM_DL6"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia7", "MM_DL7"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia8", "MM_DL8"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia9", "MM_DL9"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia10", "MM_DL10"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia11", "MM_DL11"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia12", "MM_DL12"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia13", "MM_DL13"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia14", "MM_DL14"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia15", "MM_DL15"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"PRI_META_MI2S_RX Audio Mixer", "MultiMedia26", "MM_DL26"},
-	{"PRI_META_MI2S_RX", NULL, "PRI_META_MI2S_RX Audio Mixer"},
-
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia3", "MM_DL3"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia4", "MM_DL4"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia5", "MM_DL5"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia6", "MM_DL6"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia7", "MM_DL7"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia8", "MM_DL8"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia9", "MM_DL9"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia10", "MM_DL10"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia11", "MM_DL11"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia12", "MM_DL12"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia13", "MM_DL13"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia14", "MM_DL14"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia15", "MM_DL15"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"SEC_META_MI2S_RX Audio Mixer", "MultiMedia26", "MM_DL26"},
-	{"SEC_META_MI2S_RX", NULL, "SEC_META_MI2S_RX Audio Mixer"},
-
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia2", "MM_DL2"},
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia3", "MM_DL3"},
@@ -23970,10 +20601,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"PRI_TDM_RX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"PRI_TDM_RX_0", NULL, "PRI_TDM_RX_0 Audio Mixer"},
 
 	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -23993,10 +20620,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"PRI_TDM_RX_1 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"PRI_TDM_RX_1", NULL, "PRI_TDM_RX_1 Audio Mixer"},
 
 	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24016,10 +20639,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"PRI_TDM_RX_2 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"PRI_TDM_RX_2", NULL, "PRI_TDM_RX_2 Audio Mixer"},
 
 	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24039,10 +20658,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"PRI_TDM_RX_3 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"PRI_TDM_RX_3", NULL, "PRI_TDM_RX_3 Audio Mixer"},
 
 	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24061,9 +20676,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"PRI_TDM_TX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"PRI_TDM_TX_0", NULL, "PRI_TDM_TX_0 Audio Mixer"},
 
 	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24083,10 +20695,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"SEC_TDM_RX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"SEC_TDM_RX_0", NULL, "SEC_TDM_RX_0 Audio Mixer"},
 
 	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24106,10 +20714,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"SEC_TDM_RX_1 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"SEC_TDM_RX_1", NULL, "SEC_TDM_RX_1 Audio Mixer"},
 
 	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24129,10 +20733,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"SEC_TDM_RX_2 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"SEC_TDM_RX_2", NULL, "SEC_TDM_RX_2 Audio Mixer"},
 
 	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24152,10 +20752,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"SEC_TDM_RX_3 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"SEC_TDM_RX_3", NULL, "SEC_TDM_RX_3 Audio Mixer"},
 
 	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24174,9 +20770,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"SEC_TDM_TX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"SEC_TDM_TX_0", NULL, "SEC_TDM_TX_0 Audio Mixer"},
 
 	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24196,10 +20789,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_RX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_RX_0", NULL, "TERT_TDM_RX_0 Audio Mixer"},
 
 	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24218,9 +20807,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_TX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_TX_0", NULL, "TERT_TDM_TX_0 Audio Mixer"},
 
 	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24240,10 +20826,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_RX_1 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_RX_1", NULL, "TERT_TDM_RX_1 Audio Mixer"},
 
 	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24263,10 +20845,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_RX_2 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_RX_2", NULL, "TERT_TDM_RX_2 Audio Mixer"},
 
 	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24286,10 +20864,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_RX_3 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_RX_3", NULL, "TERT_TDM_RX_3 Audio Mixer"},
 
 	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24309,10 +20883,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"TERT_TDM_RX_4 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"TERT_TDM_RX_4", NULL, "TERT_TDM_RX_4 Audio Mixer"},
 
 	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24333,10 +20903,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
+	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia30", "MM_DL30"},
+	{"QUAT_TDM_RX_0 Audio Mixer", "MultiMedia31", "MM_DL31"},
 	{"QUAT_TDM_RX_0", NULL, "QUAT_TDM_RX_0 Audio Mixer"},
 
 	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24355,9 +20923,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUAT_TDM_TX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUAT_TDM_TX_0", NULL, "QUAT_TDM_TX_0 Audio Mixer"},
 
 	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24378,10 +20943,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia25", "MM_DL25"},
+	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia30", "MM_DL30"},
+	{"QUAT_TDM_RX_1 Audio Mixer", "MultiMedia31", "MM_DL31"},
 	{"QUAT_TDM_RX_1", NULL, "QUAT_TDM_RX_1 Audio Mixer"},
 
 	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24402,10 +20965,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia25", "MM_DL25"},
+	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia30", "MM_DL30"},
+	{"QUAT_TDM_RX_2 Audio Mixer", "MultiMedia31", "MM_DL31"},
 	{"QUAT_TDM_RX_2", NULL, "QUAT_TDM_RX_2 Audio Mixer"},
 
 	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24426,10 +20987,8 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia25", "MM_DL25"},
+	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia30", "MM_DL30"},
+	{"QUAT_TDM_RX_3 Audio Mixer", "MultiMedia31", "MM_DL31"},
 	{"QUAT_TDM_RX_3", NULL, "QUAT_TDM_RX_3 Audio Mixer"},
 
 	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24450,10 +21009,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUIN_TDM_RX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUIN_TDM_RX_0", NULL, "QUIN_TDM_RX_0 Audio Mixer"},
 
 	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24472,9 +21027,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia14", "MM_DL14"},
 	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia15", "MM_DL15"},
 	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUIN_TDM_TX_0 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUIN_TDM_TX_0", NULL, "QUIN_TDM_TX_0 Audio Mixer"},
 
 	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24495,10 +21047,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUIN_TDM_RX_1 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUIN_TDM_RX_1", NULL, "QUIN_TDM_RX_1 Audio Mixer"},
 
 	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24519,10 +21067,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUIN_TDM_RX_2 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUIN_TDM_RX_2", NULL, "QUIN_TDM_RX_2 Audio Mixer"},
 
 	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia1", "MM_DL1"},
@@ -24543,10 +21087,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia20", "MM_DL20"},
 	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia21", "MM_DL21"},
-	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia22", "MM_DL22"},
-	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia23", "MM_DL23"},
-	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia24", "MM_DL24"},
-	{"QUIN_TDM_RX_3 Audio Mixer", "MultiMedia25", "MM_DL25"},
 	{"QUIN_TDM_RX_3", NULL, "QUIN_TDM_RX_3 Audio Mixer"},
 
 	{"MultiMedia1 Mixer", "PRI_TX", "PRI_I2S_TX"},
@@ -24558,7 +21098,12 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia16 Mixer", "MI2S_TX", "MI2S_TX"},
 	{"MultiMedia1 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia2 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia3 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia5 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia6 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia8 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia10 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
+	{"MultiMedia16 Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"MultiMedia1 Mixer", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 	{"MultiMedia2 Mixer", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 	{"MultiMedia1 Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
@@ -24620,7 +21165,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "INT3_MI2S_TX", "INT3_MI2S_TX"},
 	{"MultiMedia28 Mixer", "INT3_MI2S_TX", "INT3_MI2S_TX"},
 	{"MultiMedia29 Mixer", "INT3_MI2S_TX", "INT3_MI2S_TX"},
-	{"MultiMedia30 Mixer", "INT3_MI2S_TX", "INT3_MI2S_TX"},
 	{"MultiMedia6 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia6 Mixer", "AUX_PCM_UL_TX", "AUX_PCM_TX"},
 	{"MultiMedia6 Mixer", "SEC_AUX_PCM_UL_TX", "SEC_AUX_PCM_TX"},
@@ -24643,7 +21187,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia1 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia1 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia1 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia1 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia1 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia1 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia1 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24678,7 +21221,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia2 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia2 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia2 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia2 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia2 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia2 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia2 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24713,7 +21255,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia3 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia3 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia3 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia3 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia3 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia3 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia3 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24748,7 +21289,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia4 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia4 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia4 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia4 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia4 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia4 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia4 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24783,7 +21323,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia5 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia5 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia5 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia5 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia5 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia5 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia5 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24818,7 +21357,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia6 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia6 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia6 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia6 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia6 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia6 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia6 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24853,7 +21391,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia8 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
 	{"MultiMedia8 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
 	{"MultiMedia8 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia8 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 	{"MultiMedia8 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 	{"MultiMedia8 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
 	{"MultiMedia8 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
@@ -24898,7 +21435,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia9 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
 	{"MultiMedia9 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia9 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia9 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
 	{"MultiMedia10 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"MultiMedia10 Mixer", "TERT_TDM_TX_1", "TERT_TDM_TX_1"},
@@ -24914,7 +21450,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia10 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia10 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia10 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia10 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
 	{"MultiMedia20 Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"MultiMedia20 Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
@@ -24954,7 +21489,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia20 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
 	{"MultiMedia20 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia20 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia20 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
 	{"MultiMedia21 Mixer", "AUX_PCM_UL_TX", "AUX_PCM_TX"},
 	{"MultiMedia21 Mixer", "SEC_AUX_PCM_UL_TX", "SEC_AUX_PCM_TX"},
@@ -24991,91 +21525,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia21 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
 	{"MultiMedia21 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia21 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia21 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-
-	{"MultiMedia22 Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
-	{"MultiMedia22 Mixer", "PRI_TDM_TX_1", "PRI_TDM_TX_1"},
-	{"MultiMedia22 Mixer", "PRI_TDM_TX_2", "PRI_TDM_TX_2"},
-	{"MultiMedia22 Mixer", "PRI_TDM_TX_3", "PRI_TDM_TX_3"},
-	{"MultiMedia22 Mixer", "SEC_TDM_TX_0", "SEC_TDM_TX_0"},
-	{"MultiMedia22 Mixer", "SEC_TDM_TX_1", "SEC_TDM_TX_1"},
-	{"MultiMedia22 Mixer", "SEC_TDM_TX_2", "SEC_TDM_TX_2"},
-	{"MultiMedia22 Mixer", "SEC_TDM_TX_3", "SEC_TDM_TX_3"},
-	{"MultiMedia22 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
-	{"MultiMedia22 Mixer", "TERT_TDM_TX_1", "TERT_TDM_TX_1"},
-	{"MultiMedia22 Mixer", "TERT_TDM_TX_2", "TERT_TDM_TX_2"},
-	{"MultiMedia22 Mixer", "TERT_TDM_TX_3", "TERT_TDM_TX_3"},
-	{"MultiMedia22 Mixer", "QUAT_TDM_TX_0", "QUAT_TDM_TX_0"},
-	{"MultiMedia22 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
-	{"MultiMedia22 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
-	{"MultiMedia22 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia22 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"MultiMedia22 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
-	{"MultiMedia22 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
-	{"MultiMedia22 Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
-
-	{"MultiMedia23 Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
-	{"MultiMedia23 Mixer", "PRI_TDM_TX_1", "PRI_TDM_TX_1"},
-	{"MultiMedia23 Mixer", "PRI_TDM_TX_2", "PRI_TDM_TX_2"},
-	{"MultiMedia23 Mixer", "PRI_TDM_TX_3", "PRI_TDM_TX_3"},
-	{"MultiMedia23 Mixer", "SEC_TDM_TX_0", "SEC_TDM_TX_0"},
-	{"MultiMedia23 Mixer", "SEC_TDM_TX_1", "SEC_TDM_TX_1"},
-	{"MultiMedia23 Mixer", "SEC_TDM_TX_2", "SEC_TDM_TX_2"},
-	{"MultiMedia23 Mixer", "SEC_TDM_TX_3", "SEC_TDM_TX_3"},
-	{"MultiMedia23 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
-	{"MultiMedia23 Mixer", "TERT_TDM_TX_1", "TERT_TDM_TX_1"},
-	{"MultiMedia23 Mixer", "TERT_TDM_TX_2", "TERT_TDM_TX_2"},
-	{"MultiMedia23 Mixer", "TERT_TDM_TX_3", "TERT_TDM_TX_3"},
-	{"MultiMedia23 Mixer", "QUAT_TDM_TX_0", "QUAT_TDM_TX_0"},
-	{"MultiMedia23 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
-	{"MultiMedia23 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
-	{"MultiMedia23 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia23 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"MultiMedia23 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
-	{"MultiMedia23 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
-	{"MultiMedia23 Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
-
-	{"MultiMedia24 Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
-	{"MultiMedia24 Mixer", "PRI_TDM_TX_1", "PRI_TDM_TX_1"},
-	{"MultiMedia24 Mixer", "PRI_TDM_TX_2", "PRI_TDM_TX_2"},
-	{"MultiMedia24 Mixer", "PRI_TDM_TX_3", "PRI_TDM_TX_3"},
-	{"MultiMedia24 Mixer", "SEC_TDM_TX_0", "SEC_TDM_TX_0"},
-	{"MultiMedia24 Mixer", "SEC_TDM_TX_1", "SEC_TDM_TX_1"},
-	{"MultiMedia24 Mixer", "SEC_TDM_TX_2", "SEC_TDM_TX_2"},
-	{"MultiMedia24 Mixer", "SEC_TDM_TX_3", "SEC_TDM_TX_3"},
-	{"MultiMedia24 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
-	{"MultiMedia24 Mixer", "TERT_TDM_TX_1", "TERT_TDM_TX_1"},
-	{"MultiMedia24 Mixer", "TERT_TDM_TX_2", "TERT_TDM_TX_2"},
-	{"MultiMedia24 Mixer", "TERT_TDM_TX_3", "TERT_TDM_TX_3"},
-	{"MultiMedia24 Mixer", "QUAT_TDM_TX_0", "QUAT_TDM_TX_0"},
-	{"MultiMedia24 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
-	{"MultiMedia24 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
-	{"MultiMedia24 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia24 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"MultiMedia24 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
-	{"MultiMedia24 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
-	{"MultiMedia24 Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
-
-	{"MultiMedia25 Mixer", "PRI_TDM_TX_0", "PRI_TDM_TX_0"},
-	{"MultiMedia25 Mixer", "PRI_TDM_TX_1", "PRI_TDM_TX_1"},
-	{"MultiMedia25 Mixer", "PRI_TDM_TX_2", "PRI_TDM_TX_2"},
-	{"MultiMedia25 Mixer", "PRI_TDM_TX_3", "PRI_TDM_TX_3"},
-	{"MultiMedia25 Mixer", "SEC_TDM_TX_0", "SEC_TDM_TX_0"},
-	{"MultiMedia25 Mixer", "SEC_TDM_TX_1", "SEC_TDM_TX_1"},
-	{"MultiMedia25 Mixer", "SEC_TDM_TX_2", "SEC_TDM_TX_2"},
-	{"MultiMedia25 Mixer", "SEC_TDM_TX_3", "SEC_TDM_TX_3"},
-	{"MultiMedia25 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
-	{"MultiMedia25 Mixer", "TERT_TDM_TX_1", "TERT_TDM_TX_1"},
-	{"MultiMedia25 Mixer", "TERT_TDM_TX_2", "TERT_TDM_TX_2"},
-	{"MultiMedia25 Mixer", "TERT_TDM_TX_3", "TERT_TDM_TX_3"},
-	{"MultiMedia25 Mixer", "QUAT_TDM_TX_0", "QUAT_TDM_TX_0"},
-	{"MultiMedia25 Mixer", "QUAT_TDM_TX_1", "QUAT_TDM_TX_1"},
-	{"MultiMedia25 Mixer", "QUAT_TDM_TX_2", "QUAT_TDM_TX_2"},
-	{"MultiMedia25 Mixer", "QUAT_TDM_TX_3", "QUAT_TDM_TX_3"},
-	{"MultiMedia25 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"MultiMedia25 Mixer", "QUIN_TDM_TX_1", "QUIN_TDM_TX_1"},
-	{"MultiMedia25 Mixer", "QUIN_TDM_TX_2", "QUIN_TDM_TX_2"},
-	{"MultiMedia25 Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
 
 	{"MultiMedia27 Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"MultiMedia27 Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
@@ -25089,7 +21538,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia27 Mixer", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 	{"MultiMedia27 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia27 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia27 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
 	{"MultiMedia1 Mixer", "USB_AUDIO_TX", "USB_AUDIO_TX"},
 	{"MultiMedia2 Mixer", "USB_AUDIO_TX", "USB_AUDIO_TX"},
@@ -25129,7 +21577,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia16 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
 	{"MultiMedia16 Mixer", "PRI_SPDIF_TX", "PRI_SPDIF_TX"},
 	{"MultiMedia16 Mixer", "SEC_SPDIF_TX", "SEC_SPDIF_TX"},
-	{"MultiMedia16 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
 	{"MultiMedia17 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
 	{"MultiMedia17 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
@@ -25137,20 +21584,13 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia17 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia17 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia17 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia17 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
 
-	{"MultiMedia18 Mixer", "SLIM_9_TX", "SLIMBUS_9_TX"},
-	{"MultiMedia18 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia18 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_2", "TX_CDC_DMA_TX_2"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia18 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia18 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-	{"MultiMedia18 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia18 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
@@ -25158,9 +21598,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia19 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia19 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-	{"MultiMedia19 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia19 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 
 	{"MultiMedia28 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
 	{"MultiMedia28 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
@@ -25168,9 +21605,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia28 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia28 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia28 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia28 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-	{"MultiMedia28 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia28 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 
 	{"MultiMedia29 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
 	{"MultiMedia29 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
@@ -25178,19 +21612,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia29 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"MultiMedia29 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
 	{"MultiMedia29 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia29 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-	{"MultiMedia29 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia29 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
-
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_0", "TX_CDC_DMA_TX_0"},
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_1", "TX_CDC_DMA_TX_1"},
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_2", "TX_CDC_DMA_TX_2"},
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_4", "TX_CDC_DMA_TX_4"},
-	{"MultiMedia30 Mixer", "TX_CDC_DMA_TX_5", "TX_CDC_DMA_TX_5"},
-	{"MultiMedia30 Mixer", "AFE_LOOPBACK_TX", "AFE_LOOPBACK_TX"},
-	{"MultiMedia30 Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
-	{"MultiMedia30 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 
 	{"INTERNAL_BT_SCO_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"INTERNAL_BT_SCO_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -25266,24 +21687,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AFE_PCM_RX Audio Mixer", "MultiMedia16", "MM_DL16"},
 	{"PCM_RX", NULL, "AFE_PCM_RX Audio Mixer"},
 
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia1", "MM_DL1"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia2", "MM_DL2"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia3", "MM_DL3"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia4", "MM_DL4"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia5", "MM_DL5"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia6", "MM_DL6"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia7", "MM_DL7"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia8", "MM_DL8"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia9", "MM_DL9"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia10", "MM_DL10"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia11", "MM_DL11"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia12", "MM_DL12"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia13", "MM_DL13"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia14", "MM_DL14"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia15", "MM_DL15"},
-	{"AFE_PCM_RX1 Audio Mixer", "MultiMedia16", "MM_DL16"},
-	{"PCM_RX1", NULL, "AFE_PCM_RX1 Audio Mixer"},
-
 	{"MultiMedia1 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia3 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia4 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
@@ -25293,7 +21696,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia28 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia29 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
-	{"MultiMedia30 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia5 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia8 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
 	{"MultiMedia16 Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
@@ -25305,7 +21707,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia28 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia29 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
-	{"MultiMedia30 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia5 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia6 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"MultiMedia8 Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
@@ -25319,7 +21720,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MultiMedia19 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia28 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia29 Mixer", "AFE_PCM_TX", "PCM_TX"},
-	{"MultiMedia30 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia5 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia8 Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"MultiMedia16 Mixer", "AFE_PCM_TX", "PCM_TX"},
@@ -25339,14 +21739,9 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MM_UL19", NULL, "MultiMedia19 Mixer"},
 	{"MM_UL20", NULL, "MultiMedia20 Mixer"},
 	{"MM_UL21", NULL, "MultiMedia21 Mixer"},
-	{"MM_UL22", NULL, "MultiMedia22 Mixer"},
-	{"MM_UL23", NULL, "MultiMedia23 Mixer"},
-	{"MM_UL24", NULL, "MultiMedia24 Mixer"},
-	{"MM_UL25", NULL, "MultiMedia25 Mixer"},
 	{"MM_UL27", NULL, "MultiMedia27 Mixer"},
 	{"MM_UL28", NULL, "MultiMedia28 Mixer"},
 	{"MM_UL29", NULL, "MultiMedia29 Mixer"},
-	{"MM_UL30", NULL, "MultiMedia30 Mixer"},
 
 	{"AUX_PCM_RX Audio Mixer", "MultiMedia1", "MM_DL1"},
 	{"AUX_PCM_RX Audio Mixer", "MultiMedia2", "MM_DL2"},
@@ -25453,8 +21848,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SEC_I2S_RX", NULL, "SEC_RX_Voice Mixer"},
 
 	{"SEC_MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"SEC_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"SEC_MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"SEC_MI2S_RX_Voice Mixer", "DTMF", "DTMF_DL_HL"},
 	{"SEC_MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"SEC_MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
@@ -25466,6 +21859,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SLIM_0_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"SLIM_0_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"SLIM_0_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
+	{"SLIM_0_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
 	{"SLIMBUS_0_RX", NULL, "SLIM_0_RX_Voice Mixer"},
 
 	{"SLIM_6_RX_Voice Mixer", "Voip", "VOIP_DL"},
@@ -25473,6 +21867,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"SLIM_6_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"SLIM_6_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"SLIM_6_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
+	{"SLIM_6_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
 	{"SLIMBUS_6_RX", NULL, "SLIM_6_RX_Voice Mixer"},
 
 	{"USB_AUDIO_RX_Voice Mixer", "Voip", "VOIP_DL"},
@@ -25554,8 +21949,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"HDMI", NULL, "HDMI_DL_HL"},
 
 	{"MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"MI2S_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
@@ -25563,8 +21956,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MI2S_RX", NULL, "MI2S_RX_Voice Mixer"},
 
 	{"PRI_MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"PRI_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"PRI_MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"PRI_MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"PRI_MI2S_RX_Voice Mixer", "DTMF", "DTMF_DL_HL"},
 	{"PRI_MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
@@ -25586,8 +21977,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"INT4_MI2S_RX", NULL, "INT4_MI2S_RX_Voice Mixer"},
 
 	{"TERT_MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"TERT_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"TERT_MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"TERT_MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"TERT_MI2S_RX_Voice Mixer", "DTMF", "DTMF_DL_HL"},
 	{"TERT_MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
@@ -25595,68 +21984,33 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TERT_MI2S_RX", NULL, "TERT_MI2S_RX_Voice Mixer"},
 
 	{"QUAT_MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"QUAT_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"QUAT_MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"QUAT_MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"QUAT_MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"QUAT_MI2S_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
+	{"QUAT_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
 	{"QUAT_MI2S_RX", NULL, "QUAT_MI2S_RX_Voice Mixer"},
 
 	{"QUIN_MI2S_RX_Voice Mixer", "Voip", "VOIP_DL"},
-	{"QUIN_MI2S_RX_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"QUIN_MI2S_RX_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
 	{"QUIN_MI2S_RX_Voice Mixer", "QCHAT", "QCHAT_DL"},
 	{"QUIN_MI2S_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"QUIN_MI2S_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
 	{"QUIN_MI2S_RX", NULL, "QUIN_MI2S_RX_Voice Mixer"},
 
-	{"PRI_TDM_RX_0_Voice Mixer", "Voip", "VOIP_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "VoLTE Stub", "VOLTE_STUB_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "QCHAT", "QCHAT_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "DTMF", "DTMF_DL_HL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
-	{"PRI_TDM_RX_0_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
-	{"PRI_TDM_RX_0", NULL, "PRI_TDM_RX_0_Voice Mixer"},
-
-	{"PRI_TDM_RX_1_Voice Mixer", "Voip", "VOIP_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "VoLTE Stub", "VOLTE_STUB_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "QCHAT", "QCHAT_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "DTMF", "DTMF_DL_HL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
-	{"PRI_TDM_RX_1_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
-	{"PRI_TDM_RX_1", NULL, "PRI_TDM_RX_1_Voice Mixer"},
-
-	{"PRI_TDM_RX_2_Voice Mixer", "Voip", "VOIP_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "VoLTE Stub", "VOLTE_STUB_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "QCHAT", "QCHAT_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "DTMF", "DTMF_DL_HL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
-	{"PRI_TDM_RX_2_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
-	{"PRI_TDM_RX_2", NULL, "PRI_TDM_RX_2_Voice Mixer"},
-
-	{"PRI_TDM_RX_3_Voice Mixer", "Voip", "VOIP_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "VoLTE Stub", "VOLTE_STUB_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "Voice Stub", "VOICE_STUB_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "Voice2 Stub", "VOICE2_STUB_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "QCHAT", "QCHAT_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "DTMF", "DTMF_DL_HL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
-	{"PRI_TDM_RX_3_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
-	{"PRI_TDM_RX_3", NULL, "PRI_TDM_RX_3_Voice Mixer"},
-
 	{"QUAT_TDM_RX_2_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"QUAT_TDM_RX_2", NULL, "QUAT_TDM_RX_2_Voice Mixer"},
 
+	{"WSA_CDC_DMA_RX_0_Voice Mixer", "Voip", "VOIP_DL"},
 	{"WSA_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"WSA_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
 	{"WSA_CDC_DMA_RX_0", NULL, "WSA_CDC_DMA_RX_0_Voice Mixer"},
 
+	{"PROXY_RX_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
+	{"PROXY_RX", NULL, "PROXY_RX_Voice Mixer"},
+
+	{"PROXY_RX_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
+	{"PROXY_RX", NULL, "PROXY_RX_Voice Mixer"},
+
+	{"RX_CDC_DMA_RX_0_Voice Mixer", "Voip", "VOIP_DL"},
 	{"RX_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
 	{"RX_CDC_DMA_RX_0_Voice Mixer", "VoiceMMode2", "VOICEMMODE2_DL"},
 	{"RX_CDC_DMA_RX_0", NULL, "RX_CDC_DMA_RX_0_Voice Mixer"},
@@ -25684,7 +22038,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AUDIO_REF_EC_UL1 MUX", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"AUDIO_REF_EC_UL1 MUX", "TERT_TDM_RX_2", "TERT_TDM_RX_2"},
 	{"AUDIO_REF_EC_UL1 MUX", "SEC_TDM_TX_0", "SEC_TDM_TX_0"},
-	{"AUDIO_REF_EC_UL1 MUX", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
 
 	{"AUDIO_REF_EC_UL2 MUX", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"AUDIO_REF_EC_UL2 MUX", "SEC_MI2S_TX", "SEC_MI2S_TX"},
@@ -25788,14 +22141,15 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"MM_UL19", NULL, "AUDIO_REF_EC_UL19 MUX"},
 	{"MM_UL28", NULL, "AUDIO_REF_EC_UL28 MUX"},
 	{"MM_UL29", NULL, "AUDIO_REF_EC_UL29 MUX"},
-	{"MM_UL30", NULL, "AUDIO_REF_EC_UL30 MUX"},
 
 	{"VoiceMMode1_Tx Mixer", "PRI_TX_MMode1", "PRI_I2S_TX"},
 	{"VoiceMMode1_Tx Mixer", "PRI_MI2S_TX_MMode1", "PRI_MI2S_TX"},
 	{"VoiceMMode1_Tx Mixer", "MI2S_TX_MMode1", "MI2S_TX"},
 	{"VoiceMMode1_Tx Mixer", "TERT_MI2S_TX_MMode1", "TERT_MI2S_TX"},
+	{"VoiceMMode1_Tx Mixer", "QUAT_MI2S_TX_MMode1", "QUAT_MI2S_TX"},	
 	{"VoiceMMode1_Tx Mixer", "INT3_MI2S_TX_MMode1", "INT3_MI2S_TX"},
 	{"VoiceMMode1_Tx Mixer", "SLIM_0_TX_MMode1", "SLIMBUS_0_TX"},
+	{"VoiceMMode1_Tx Mixer", "SLIM_1_TX_MMode1", "SLIMBUS_1_TX"},
 	{"VoiceMMode1_Tx Mixer", "SLIM_7_TX_MMode1", "SLIMBUS_7_TX"},
 	{"VoiceMMode1_Tx Mixer", "SLIM_8_TX_MMode1", "SLIMBUS_8_TX"},
 	{"VoiceMMode1_Tx Mixer", "USB_AUDIO_TX_MMode1", "USB_AUDIO_TX"},
@@ -25813,18 +22167,17 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"VoiceMMode1_Tx Mixer", "TX_CDC_DMA_TX_3_MMode1", "TX_CDC_DMA_TX_3"},
 	{"VoiceMMode1_Tx Mixer", "TX_CDC_DMA_TX_4_MMode1", "TX_CDC_DMA_TX_4"},
 	{"VoiceMMode1_Tx Mixer", "TX_CDC_DMA_TX_5_MMode1", "TX_CDC_DMA_TX_5"},
-	{"VoiceMMode1_Tx Mixer", "QUAT_MI2S_TX_MMode1", "QUAT_MI2S_TX"},
-	{"VoiceMMode1_Tx Mixer", "QUIN_MI2S_TX_MMode1", "QUIN_MI2S_TX"},
-	{"VoiceMMode1_Tx Mixer", "PRI_TDM_TX_3_MMode1", "PRI_TDM_TX_3"},
-	{"VoiceMMode1_Tx Mixer", "SEC_MI2S_TX_MMode1", "SEC_MI2S_TX"},
+	{"VoiceMMode1_Tx Mixer", "PROXY_TX_MMode1", "PROXY_TX"},
 	{"VOICEMMODE1_UL", NULL, "VoiceMMode1_Tx Mixer"},
 
 	{"VoiceMMode2_Tx Mixer", "PRI_TX_MMode2", "PRI_I2S_TX"},
 	{"VoiceMMode2_Tx Mixer", "PRI_MI2S_TX_MMode2", "PRI_MI2S_TX"},
 	{"VoiceMMode2_Tx Mixer", "MI2S_TX_MMode2", "MI2S_TX"},
 	{"VoiceMMode2_Tx Mixer", "TERT_MI2S_TX_MMode2", "TERT_MI2S_TX"},
+	{"VoiceMMode2_Tx Mixer", "QUAT_MI2S_TX_MMode2", "QUAT_MI2S_TX"},
 	{"VoiceMMode2_Tx Mixer", "INT3_MI2S_TX_MMode2", "INT3_MI2S_TX"},
 	{"VoiceMMode2_Tx Mixer", "SLIM_0_TX_MMode2", "SLIMBUS_0_TX"},
+	{"VoiceMMode2_Tx Mixer", "SLIM_1_TX_MMode2", "SLIMBUS_1_TX"},
 	{"VoiceMMode2_Tx Mixer", "SLIM_7_TX_MMode2", "SLIMBUS_7_TX"},
 	{"VoiceMMode2_Tx Mixer", "SLIM_8_TX_MMode2", "SLIMBUS_8_TX"},
 	{"VoiceMMode2_Tx Mixer", "USB_AUDIO_TX_MMode2", "USB_AUDIO_TX"},
@@ -25841,17 +22194,16 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"VoiceMMode2_Tx Mixer", "TX_CDC_DMA_TX_3_MMode2", "TX_CDC_DMA_TX_3"},
 	{"VoiceMMode2_Tx Mixer", "TX_CDC_DMA_TX_4_MMode2", "TX_CDC_DMA_TX_4"},
 	{"VoiceMMode2_Tx Mixer", "TX_CDC_DMA_TX_5_MMode2", "TX_CDC_DMA_TX_5"},
-	{"VoiceMMode2_Tx Mixer", "QUAT_MI2S_TX_MMode2", "QUAT_MI2S_TX"},
-	{"VoiceMMode2_Tx Mixer", "QUIN_MI2S_TX_MMode2", "QUIN_MI2S_TX"},
-	{"VoiceMMode2_Tx Mixer", "PRI_TDM_TX_3_MMode2", "PRI_TDM_TX_3"},
-	{"VoiceMMode2_Tx Mixer", "SEC_MI2S_TX_MMode2", "SEC_MI2S_TX"},
+	{"VoiceMMode2_Tx Mixer", "PROXY_TX_MMode2", "PROXY_TX"},
 	{"VOICEMMODE2_UL", NULL, "VoiceMMode2_Tx Mixer"},
 
 	{"Voip_Tx Mixer", "PRI_TX_Voip", "PRI_I2S_TX"},
 	{"Voip_Tx Mixer", "MI2S_TX_Voip", "MI2S_TX"},
 	{"Voip_Tx Mixer", "TERT_MI2S_TX_Voip", "TERT_MI2S_TX"},
+	{"Voip_Tx Mixer", "QUAT_MI2S_TX_Voip", "QUAT_MI2S_TX"},
 	{"Voip_Tx Mixer", "INT3_MI2S_TX_Voip", "INT3_MI2S_TX"},
 	{"Voip_Tx Mixer", "SLIM_0_TX_Voip", "SLIMBUS_0_TX"},
+	{"Voip_Tx Mixer", "SLIM_1_TX_Voip", "SLIMBUS_1_TX"},
 	{"Voip_Tx Mixer", "SLIM_7_TX_Voip", "SLIMBUS_7_TX"},
 	{"Voip_Tx Mixer", "SLIM_8_TX_Voip", "SLIMBUS_8_TX"},
 	{"Voip_Tx Mixer", "USB_AUDIO_TX_Voip", "USB_AUDIO_TX"},
@@ -25863,7 +22215,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"Voip_Tx Mixer", "QUAT_AUX_PCM_TX_Voip", "QUAT_AUX_PCM_TX"},
 	{"Voip_Tx Mixer", "QUIN_AUX_PCM_TX_Voip", "QUIN_AUX_PCM_TX"},
 	{"Voip_Tx Mixer", "PRI_MI2S_TX_Voip", "PRI_MI2S_TX"},
-	{"Voip_Tx Mixer", "PRI_TDM_TX_3_Voip", "PRI_TDM_TX_3"},
+	{"Voip_Tx Mixer", "TX_CDC_DMA_TX_3_Voip", "TX_CDC_DMA_TX_3"},
 	{"VOIP_UL", NULL, "Voip_Tx Mixer"},
 
 	{"SLIMBUS_DL_HL", "Switch", "SLIM0_DL_HL"},
@@ -25899,7 +22251,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM1 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM1 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM1 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM1 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM1_UL_HL", NULL, "LSM1 Mixer"},
 
 	{"LSM2 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
@@ -25914,7 +22265,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM2 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM2 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM2 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM2 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM2_UL_HL", NULL, "LSM2 Mixer"},
 
 
@@ -25930,7 +22280,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM3 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM3 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM3 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM3 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM3_UL_HL", NULL, "LSM3 Mixer"},
 
 
@@ -25946,7 +22295,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM4 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM4 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM4 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM4 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM4_UL_HL", NULL, "LSM4 Mixer"},
 
 	{"LSM5 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
@@ -25961,7 +22309,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM5 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM5 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM5 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM5 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM5_UL_HL", NULL, "LSM5 Mixer"},
 
 	{"LSM6 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
@@ -25974,7 +22321,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM6 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM6 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM6 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM6 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM6_UL_HL", NULL, "LSM6 Mixer"},
 
 	{"LSM7 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
@@ -25987,7 +22333,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM7 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM7 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM7 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM7 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM7_UL_HL", NULL, "LSM7 Mixer"},
 
 	{"LSM8 Mixer", "SLIMBUS_0_TX", "SLIMBUS_0_TX"},
@@ -26000,7 +22345,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LSM8 Mixer", "VA_CDC_DMA_TX_1", "VA_CDC_DMA_TX_1"},
 	{"LSM8 Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
 	{"LSM8 Mixer", "QUIN_TDM_TX_0", "QUIN_TDM_TX_0"},
-	{"LSM8 Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"LSM8_UL_HL", NULL, "LSM8 Mixer"},
 
 
@@ -26102,22 +22446,18 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_TX_1_UL_HL", NULL, "QUAT_TDM_TX_1"},
 	{"QUAT_TDM_TX_2_UL_HL", NULL, "QUAT_TDM_TX_2"},
 	{"QUAT_TDM_TX_3_UL_HL", NULL, "QUAT_TDM_TX_3"},
-	{"QUAT_TDM_TX_7_UL_HL", NULL, "QUAT_TDM_TX_7"},
 	{"QUAT_TDM_RX_0", NULL, "QUAT_TDM_RX_0_DL_HL"},
 	{"QUAT_TDM_RX_1", NULL, "QUAT_TDM_RX_1_DL_HL"},
 	{"QUAT_TDM_RX_2", NULL, "QUAT_TDM_RX_2_DL_HL"},
 	{"QUAT_TDM_RX_3", NULL, "QUAT_TDM_RX_3_DL_HL"},
-	{"QUAT_TDM_RX_7", NULL, "QUAT_TDM_RX_7_DL_HL"},
 	{"QUIN_TDM_TX_0_UL_HL", NULL, "QUIN_TDM_TX_0"},
 	{"QUIN_TDM_TX_1_UL_HL", NULL, "QUIN_TDM_TX_1"},
 	{"QUIN_TDM_TX_2_UL_HL", NULL, "QUIN_TDM_TX_2"},
 	{"QUIN_TDM_TX_3_UL_HL", NULL, "QUIN_TDM_TX_3"},
-	{"QUIN_TDM_TX_7_UL_HL", NULL, "QUIN_TDM_TX_7"},
 	{"QUIN_TDM_RX_0", NULL, "QUIN_TDM_RX_0_DL_HL"},
 	{"QUIN_TDM_RX_1", NULL, "QUIN_TDM_RX_1_DL_HL"},
 	{"QUIN_TDM_RX_2", NULL, "QUIN_TDM_RX_2_DL_HL"},
 	{"QUIN_TDM_RX_3", NULL, "QUIN_TDM_RX_3_DL_HL"},
-	{"QUIN_TDM_RX_7", NULL, "QUIN_TDM_RX_7_DL_HL"},
 
 	{"PRI_TDM_RX_0 Port Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"PRI_TDM_RX_0 Port Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
@@ -26474,10 +22814,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_RX_3 Port Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
 	{"QUAT_TDM_RX_3", NULL, "QUAT_TDM_RX_3 Port Mixer"},
 
-	{"QUAT_TDM_RX_7 Port Mixer", "QUAT_TDM_TX_7", "QUAT_TDM_TX_7"},
-	{"QUAT_TDM_RX_7 Port Mixer", "QUIN_TDM_TX_7", "QUIN_TDM_TX_7"},
-	{"QUAT_TDM_RX_7", NULL, "QUAT_TDM_RX_7 Port Mixer"},
-
 	{"QUIN_TDM_RX_0 Port Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"QUIN_TDM_RX_0 Port Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"QUIN_TDM_RX_0 Port Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
@@ -26566,11 +22902,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUIN_TDM_RX_3 Port Mixer", "QUIN_TDM_TX_3", "QUIN_TDM_TX_3"},
 	{"QUIN_TDM_RX_3", NULL, "QUIN_TDM_RX_3 Port Mixer"},
 
-	{"QUIN_TDM_RX_7 Port Mixer", "TERT_TDM_TX_7", "TERT_TDM_TX_7"},
-	{"QUIN_TDM_RX_7 Port Mixer", "QUAT_TDM_TX_7", "QUAT_TDM_TX_7"},
-	{"QUIN_TDM_RX_7 Port Mixer", "QUIN_TDM_TX_7", "QUIN_TDM_TX_7"},
-	{"QUIN_TDM_RX_7", NULL, "QUIN_TDM_RX_7 Port Mixer"},
-
 	{"INT0_MI2S_RX Port Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"INT0_MI2S_RX Port Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"INT0_MI2S_RX Port Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
@@ -26599,13 +22930,10 @@ static const struct snd_soc_dapm_route intercon[] = {
 
 	{"WSA_CDC_DMA_RX_0 Port Mixer", "VA_CDC_DMA_TX_0", "VA_CDC_DMA_TX_0"},
 	{"WSA_CDC_DMA_RX_0 Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
-	{"WSA_CDC_DMA_RX_0 Port Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
-	{"WSA_CDC_DMA_RX_0 Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
-	{"WSA_CDC_DMA_RX_0", NULL, "WSA_CDC_DMA_RX_0 Port Mixer"},
-
 	{"RX_CDC_DMA_RX_0 Port Mixer", "TX_CDC_DMA_TX_3", "TX_CDC_DMA_TX_3"},
+	{"WSA_CDC_DMA_RX_0 Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"RX_CDC_DMA_RX_0 Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
-	{"RX_CDC_DMA_RX_0", NULL, "RX_CDC_DMA_RX_0 Port Mixer"},
+
 
 	{"SLIMBUS_0_RX Port Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"SLIMBUS_0_RX Port Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
@@ -26630,6 +22958,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AFE_PCM_RX Port Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"PCM_RX", NULL, "AFE_PCM_RX Port Mixer"},
 	{"USB_AUDIO_RX Port Mixer", "USB_AUDIO_TX", "USB_AUDIO_TX"},
+	{"USB_AUDIO_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"USB_AUDIO_RX", NULL, "USB_AUDIO_RX Port Mixer"},
 	{"USB_DL_HL", "Switch", "USBAUDIO_DL_HL"},
 	{"USB_AUDIO_RX", NULL, "USB_DL_HL"},
@@ -26641,7 +22970,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"AUX_PCM_RX Port Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"AUX_PCM_RX Port Mixer", "SEC_AUX_PCM_UL_TX", "SEC_AUX_PCM_TX"},
 	{"AUX_PCM_RX Port Mixer", "QUAT_TDM_TX_0", "QUAT_TDM_TX_0"},
-	{"AUX_PCM_RX Port Mixer", "TERT_TDM_TX_0", "TERT_TDM_TX_0"},
 	{"AUX_PCM_RX Port Mixer", "SEC_MI2S_TX", "SEC_MI2S_TX"},
 	{"AUX_PCM_RX", NULL, "AUX_PCM_RX Port Mixer"},
 
@@ -26711,7 +23039,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"Voice2 Stub Tx Mixer", "AFE_PCM_TX", "PCM_TX"},
 	{"Voice2 Stub Tx Mixer", "PRI_MI2S_TX", "PRI_MI2S_TX"},
 	{"Voice2 Stub Tx Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
-	{"Voice2 Stub Tx Mixer", "TERT_MI2S_TX", "TERT_MI2S_TX"},
 	{"VOICE2_STUB_UL", NULL, "Voice2 Stub Tx Mixer"},
 
 	{"STUB_RX Mixer", "VoiceMMode1", "VOICEMMODE1_DL"},
@@ -26772,9 +23099,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"HDMI_RX Port Mixer", "MI2S_TX", "MI2S_TX"},
 	{"HDMI", NULL, "HDMI_RX Port Mixer"},
 
-	{"HDMI_RX_MS Port Mixer", "MI2S_TX", "MI2S_TX"},
-	{"HDMI_MS", NULL, "HDMI_RX_MS Port Mixer"},
-
 	{"DISPLAY_PORT_RX Port Mixer", "MI2S_TX", "MI2S_TX"},
 	{"DISPLAY_PORT", NULL, "DISPLAY_PORT_RX Port Mixer"},
 
@@ -26796,7 +23120,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"PRI_MI2S_RX Port Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
 	{"PRI_MI2S_RX Port Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"PRI_MI2S_RX Port Mixer", "INTERNAL_BT_SCO_TX", "INT_BT_SCO_TX"},
-	{"PRI_MI2S_RX Port Mixer", "SLIM_7_TX", "SLIMBUS_7_TX"},
 	{"PRI_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
 	{"PRI_MI2S_RX Port Mixer", "SEC_AUX_PCM_UL_TX", "SEC_AUX_PCM_TX"},
 	{"PRI_MI2S_RX", NULL, "PRI_MI2S_RX Port Mixer"},
@@ -26827,6 +23150,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_MI2S_RX Port Mixer", "QUAT_MI2S_TX", "QUAT_MI2S_TX"},
 	{"QUAT_MI2S_RX Port Mixer", "QUIN_MI2S_TX", "QUIN_MI2S_TX"},
 	{"QUAT_MI2S_RX Port Mixer", "SLIM_0_TX", "SLIMBUS_0_TX"},
+	{"QUAT_MI2S_RX Port Mixer", "SLIM_1_TX", "SLIMBUS_1_TX"},
 	{"QUAT_MI2S_RX Port Mixer", "INTERNAL_FM_TX", "INT_FM_TX"},
 	{"QUAT_MI2S_RX Port Mixer", "AUX_PCM_UL_TX", "AUX_PCM_TX"},
 	{"QUAT_MI2S_RX Port Mixer", "SLIM_8_TX", "SLIMBUS_8_TX"},
@@ -26857,7 +23181,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"BE_OUT", NULL, "SLIMBUS_9_RX"},
 	{"BE_OUT", NULL, "USB_AUDIO_RX"},
 	{"BE_OUT", NULL, "HDMI"},
-	{"BE_OUT", NULL, "HDMI_MS"},
 	{"BE_OUT", NULL, "DISPLAY_PORT"},
 	{"BE_OUT", NULL, "DISPLAY_PORT1"},
 	{"BE_OUT", NULL, "PRI_SPDIF_RX"},
@@ -26908,12 +23231,10 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"BE_OUT", NULL, "QUAT_TDM_RX_1"},
 	{"BE_OUT", NULL, "QUAT_TDM_RX_2"},
 	{"BE_OUT", NULL, "QUAT_TDM_RX_3"},
-	{"BE_OUT", NULL, "QUAT_TDM_RX_7"},
 	{"BE_OUT", NULL, "QUIN_TDM_RX_0"},
 	{"BE_OUT", NULL, "QUIN_TDM_RX_1"},
 	{"BE_OUT", NULL, "QUIN_TDM_RX_2"},
 	{"BE_OUT", NULL, "QUIN_TDM_RX_3"},
-	{"BE_OUT", NULL, "QUIN_TDM_RX_7"},
 	{"BE_OUT", NULL, "WSA_CDC_DMA_RX_0"},
 	{"BE_OUT", NULL, "WSA_CDC_DMA_RX_1"},
 	{"BE_OUT", NULL, "RX_CDC_DMA_RX_0"},
@@ -26924,7 +23245,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"BE_OUT", NULL, "RX_CDC_DMA_RX_5"},
 	{"BE_OUT", NULL, "RX_CDC_DMA_RX_6"},
 	{"BE_OUT", NULL, "RX_CDC_DMA_RX_7"},
-	{"BE_OUT", NULL, "PCM_RX1"},
+	{"BE_OUT", NULL, "PROXY_RX"},
 
 	{"PRI_I2S_TX", NULL, "BE_IN"},
 	{"MI2S_TX", NULL, "BE_IN"},
@@ -26995,13 +23316,10 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"QUAT_TDM_TX_1", NULL, "BE_IN"},
 	{"QUAT_TDM_TX_2", NULL, "BE_IN"},
 	{"QUAT_TDM_TX_3", NULL, "BE_IN"},
-	{"QUAT_TDM_TX_7", NULL, "BE_IN"},
-	{"AFE_LOOPBACK_TX", NULL, "BE_IN"},
 	{"QUIN_TDM_TX_0", NULL, "BE_IN"},
 	{"QUIN_TDM_TX_1", NULL, "BE_IN"},
 	{"QUIN_TDM_TX_2", NULL, "BE_IN"},
 	{"QUIN_TDM_TX_3", NULL, "BE_IN"},
-	{"QUIN_TDM_TX_7", NULL, "BE_IN"},
 	{"WSA_CDC_DMA_TX_0", NULL, "BE_IN"},
 	{"WSA_CDC_DMA_TX_1", NULL, "BE_IN"},
 	{"WSA_CDC_DMA_TX_2", NULL, "BE_IN"},
@@ -27015,7 +23333,7 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"TX_CDC_DMA_TX_5", NULL, "BE_IN"},
 	{"PRI_SPDIF_TX", NULL, "BE_IN"},
 	{"SEC_SPDIF_TX", NULL, "BE_IN"},
-	{"INCALL2_RECORD_RX", NULL, "BE_IN"},
+	{"PROXY_TX", NULL, "BE_IN"},
 };
 
 static int msm_pcm_routing_hw_params(struct snd_pcm_substream *substream,
@@ -27044,7 +23362,7 @@ static int msm_pcm_routing_close(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	unsigned int be_id = rtd->dai_link->id;
-	int i, session_type, path_type, topology, ret;
+	int i, session_type, path_type, topology;
 	struct msm_pcm_routing_bdai_data *bedai;
 	struct msm_pcm_routing_fdai_data *fdai;
 
@@ -27084,32 +23402,20 @@ static int msm_pcm_routing_close(struct snd_pcm_substream *substream)
 				continue;
 			}
 			fdai->be_srate = bedai->sample_rate;
-			port_id = get_port_id(bedai->port_id);
+			port_id = bedai->port_id;
 			topology = adm_get_topology_for_port_copp_idx(port_id,
 								     idx);
 			msm_routing_unload_topology(topology);
-			adm_close(port_id, fdai->perf_mode, idx);
+			adm_close(bedai->port_id, fdai->perf_mode, idx);
 			pr_debug("%s: copp:%ld,idx bit fe:%d, type:%d,be:%d topology=0x%x\n",
 				 __func__, copp, i, session_type, be_id,
 				 topology);
-			if (adsp_ion_info.adsp_shmpp_ion_fd[be_id][idx][i]
-					> 0 &&
-			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[be_id]
-					   [idx]))) {
-				ret = msm_audio_ion_shm_phyfree(
-					    DOLBY_ADM_SHM_SUB_SYSTEM);
-				if (ret)
-					pr_err("%s: fail to free from adsp pool %d\n",
-								__func__, ret);
-				else
-					adsp_ion_info.adsp_shmpp_ion_fd[be_id]
-					    [idx][i] = 0;
-			}
-			clear_bit(idx, &session_copp_map[i][session_type]
-					[be_id]);
+			clear_bit(idx,
+				  &session_copp_map[i][session_type][be_id]);
 			if ((fdai->perf_mode == LEGACY_PCM_MODE) &&
 				(fdai->passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_deinit_pp(port_id, topology);
+				msm_pcm_routing_deinit_pp(bedai->port_id,
+							  topology);
 		}
 	}
 
@@ -27129,7 +23435,7 @@ static int msm_pcm_routing_prepare(struct snd_pcm_substream *substream)
 	int session_type = INVALID_SESSION;
 	struct msm_pcm_routing_bdai_data *bedai;
 	u32 channels, sample_rate;
-	uint16_t bits_per_sample = 16, voc_path_type;
+	uint16_t bits_per_sample = 16, voc_path_type, be_bit_width;
 	struct msm_pcm_routing_fdai_data *fdai;
 	u32 session_id;
 	struct media_format_info voc_be_media_format;
@@ -27181,7 +23487,6 @@ static int msm_pcm_routing_prepare(struct snd_pcm_substream *substream)
 				 (i <= MSM_FRONTEND_DAI_LSM8);
 		if (fdai->strm_id != INVALID_SESSION) {
 			int app_type, app_type_idx, copp_idx, acdb_dev_id;
-			int port_id = get_port_id(bedai->port_id);
 
 			if (session_type == SESSION_TYPE_TX &&
 			    fdai->be_srate &&
@@ -27237,11 +23542,18 @@ static int msm_pcm_routing_prepare(struct snd_pcm_substream *substream)
 				|| (fdai->passthr_mode == COMPRESSED_PASSTHROUGH_IEC61937))
 				topology = COMPRESSED_PASSTHROUGH_NONE_TOPOLOGY;
 
-			copp_idx = adm_open(port_id, path_type,
+			be_bit_width = msm_routing_get_bit_width(
+						bedai->format);
+
+			if (hifi_filter_enabled && (bedai->sample_rate == 384000
+				|| bedai->sample_rate == 352800) &&
+				be_bit_width == 32)
+				bits_per_sample = msm_routing_get_bit_width(
+							SNDRV_PCM_FORMAT_S32_LE);
+			copp_idx = adm_open(bedai->port_id, path_type,
 					    sample_rate, channels, topology,
 					    fdai->perf_mode, bits_per_sample,
-					    app_type, acdb_dev_id,
-					    session_type, fdai->passthr_mode);
+					    app_type, acdb_dev_id);
 			if ((copp_idx < 0) ||
 				(copp_idx >= MAX_COPPS_PER_PORT)) {
 				pr_err("%s: adm open failed\n", __func__);
@@ -27256,14 +23568,15 @@ static int msm_pcm_routing_prepare(struct snd_pcm_substream *substream)
 			if (msm_is_resample_needed(
 				sample_rate,
 				bedai->sample_rate))
-				adm_copp_mfc_cfg(port_id, copp_idx,
+				adm_copp_mfc_cfg(
+					bedai->port_id, copp_idx,
 					bedai->sample_rate);
 
 			msm_pcm_routing_build_matrix(i, session_type, path_type,
 				fdai->perf_mode, fdai->passthr_mode);
 			if ((fdai->perf_mode == LEGACY_PCM_MODE) &&
 				(fdai->passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_cfg_pp(port_id, copp_idx,
+				msm_pcm_routing_cfg_pp(bedai->port_id, copp_idx,
 						       topology, channels);
 		}
 	}
@@ -27338,8 +23651,7 @@ static int msm_routing_send_device_pp_params(int port_id, int copp_idx,
 
 	pr_debug("%s: port_id %d, copp_idx %d\n", __func__, port_id, copp_idx);
 
-	if (port_id != HDMI_RX && port_id != DISPLAY_PORT_RX
-			&& port_id != HDMI_RX_MS) {
+	if (port_id != HDMI_RX && port_id != DISPLAY_PORT_RX) {
 		pr_err("%s: Device pp params on invalid port %d\n",
 			__func__, port_id);
 		return  -EINVAL;
@@ -27462,346 +23774,6 @@ static void msm_routing_unload_topology(uint32_t topology_id)
 
 }
 
-static int adsp_copp_event_handler(uint32_t opcode,
-		uint32_t token_adm, uint32_t *payload, void *priv)
-{
-	struct snd_soc_pcm_runtime *rtd = priv;
-	int ret = 0;
-
-	if (!rtd) {
-		pr_err("%s: rtd is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	ret = msm_adsp_copp_inform_mixer_ctl(rtd, payload);
-	if (ret) {
-		pr_err("%s: failed to inform mixer ctrl. err = %d\n",
-			__func__, ret);
-		return -EINVAL;
-	}
-
-	return ret;
-}
-
-static int msm_routing_get_copp_callback_event(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	uint32_t payload_size = 0;
-	struct dsp_adm_callback_list *oldest_event;
-	unsigned long spin_flags = 0;
-	struct dsp_adm_callback_prtd *kctl_prtd = NULL;
-	int ret = 0;
-
-	kctl_prtd = (struct dsp_adm_callback_prtd *)
-				kcontrol->private_data;
-
-	if (kctl_prtd == NULL) {
-		pr_err("%s: ADM PP event queue is not initialized.\n",
-				__func__);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	spin_lock_irqsave(&kctl_prtd->prtd_spin_lock, spin_flags);
-	pr_debug("%s: %d events in queue.\n", __func__, kctl_prtd->event_count);
-	if (list_empty(&kctl_prtd->event_queue)) {
-		pr_err("%s: ADM PP event queue is empty.\n", __func__);
-		ret = -EINVAL;
-		spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);
-		goto done;
-	}
-
-	oldest_event = list_first_entry(&kctl_prtd->event_queue,
-					struct dsp_adm_callback_list, list);
-	list_del(&oldest_event->list);
-	kctl_prtd->event_count--;
-	spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);
-
-	payload_size = oldest_event->event.payload_len;
-	pr_debug("%s: event fetched: type %d length %d\n",
-				__func__, oldest_event->event.event_type,
-				oldest_event->event.payload_len);
-	memcpy(ucontrol->value.bytes.data, &oldest_event->event,
-			sizeof(struct msm_adsp_event_data) + payload_size);
-	kfree(oldest_event);
-
-done:
-	return ret;
-}
-
-static int msm_routing_put_copp_callback_event(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_copp_callback_event_info(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
-	uinfo->count =
-		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
-
-	return 0;
-}
-
-static const struct snd_kcontrol_new copp_callback_event_controls[] = {
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name   = "ADSP COPP Callback Event",
-		.info   = msm_copp_callback_event_info,
-		.get    = msm_routing_get_copp_callback_event,
-		.put    = msm_routing_put_copp_callback_event,
-	},
-};
-
-int msm_rtic_ack_info(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
-	uinfo->count =
-		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
-
-	return 0;
-}
-
-static int msm_routing_get_copp_rtic_event_ack(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_routing_put_copp_rtic_event_ack(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	struct param_hdr_v3 param_hdr;
-	u8 *packed_params = NULL;
-	u32 packed_params_size = 0;
-	void *data = NULL;
-	int ret = 0, len = 0;
-	int port_id, port_idx, copp_idx, adm_token;
-	struct msm_adm_ack *ev = NULL;
-
-	memset(&param_hdr, 0, sizeof(param_hdr));
-	ev = (struct msm_adm_ack *)ucontrol->value.bytes.data;
-	param_hdr.param_size	= ev->param_size;
-	param_hdr.param_id	= AVS_PARAM_ID_RTIC_EVENT_ACK;
-	data = kzalloc(param_hdr.param_size, GFP_KERNEL);
-	if (!data) {
-		ret =  -ENOMEM;
-		goto done;
-	}
-
-	memcpy(data, ucontrol->value.bytes.data + sizeof(uint32_t),
-						param_hdr.param_size);
-	len += param_hdr.param_size;
-	param_hdr.module_id = ev->module_id;
-	param_hdr.instance_id = ev->instance_id;
-	adm_token = ev->adm_token;
-
-	packed_params_size = sizeof(struct param_hdr_v3)
-				+ param_hdr.param_size;
-	packed_params = kzalloc(packed_params_size, GFP_KERNEL);
-	if (!packed_params) {
-		ret =  -ENOMEM;
-		goto done;
-	}
-
-	packed_params_size = 0;
-	ret = q6common_pack_pp_params(packed_params, &param_hdr,
-				data, &packed_params_size);
-	if (ret) {
-		pr_err("%s: Failed to pack params, error %d\n",
-				       __func__, ret);
-		goto done;
-	}
-
-	copp_idx = (adm_token) & 0XFF;
-	port_idx = ((adm_token) >> 16) & 0xFF;
-	port_id  = afe_get_port_id(port_idx);
-	if (port_id == -EINVAL) {
-		pr_err("%s: invalid port_id\n", __func__);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	ret = adm_set_pp_params(port_id, copp_idx, NULL, packed_params,
-						packed_params_size);
-	if (ret) {
-		pr_err("%s: Setting param failed with err=%d\n",
-						__func__, ret);
-		ret = -EINVAL;
-		goto done;
-	}
-
-done:
-	kfree(data);
-	kfree(packed_params);
-
-	return ret;
-}
-
-static const struct snd_kcontrol_new rtic_event_ack_controls[] = {
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name   = "COPP Event Ack",
-		.info   = msm_rtic_ack_info,
-		.get    = msm_routing_get_copp_rtic_event_ack,
-		.put    = msm_routing_put_copp_rtic_event_ack,
-	},
-};
-
-static int msm_routing_get_copp_shm_ion_fd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_routing_put_copp_shm_ion_fd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int ret = 0;
-	int shm_fd, be_id, fe_id, fe_idx;
-	int len = 0;
-	struct param_hdr_v3 param_hdr;
-	int copp_idx, port_id;
-
-	memset(&param_hdr, 0, sizeof(param_hdr));
-	shm_fd = ucontrol->value.integer.value[len++];
-	param_hdr.module_id = ucontrol->value.integer.value[len++];
-	param_hdr.instance_id = ucontrol->value.integer.value[len++];
-	be_id = ucontrol->value.integer.value[len++];
-	fe_id = ucontrol->value.integer.value[len];
-
-	param_hdr.param_id = AVS_PARAM_ID_RTIC_SHARED_MEMORY_ADDR;
-	param_hdr.param_size = sizeof(struct adm_event_shm);
-
-	port_id	= msm_bedais[be_id].port_id;
-	ret = msm_audio_get_copp_idx_fe_idx_from_be_id(be_id, SESSION_TYPE_RX,
-					    &copp_idx, &fe_idx);
-	if (ret) {
-		pr_err("%s:failure in getting copp_idx\n", __func__);
-		return ret;
-	}
-
-	ret = adm_map_shm_fd(&adsp_ion_info.mem_hdl_shmpp, shm_fd,
-				&param_hdr, port_id, copp_idx);
-	if (ret) {
-		pr_err("%s:failure in setting shm fd\n", __func__);
-		return ret;
-	}
-	adsp_ion_info.adsp_shmpp_ion_fd[be_id][copp_idx][fe_idx] = shm_fd;
-	adsp_ion_info.adsp_shmpp_ion_fd_assigned[be_id][copp_idx]++;
-
-	return ret;
-}
-
-static const struct snd_kcontrol_new copp_shm_ion_controls[] = {
-	SOC_SINGLE_MULTI_EXT("COPP ION FD", SND_SOC_NOPM, 0, 0xFFFFFFFF,
-	0, 128, msm_routing_get_copp_shm_ion_fd,
-	msm_routing_put_copp_shm_ion_fd),
-};
-
-int msm_copp_event_info(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_info *uinfo)
-{
-	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
-	uinfo->count =
-		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
-
-	return 0;
-}
-
-static int msm_routing_get_copp_event_cmd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_routing_put_copp_event_cmd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	struct msm_adm_event_data *ev = NULL;
-	int be_id = 0, ret = 0, param_size, opcode;
-	int copp_idx, port_id;
-
-	ev = (struct msm_adm_event_data *)ucontrol->value.bytes.data;
-	param_size = ev->payload_length - sizeof(struct module_info);
-	opcode = adm_pp_reg_event_opcode[(ev->event_type)
-						- ADSP_ADM_SERVICE_ID];
-	be_id = ev->mod_info.be_id;
-	port_id = msm_bedais[be_id].port_id;
-
-	ret = msm_audio_get_copp_idx_from_port_id(port_id, SESSION_TYPE_RX,
-					    &copp_idx);
-
-	if (ret) {
-		pr_debug("%s:failure in getting copp_idx\n", __func__);
-		return ret;
-	}
-
-	q6adm_register_callback(&adsp_copp_event_handler);
-	q6adm_send_event_register_cmd(port_id, copp_idx, (u8 *) (ev->payload),
-						param_size, opcode);
-	return ret;
-}
-
-static const struct snd_kcontrol_new copp_event_controls[] = {
-	{
-		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
-		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
-		.name   = "COPP Event Cmd",
-		.info   = msm_copp_event_info,
-		.get    = msm_routing_get_copp_event_cmd,
-		.put    = msm_routing_put_copp_event_cmd,
-	},
-};
-
-static int msm_routing_get_adsp_lib_ion_cmd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_routing_put_adsp_lib_ion_cmd(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int ret = 0, enable = 0;
-
-	adsp_ion_info.adsp_lib_ion_fd = ucontrol->value.integer.value[0];
-	enable = ucontrol->value.integer.value[1];
-
-	if (enable && !(adsp_ion_info.adsp_lib_ion_fd_assigned)) {
-		ret = msm_map_adsp_lib_ion_fd(adsp_ion_info.adsp_lib_ion_fd,
-						DOLBY_DECRYPT_SUB_SYSTEM);
-		if (ret)
-			pr_err("%s: fail to phy asgn/add to adsp pool %d\n",
-					__func__, ret);
-		else
-			adsp_ion_info.adsp_lib_ion_fd_assigned = true;
-	} else if ((!enable) && adsp_ion_info.adsp_lib_ion_fd_assigned) {
-		ret = msm_unmap_adsp_lib_ion_fd(DOLBY_DECRYPT_SUB_SYSTEM);
-		if (ret)
-			pr_err("%s: fail to free from adsp pool %d\n",
-					__func__, ret);
-		adsp_ion_info.adsp_lib_ion_fd_assigned = false;
-		q6adm_clear_callback();
-	} else {
-		pr_err("%s: Invalid flag value for lib ion fd %d\n",
-				__func__, enable);
-	}
-
-	return ret;
-}
-
-static const struct snd_kcontrol_new adsp_lib_ion_controls[] = {
-	SOC_SINGLE_MULTI_EXT("ADSP ION LIB FD", SND_SOC_NOPM, 0, 0xFFFFFFFF,
-	0, 128, msm_routing_get_adsp_lib_ion_cmd,
-	msm_routing_put_adsp_lib_ion_cmd),
-};
-
 static int msm_routing_put_device_pp_params_mixer(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
@@ -27816,8 +23788,7 @@ static int msm_routing_put_device_pp_params_mixer(struct snd_kcontrol *kcontrol,
 
 	for (be_idx = 0; be_idx < MSM_BACKEND_DAI_MAX; be_idx++) {
 		port_id = msm_bedais[be_idx].port_id;
-		if (port_id == HDMI_RX || port_id == DISPLAY_PORT_RX
-				|| port_id == HDMI_RX_MS)
+		if (port_id == HDMI_RX || port_id == DISPLAY_PORT_RX)
 			break;
 	}
 
@@ -27932,50 +23903,6 @@ static const struct snd_kcontrol_new aptx_dec_license_controls[] = {
 	msm_aptx_dec_license_control_put),
 };
 
-static int msm_routing_get_pll_clk_drift(struct snd_kcontrol *kcontrol,
-					 struct snd_ctl_elem_value *ucontrol)
-{
-	return 0;
-}
-
-static int msm_routing_put_pll_clk_drift(struct snd_kcontrol *kcontrol,
-					 struct snd_ctl_elem_value *ucontrol)
-{
-	u16 port_id = 0;
-	int32_t clk_drift = 0;
-	uint32_t clk_reset = 0;
-	int be_idx, ret = -EINVAL;
-
-	be_idx = ucontrol->value.integer.value[0];
-	clk_drift = ucontrol->value.integer.value[1];
-	clk_reset = ucontrol->value.integer.value[2];
-
-	if (be_idx < 0 && be_idx >= MSM_BACKEND_DAI_MAX) {
-		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
-		return -EINVAL;
-	}
-
-	if (!msm_bedais[be_idx].active && !clk_reset) {
-		pr_err("%s:BE is not active %d, cannot set clock drift\n",
-			__func__, be_idx);
-		return -EINVAL;
-	}
-
-	port_id = msm_bedais[be_idx].port_id;
-	pr_debug("%s: clk drift %d be idx %d clk reset %d port id 0x%x\n",
-		  __func__, clk_drift, be_idx, clk_reset, port_id);
-	ret = afe_set_pll_clk_drift(port_id, clk_drift, clk_reset);
-	if (ret < 0)
-		pr_err("%s: failed to set pll clk drift\n", __func__);
-
-	return ret;
-}
-
-static const struct snd_kcontrol_new pll_clk_drift_controls[] = {
-	SOC_SINGLE_MULTI_EXT("PLL config data", SND_SOC_NOPM, 0, 0xFFFFFFFF,
-	0, 128, msm_routing_get_pll_clk_drift, msm_routing_put_pll_clk_drift),
-};
-
 static int msm_routing_put_port_chmap_mixer(struct snd_kcontrol *kcontrol,
 					    struct snd_ctl_elem_value *ucontrol)
 {
@@ -27984,8 +23911,8 @@ static int msm_routing_put_port_chmap_mixer(struct snd_kcontrol *kcontrol,
 	int i;
 
 	if (be_idx >= MSM_BACKEND_DAI_MAX) {
-		pr_err("%s: Invalid Backend index %d\n",  __func__, be_idx);
-		return -EINVAL;
+		pr_debug("%s: Invalid be id %d\n", __func__, be_idx);
+		return  -EINVAL;
 	}
 
 	for (i = 0; i < PCM_FORMAT_MAX_NUM_CHANNEL_V8; i++) {
@@ -28065,50 +23992,6 @@ static const struct snd_kcontrol_new
 			.get = msm_routing_be_dai_name_table_tlv_get,
 		}
 	},
-};
-
-static int msm_routing_put_mclk_src_cfg(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	u16 port_id = 0;
-	int32_t mclk_src_id = 0;
-	uint32_t mclk_freq = 0;
-	int be_idx, ret = -EINVAL;
-
-	be_idx = ucontrol->value.integer.value[0];
-	mclk_src_id = ucontrol->value.integer.value[1];
-	mclk_freq = ucontrol->value.integer.value[2];
-
-	if (be_idx < 0 && be_idx >= MSM_BACKEND_DAI_MAX) {
-		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
-		return -EINVAL;
-	}
-
-	if (mclk_src_id < MCLK_SRC_INT && mclk_src_id >= MCLK_SRC_MAX) {
-		pr_err("%s: Invalid MCLK src %d\n", __func__, mclk_src_id);
-		return -EINVAL;
-	}
-
-	if (msm_bedais[be_idx].active) {
-		pr_err("%s:BE is active %d, cannot set mclk clock src\n",
-			__func__, be_idx);
-		return -EINVAL;
-	}
-
-	port_id = msm_bedais[be_idx].port_id;
-	pr_debug("%s: be idx %d mclk_src id %d mclk_freq %d port id 0x%x\n",
-		  __func__, be_idx, mclk_src_id, mclk_freq, port_id);
-	ret = afe_set_mclk_src_cfg(port_id, mclk_src_id, mclk_freq);
-	if (ret < 0)
-		pr_err("%s: failed to set mclk src cfg\n", __func__);
-
-	return ret;
-
-}
-
-static const struct snd_kcontrol_new mclk_src_controls[] = {
-	SOC_SINGLE_MULTI_EXT("MCLK_SRC CFG", SND_SOC_NOPM, 0, 24576000, 0, 3,
-					NULL, msm_routing_put_mclk_src_cfg),
 };
 
 static int msm_routing_stereo_channel_reverse_control_get(
@@ -28221,10 +24104,10 @@ static const struct snd_pcm_ops msm_routing_pcm_ops = {
 /* Not used but frame seems to require it */
 static int msm_routing_probe(struct snd_soc_platform *platform)
 {
-	struct snd_kcontrol *kctl = NULL;
-
 	snd_soc_dapm_new_controls(&platform->component.dapm, msm_qdsp6_widgets,
 			   ARRAY_SIZE(msm_qdsp6_widgets));
+	snd_soc_dapm_ignore_suspend(&platform->component.dapm, "BE_OUT");
+	snd_soc_dapm_ignore_suspend(&platform->component.dapm, "BE_IN");
 	snd_soc_dapm_add_routes(&platform->component.dapm, intercon,
 		ARRAY_SIZE(intercon));
 
@@ -28272,8 +24155,8 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 			ARRAY_SIZE(use_ds1_or_ds2_controls));
 
 	snd_soc_add_platform_controls(platform,
-			use_ffecns_freeze_event_controls,
-			ARRAY_SIZE(use_ffecns_freeze_event_controls));
+			hifi_filter_controls,
+			ARRAY_SIZE(hifi_filter_controls));
 
 	snd_soc_add_platform_controls(platform,
 				device_pp_params_mixer_controls,
@@ -28298,31 +24181,6 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(platform,
 			port_multi_channel_map_mixer_controls,
 			ARRAY_SIZE(port_multi_channel_map_mixer_controls));
-
-	snd_soc_add_platform_controls(platform, copp_event_controls,
-				      ARRAY_SIZE(copp_event_controls));
-	snd_soc_add_platform_controls(platform, copp_shm_ion_controls,
-				      ARRAY_SIZE(copp_shm_ion_controls));
-	snd_soc_add_platform_controls(platform, rtic_event_ack_controls,
-				      ARRAY_SIZE(rtic_event_ack_controls));
-	snd_soc_add_platform_controls(platform, copp_callback_event_controls,
-				      ARRAY_SIZE(copp_callback_event_controls));
-	snd_soc_add_platform_controls(platform, adsp_lib_ion_controls,
-				      ARRAY_SIZE(adsp_lib_ion_controls));
-	snd_soc_add_platform_controls(platform, pll_clk_drift_controls,
-				      ARRAY_SIZE(pll_clk_drift_controls));
-	snd_soc_add_platform_controls(platform, mclk_src_controls,
-				      ARRAY_SIZE(mclk_src_controls));
-
-	kctl = snd_soc_card_get_kcontrol(platform->component.dapm.card,
-				"ADSP COPP Callback Event");
-
-	if (!kctl) {
-		pr_err("%s: failed to get kctl %s.\n", __func__,
-				"ADSP COPP Callback Event");
-		return -EINVAL;
-	}
-	kctl->private_data = NULL;
 
 	return 0;
 }
@@ -28369,7 +24227,6 @@ static struct platform_driver msm_routing_pcm_driver = {
 		.name = "msm-pcm-routing",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_pcm_routing_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_routing_pcm_probe,
 	.remove = msm_routing_pcm_remove,

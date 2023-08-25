@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1046,7 +1046,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			 unsigned int cmd, void *arg)
 {
 	struct snd_soc_pcm_runtime *rtd;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int ret;
 	struct snd_lsm_sound_model_v2 snd_model_v2;
 	struct snd_lsm_session_data session_data;
@@ -1433,8 +1433,8 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		dev_dbg(rtd->dev, "%s: Starting LSM client session\n",
 			__func__);
 		if (!prtd->lsm_client->started) {
-			rc = q6lsm_start(prtd->lsm_client, true);
-			if (!rc) {
+			ret = q6lsm_start(prtd->lsm_client, true);
+			if (!ret) {
 				prtd->lsm_client->started = true;
 				dev_dbg(rtd->dev, "%s: LSM client session started\n",
 					 __func__);
@@ -1450,19 +1450,19 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			if (prtd->lsm_client->lab_enable) {
 				atomic_set(&prtd->read_abort, 1);
 				if (prtd->lsm_client->lab_started) {
-					rc = q6lsm_stop_lab(prtd->lsm_client);
-					if (rc)
+					ret = q6lsm_stop_lab(prtd->lsm_client);
+					if (ret)
 						dev_err(rtd->dev,
-							"%s: stop lab failed rc %d\n",
-							__func__, rc);
+							"%s: stop lab failed ret %d\n",
+							__func__, ret);
 					prtd->lsm_client->lab_started = false;
 				}
 			}
-			rc = q6lsm_stop(prtd->lsm_client, true);
-			if (!rc)
+			ret = q6lsm_stop(prtd->lsm_client, true);
+			if (!ret)
 				dev_dbg(rtd->dev,
 					"%s: LSM client session stopped %d\n",
-					__func__, rc);
+					__func__, ret);
 			prtd->lsm_client->started = false;
 		}
 		break;
@@ -2484,7 +2484,6 @@ static int msm_lsm_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	}
 	prtd->lsm_client->opened = false;
-	prtd->lsm_client->started = false;
 	prtd->lsm_client->session_state = IDLE;
 	prtd->lsm_client->poll_enable = true;
 	prtd->lsm_client->perf_mode = 0;
@@ -2612,6 +2611,7 @@ static int msm_lsm_prepare(struct snd_pcm_substream *substream)
 	}
 
 	prtd->lsm_client->session_state = RUNNING;
+	prtd->lsm_client->started = false;
 	runtime->private_data = prtd;
 	return ret;
 }
@@ -2636,25 +2636,6 @@ static int msm_lsm_close(struct snd_pcm_substream *substream)
 
 	dev_dbg(rtd->dev, "%s\n", __func__);
 	if (prtd->lsm_client->started) {
-		if (prtd->lsm_client->lab_enable) {
-			atomic_set(&prtd->read_abort, 1);
-			if (prtd->lsm_client->lab_started) {
-				ret = q6lsm_stop_lab(prtd->lsm_client);
-				if (ret)
-					dev_err(rtd->dev,
-						"%s: stop lab failed ret %d\n",
-						__func__, ret);
-				prtd->lsm_client->lab_started = false;
-			}
-			if (prtd->lsm_client->lab_buffer) {
-				ret = msm_lsm_lab_buffer_alloc(prtd,
-						LAB_BUFFER_DEALLOC);
-				if (ret)
-					dev_err(rtd->dev,
-						"%s: lab buffer dealloc failed ret %d\n",
-						__func__, ret);
-			}
-		}
 		ret = q6lsm_stop(prtd->lsm_client, true);
 		if (ret)
 			dev_err(rtd->dev,
@@ -3032,7 +3013,6 @@ static struct platform_driver msm_lsm_driver = {
 		.name = "msm-lsm-client",
 		.owner = THIS_MODULE,
 		.of_match_table = of_match_ptr(msm_lsm_client_dt_match),
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_lsm_probe,
 	.remove = msm_lsm_remove,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2013-2015, 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2013-2015, 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,7 +22,7 @@
 #define RTAC_CVS		1
 #define RTAC_VOICE_MODES	2
 
-#define RTAC_MAX_ACTIVE_DEVICES		6
+#define RTAC_MAX_ACTIVE_DEVICES		4
 #define RTAC_MAX_ACTIVE_POPP		8
 
 #define DEFAULT_APP_TYPE	0x00011130
@@ -38,7 +38,7 @@ enum {
 struct rtac_cal_mem_map_data {
 	uint32_t		map_size;
 	uint32_t		map_handle;
-	void			*mem_handle;
+	struct dma_buf		*dma_buf;
 };
 
 struct rtac_cal_data {

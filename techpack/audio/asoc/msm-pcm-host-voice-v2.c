@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -119,7 +119,7 @@ struct session {
 	struct tap_point rx_tap_point;
 	phys_addr_t sess_paddr;
 	void *sess_kvaddr;
-	void *mem_handle;
+	struct dma_buf *dma_buf;
 	struct mem_map_table tp_mem_table;
 };
 
@@ -451,10 +451,10 @@ static void hpcm_free_allocated_mem(struct hpcm_drv *prtd)
 	paddr = sess->sess_paddr;
 
 	if (paddr) {
-		msm_audio_ion_free(sess->mem_handle);
-		sess->mem_handle = NULL;
-		msm_audio_ion_free(sess->tp_mem_table.mem_handle);
-		sess->tp_mem_table.mem_handle = NULL;
+		msm_audio_ion_free(sess->dma_buf);
+		sess->dma_buf = NULL;
+		msm_audio_ion_free(sess->tp_mem_table.dma_buf);
+		sess->tp_mem_table.dma_buf = NULL;
 		sess->sess_paddr = 0;
 		sess->sess_kvaddr = 0;
 
@@ -523,7 +523,7 @@ static int hpcm_allocate_shared_memory(struct hpcm_drv *prtd)
 	txtp = &sess->tx_tap_point;
 	rxtp = &sess->rx_tap_point;
 
-	result = msm_audio_ion_alloc(&sess->mem_handle,
+	result = msm_audio_ion_alloc(&sess->dma_buf,
 				     VHPCM_BLOCK_SIZE,
 				     &sess->sess_paddr,
 				     &mem_len,
@@ -539,7 +539,7 @@ static int hpcm_allocate_shared_memory(struct hpcm_drv *prtd)
 	pr_debug("%s: Host PCM memory block allocated\n", __func__);
 
 	/* Allocate mem_map_table for tap point */
-	result = msm_audio_ion_alloc(&sess->tp_mem_table.mem_handle,
+	result = msm_audio_ion_alloc(&sess->tp_mem_table.dma_buf,
 			sizeof(struct vss_imemory_table_t),
 			&sess->tp_mem_table.phys,
 			&len,
@@ -548,8 +548,8 @@ static int hpcm_allocate_shared_memory(struct hpcm_drv *prtd)
 	if (result) {
 		pr_err("%s: msm_audio_ion_alloc error, rc = %d\n",
 			__func__, result);
-		msm_audio_ion_free(sess->mem_handle);
-		sess->mem_handle = NULL;
+		msm_audio_ion_free(sess->dma_buf);
+		sess->dma_buf = NULL;
 		sess->sess_paddr = 0;
 		sess->sess_kvaddr = 0;
 		ret = -ENOMEM;
@@ -684,7 +684,7 @@ static void hpcm_copy_capture_data_to_queue(struct dai_data *dai_data,
 					    uint32_t len)
 {
 	struct hpcm_buf_node *buf_node = NULL;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	if (dai_data->substream == NULL)
 		return;
@@ -993,7 +993,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	struct snd_dma_buffer *dma_buf;
 	struct snd_pcm_runtime *runtime;
 	struct hpcm_drv *prtd;
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 	struct dai_data *dai_data = NULL;
 	struct tap_point *tp = NULL;
 	struct tappnt_mxr_data *tmd = NULL;
@@ -1083,7 +1083,7 @@ static int msm_pcm_playback_copy(struct snd_pcm_substream *substream, int a,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct hpcm_drv *prtd = runtime->private_data;
 	struct dai_data *dai_data = hpcm_get_dai_data(substream->pcm->id, prtd);
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	if (dai_data == NULL) {
 		pr_err("%s, dai_data is null\n", __func__);
@@ -1135,7 +1135,7 @@ static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct hpcm_drv *prtd = runtime->private_data;
 	struct dai_data *dai_data = hpcm_get_dai_data(substream->pcm->id, prtd);
-	unsigned long dsp_flags = 0;
+	unsigned long dsp_flags;
 
 	if (dai_data == NULL) {
 		pr_err("%s, dai_data is null\n", __func__);
@@ -1481,7 +1481,6 @@ static struct platform_driver msm_pcm_driver = {
 		.name = "msm-voice-host-pcm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_voice_host_pcm_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

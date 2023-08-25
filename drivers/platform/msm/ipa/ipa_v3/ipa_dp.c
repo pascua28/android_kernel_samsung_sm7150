@@ -3284,6 +3284,7 @@ static struct sk_buff *handle_skb_completion(struct gsi_chan_xfer_notify
 
 	if (notify->bytes_xfered)
 		rx_pkt->len = notify->bytes_xfered;
+	
 
 	/*Drop packets when WAN consumer channel receive EOB event*/
 	if ((notify->evt_id == GSI_CHAN_EVT_EOB ||

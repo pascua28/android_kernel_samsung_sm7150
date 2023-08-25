@@ -66,3 +66,10 @@ obj-$(CONFIG_USBIP_CORE)	+= usbip/
 
 obj-$(CONFIG_TYPEC)		+= typec/
 obj-$(CONFIG_USB_PD)		+= pd/
+
+ifeq ($(CONFIG_USB_NOTIFY_LAYER_V34), y)
+	obj-$(CONFIG_USB_NOTIFY_LAYER)	+= notify_v34/
+else
+	obj-$(CONFIG_USB_NOTIFY_LAYER)	+= notify/
+endif
+

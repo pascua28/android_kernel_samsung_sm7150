@@ -36,8 +36,7 @@ enum {
 	AUDIO_EXT_CLK_LPASS7,
 	AUDIO_EXT_CLK_LPASS_CORE_HW_VOTE,
 	AUDIO_EXT_CLK_LPASS_MAX,
-	AUDIO_EXT_CLK_EXTERNAL_PLL = AUDIO_EXT_CLK_LPASS_MAX,
-	AUDIO_EXT_CLK_MAX,
+	AUDIO_EXT_CLK_MAX = AUDIO_EXT_CLK_LPASS_MAX,
 };
 
 struct pinctrl_info {
@@ -342,17 +341,6 @@ static struct audio_ext_clk audio_clk_array[] = {
 			},
 		},
 	},
-	{
-		.pnctrl_info = {NULL},
-		.fact = {
-			.mult = 1,
-			.div = 1,
-			.hw.init = &(struct clk_init_data){
-				.name = "audio_external_pll_clk",
-				.ops = &audio_ext_clk_ops,
-			},
-		},
-	},
 };
 
 static int audio_get_pinctrl(struct platform_device *pdev)
@@ -554,6 +542,7 @@ static int audio_ref_clk_probe(struct platform_device *pdev)
 		audio_put_pinctrl(pdev);
 		return ret;
 	}
+
 	return 0;
 }
 
@@ -575,7 +564,6 @@ static struct platform_driver audio_ref_clk_driver = {
 		.name = "audio-ref-clk",
 		.owner = THIS_MODULE,
 		.of_match_table = audio_ref_clk_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = audio_ref_clk_probe,
 	.remove = audio_ref_clk_remove,

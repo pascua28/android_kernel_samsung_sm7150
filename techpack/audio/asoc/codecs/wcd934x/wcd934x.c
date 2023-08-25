@@ -123,6 +123,9 @@ static const struct snd_kcontrol_new name##_mux = \
 #define WCD934X_AMIC_PWR_LVL_MASK 0x60
 #define WCD934X_AMIC_PWR_LVL_SHIFT 0x5
 
+#define WCD934X_DMIC_DRV_CTL_MASK  0x0C
+#define WCD934X_DMIC_DRV_CTL_SHIFT 0x02
+
 #define WCD934X_DEC_PWR_LVL_MASK 0x06
 #define WCD934X_DEC_PWR_LVL_LP 0x02
 #define WCD934X_DEC_PWR_LVL_HP 0x04
@@ -148,6 +151,7 @@ static const struct snd_kcontrol_new name##_mux = \
 #define  CF_MIN_3DB_75HZ		0x1
 #define  CF_MIN_3DB_150HZ		0x2
 
+#define  SB_OF_UF_MAX_RETRY_CNT		5
 #define CPE_ERR_WDOG_BITE BIT(0)
 #define CPE_FATAL_IRQS CPE_ERR_WDOG_BITE
 
@@ -643,6 +647,8 @@ struct tavil_priv {
 	struct regulator *micb_load;
 	int micb_load_low;
 	int micb_load_high;
+	u8 dmic_drv_ctl;
+	unsigned short slim_tx_of_uf_cnt[WCD934X_TX_MAX][SB_PORT_ERR_MAX];
 };
 
 static const struct tavil_reg_mask_val tavil_spkr_default[] = {
@@ -1691,7 +1697,7 @@ static int tavil_codec_set_i2s_tx_ch(struct snd_soc_dapm_widget *w,
 
 		snd_soc_update_bits(codec,
 				    WCD934X_DATA_HUB_I2S_TX0_CFG,
-				    0x0C, 0x04);
+				    0x0C, 0x01);
 
 		snd_soc_update_bits(codec,
 				    WCD934X_DATA_HUB_I2S_TX1_0_CFG,
@@ -1867,6 +1873,7 @@ static int tavil_codec_enable_tx(struct snd_soc_dapm_widget *w,
 	struct tavil_priv *tavil_p = snd_soc_codec_get_drvdata(codec);
 	struct wcd9xxx_codec_dai_data *dai;
 	struct wcd9xxx *core;
+	struct wcd9xxx_ch *ch;
 	int ret = 0;
 
 	dev_dbg(codec->dev,
@@ -1903,6 +1910,13 @@ static int tavil_codec_enable_tx(struct snd_soc_dapm_widget *w,
 			dev_dbg(codec->dev, "%s: Disconnect RX port, ret = %d\n",
 				 __func__, ret);
 		}
+		/* reset overflow and underflow counts */
+		list_for_each_entry(ch, &dai->wcd9xxx_ch_list, list) {
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_OF]
+									= 0;
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_UF]
+									= 0;
+		}
 		break;
 	}
 	return ret;
@@ -1915,6 +1929,7 @@ static int tavil_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 	struct wcd9xxx *core = NULL;
 	struct snd_soc_codec *codec = NULL;
 	struct tavil_priv *tavil_p = NULL;
+	struct wcd9xxx_ch *ch;
 	int ret = 0;
 	struct wcd9xxx_codec_dai_data *dai = NULL;
 
@@ -2008,6 +2023,13 @@ static int tavil_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 				dai->grph);
 			dev_dbg(codec->dev, "%s: Disconnect TX port, ret = %d\n",
 				__func__, ret);
+		}
+		/* reset over.f and under.f counts */
+		list_for_each_entry(ch, &dai->wcd9xxx_ch_list, list) {
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_OF]
+									= 0;
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_UF]
+									= 0;
 		}
 		if (test_bit(VI_SENSE_1, &tavil_p->status_mask)) {
 			/* Disable V&I sensing */
@@ -4717,6 +4739,11 @@ static int tavil_codec_enable_dmic(struct snd_soc_dapm_widget *w,
 					       pdata->mclk_rate,
 					       dmic_sample_rate);
 
+		snd_soc_update_bits(codec, WCD934X_TEST_DEBUG_PAD_DRVCTL_0,
+				    WCD934X_DMIC_DRV_CTL_MASK,
+				    tavil->dmic_drv_ctl <<
+				    WCD934X_DMIC_DRV_CTL_SHIFT);
+
 		(*dmic_clk_cnt)++;
 		if (*dmic_clk_cnt == 1) {
 			snd_soc_update_bits(codec, dmic_clk_reg,
@@ -6148,6 +6175,41 @@ static int tavil_rx_hph_mode_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+static int tavil_dmic_drv_get(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+
+	ucontrol->value.integer.value[0] = tavil->dmic_drv_ctl;
+	return 0;
+}
+
+static int tavil_dmic_drv_put(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+	u32 dmic_drv_val;
+
+	dmic_drv_val = ucontrol->value.enumerated.item[0];
+
+	tavil->dmic_drv_ctl = dmic_drv_val;
+	snd_soc_update_bits(codec, WCD934X_TEST_DEBUG_PAD_DRVCTL_0,
+			    WCD934X_DMIC_DRV_CTL_MASK,
+			    tavil->dmic_drv_ctl <<
+			    WCD934X_DMIC_DRV_CTL_SHIFT);
+	return 0;
+}
+
+static const char * const dmic_drv_ctl_text[] = {
+	"DRV_2MA", "DRV_4MA", "DRV_8MA", "DRV_16MA",
+};
+
+static const struct soc_enum dmic_drv_ctl_enum =
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(dmic_drv_ctl_text),
+			    dmic_drv_ctl_text);
+
 static const char * const rx_hph_mode_mux_text[] = {
 	"CLS_H_INVALID", "CLS_H_HIFI", "CLS_H_LP", "CLS_AB", "CLS_H_LOHIFI",
 	"CLS_H_ULP", "CLS_AB_HIFI",
@@ -6266,8 +6328,8 @@ static const struct snd_kcontrol_new tavil_snd_controls[] = {
 	SOC_ENUM_EXT("SPKR Right Boost Max State", tavil_spkr_boost_stage_enum,
 		     tavil_spkr_right_boost_stage_get,
 		     tavil_spkr_right_boost_stage_put),
-	SOC_SINGLE_TLV("HPHL Volume", WCD934X_HPH_L_EN, 0, 24, 1, line_gain),
-	SOC_SINGLE_TLV("HPHR Volume", WCD934X_HPH_R_EN, 0, 24, 1, line_gain),
+	SOC_SINGLE_TLV("HPHL Volume", WCD934X_HPH_L_EN, 0, 20, 1, line_gain),
+	SOC_SINGLE_TLV("HPHR Volume", WCD934X_HPH_R_EN, 0, 20, 1, line_gain),
 	SOC_SINGLE_TLV("LINEOUT1 Volume", WCD934X_DIFF_LO_LO1_COMPANDER,
 		3, 16, 1, line_gain),
 	SOC_SINGLE_TLV("LINEOUT2 Volume", WCD934X_DIFF_LO_LO2_COMPANDER,
@@ -6485,6 +6547,9 @@ static const struct snd_kcontrol_new tavil_snd_controls[] = {
 		tavil_amic_pwr_lvl_get, tavil_amic_pwr_lvl_put),
 	SOC_ENUM_EXT("AMIC_5_6 PWR MODE", amic_pwr_lvl_enum,
 		tavil_amic_pwr_lvl_get, tavil_amic_pwr_lvl_put),
+
+	SOC_ENUM_EXT("DMIC Drive Ctl", dmic_drv_ctl_enum,
+		tavil_dmic_drv_get, tavil_dmic_drv_put),
 };
 
 static int tavil_dec_enum_put(struct snd_kcontrol *kcontrol,
@@ -8945,8 +9010,6 @@ static struct snd_soc_dai_driver tavil_i2s_dai[] = {
 
 static void tavil_codec_power_gate_digital_core(struct tavil_priv *tavil)
 {
-	if (!tavil)
-		return;
 	mutex_lock(&tavil->power_lock);
 	dev_dbg(tavil->dev, "%s: Entering power gating function, %d\n",
 		__func__, tavil->power_active_ref);
@@ -9512,7 +9575,7 @@ static const struct tavil_reg_mask_val tavil_codec_reg_i2c_defaults[] = {
 	{WCD934X_DATA_HUB_RX2_CFG, 0x03, 0x01},
 	{WCD934X_DATA_HUB_RX3_CFG, 0x03, 0x01},
 	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x01, 0x01},
-	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x04, 0x04},
+	{WCD934X_DATA_HUB_I2S_TX0_CFG, 0x04, 0x01},
 	{WCD934X_DATA_HUB_I2S_TX1_0_CFG, 0x01, 0x01},
 	{WCD934X_DATA_HUB_I2S_TX1_1_CFG, 0x05, 0x05},
 	{WCD934X_CHIP_TIER_CTRL_ALT_FUNC_EN, 0x1, 0x1},
@@ -9647,14 +9710,40 @@ static irqreturn_t tavil_slimbus_irq(int irq, void *data)
 		if (val & WCD934X_SLIM_IRQ_UNDERFLOW)
 			dev_err_ratelimited(tavil->dev, "%s: underflow error on %s port %d, value %x\n",
 			   __func__, (tx ? "TX" : "RX"), port_id, val);
+		if (tx) {
+			/* inc count */
+			if (val & WCD934X_SLIM_IRQ_OVERFLOW) {
+				tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_OF]++;
+				dev_err_ratelimited(tavil->dev, "%s: tx port(%d) overflow cnt: %d\n",
+					__func__, port_id,
+					tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_OF]);
+			}
+			if (val & WCD934X_SLIM_IRQ_UNDERFLOW) {
+				tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_UF]++;
+				dev_err_ratelimited(tavil->dev, "%s: tx port(%d) underflow cnt: %d\n",
+						__func__, port_id,
+					tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_UF]);
+			}
+
+		}
+
 		if ((val & WCD934X_SLIM_IRQ_OVERFLOW) ||
 			(val & WCD934X_SLIM_IRQ_UNDERFLOW)) {
 			if (!tx)
 				reg = WCD934X_SLIM_PGD_PORT_INT_RX_EN0 +
 					(port_id / 8);
-			else
+			else if ((tavil->slim_tx_of_uf_cnt[port_id]
+				[SB_PORT_ERR_OF] > SB_OF_UF_MAX_RETRY_CNT) ||
+				(tavil->slim_tx_of_uf_cnt[port_id]
+				[SB_PORT_ERR_UF] > SB_OF_UF_MAX_RETRY_CNT))
 				reg = WCD934X_SLIM_PGD_PORT_INT_TX_EN0 +
 					(port_id / 8);
+			else
+				goto skip_port_disable;
 			int_val = wcd9xxx_interface_reg_read(
 				tavil->wcd9xxx, reg);
 			if (int_val & (1 << (port_id % 8))) {
@@ -9663,6 +9752,7 @@ static irqreturn_t tavil_slimbus_irq(int irq, void *data)
 					reg, int_val);
 			}
 		}
+skip_port_disable:
 		if (val & WCD934X_SLIM_IRQ_PORT_CLOSED) {
 			/*
 			 * INT SOURCE register starts from RX to TX
@@ -9688,10 +9778,9 @@ static irqreturn_t tavil_slimbus_irq(int irq, void *data)
 					 */
 				}
 			}
-			if (!cleared)
-				dev_err(tavil->dev,
-					"%s: Couldn't find slimbus %s port %d for closing\n",
-					__func__, (tx ? "TX" : "RX"), port_id);
+			WARN(!cleared,
+			     "Couldn't find slimbus %s port %d for closing\n",
+			     (tx ? "TX" : "RX"), port_id);
 		}
 		wcd9xxx_interface_reg_write(tavil->wcd9xxx,
 					    WCD934X_SLIM_PGD_PORT_INT_CLR_RX_0 +
@@ -10312,8 +10401,6 @@ static int tavil_soc_codec_probe(struct snd_soc_codec *codec)
 	snd_soc_dapm_ignore_suspend(dapm, "AIF2 Capture");
 	snd_soc_dapm_ignore_suspend(dapm, "AIF3 Playback");
 	snd_soc_dapm_ignore_suspend(dapm, "AIF3 Capture");
-	snd_soc_dapm_ignore_suspend(dapm, "WDMA3_OUT");
-
 	if (tavil->intf_type == WCD9XXX_INTERFACE_TYPE_SLIMBUS) {
 		snd_soc_dapm_ignore_suspend(dapm, "AIF4 Playback");
 		snd_soc_dapm_ignore_suspend(dapm, "AIF4 MAD TX");
@@ -11197,7 +11284,6 @@ static struct platform_driver tavil_codec_driver = {
 #ifdef CONFIG_PM
 		.pm = &tavil_pm_ops,
 #endif
-		.suppress_bind_attrs = true,
 	},
 };
 

@@ -3418,6 +3418,23 @@ out:
 }
 EXPORT_SYMBOL_GPL(regulator_set_mode);
 
+#ifdef CONFIG_SEC_PM
+static unsigned int __regulator_get_mode(struct regulator_dev *rdev)
+{
+	int ret;
+
+	/* sanity check */
+	if (!rdev->desc->ops->get_mode) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = rdev->desc->ops->get_mode(rdev);
+out:
+	return ret;
+}
+#endif
+
 static unsigned int _regulator_get_mode(struct regulator_dev *rdev)
 {
 	int ret;
@@ -4689,6 +4706,72 @@ void regulator_set_drvdata(struct regulator *regulator, void *data)
 	regulator->rdev->reg_data = data;
 }
 EXPORT_SYMBOL_GPL(regulator_set_drvdata);
+
+#ifdef CONFIG_SEC_PM
+static int regulator_check_str(struct regulator *reg,
+	   unsigned int *slen, char *snames)
+{
+	if (reg->enabled && reg->supply_name) {
+		if (*slen + strlen(reg->supply_name) + 3 > 80)
+			return -ENOMEM;
+		*slen += snprintf(snames + *slen,
+				strlen(reg->supply_name) + 3,
+				", %s", reg->supply_name);
+	}
+	return 0;
+}
+
+static int _regulator_showall_enabled(struct device *dev, void *data)
+{
+	struct regulator_dev *rdev = dev_to_rdev(dev);
+	unsigned int *cnt = data;
+	unsigned int slen;
+	struct regulator *reg;
+	char snames[80];
+
+	mutex_lock(&rdev->mutex);
+	if (_regulator_is_enabled(rdev)) {
+		if (rdev->desc->ops) {
+			slen = 0;
+			list_for_each_entry(reg,
+					&rdev->consumer_list, list) {
+				if (regulator_check_str(reg,
+							&slen, snames))
+					break;
+			}
+				pr_info("%s: %duV, 0x%x mode%s\n",
+					rdev_get_name(rdev),
+					_regulator_get_voltage(rdev),
+					__regulator_get_mode(rdev),
+					slen ? snames : ", null");
+		} else {
+			pr_info("%s enabled\n", rdev_get_name(rdev));
+		}
+		*cnt = *cnt + 1;
+	}
+	mutex_unlock(&rdev->mutex);
+
+	return 0;
+}
+
+void regulator_showall_enabled(void)
+{
+	unsigned int cnt = 0;
+
+	pr_info("---Enabled regulators---\n");
+	mutex_lock(&regulator_list_mutex);
+	class_for_each_device(&regulator_class, NULL, &cnt,
+		_regulator_showall_enabled);
+	mutex_unlock(&regulator_list_mutex);
+
+	if (cnt)
+		pr_info("---Enabled regulator count: %d---\n", cnt);
+	else
+		pr_info("---No regulators enabled---\n");
+
+	return;
+}
+#endif
 
 /**
  * regulator_get_id - get regulator ID

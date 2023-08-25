@@ -15,21 +15,13 @@
 #include <ipc/apr.h>
 #include <dsp/apr_audio-v2.h>
 
-#define DOLBY_DECRYPT_SUB_SYSTEM 3
-#define DOLBY_ADM_SHM_SUB_SYSTEM 4
-#define DOLBY_ASM_SHM_SUB_SYSTEM 5
+
 
 #define AVCS_CMD_ADSP_EVENT_GET_STATE		0x0001290C
 #define AVCS_CMDRSP_ADSP_EVENT_GET_STATE	0x0001290D
-#define AVCS_API_VERSION_V4		4
-#define APRV2_IDS_SERVICE_ID_ADSP_CORE_V (0x3)
 
 bool q6core_is_adsp_ready(void);
 
-int q6core_get_unlock_key(int id, int *key, dma_addr_t *paddr, size_t *plen);
-int q6core_add_remove_pool_pages(phys_addr_t buf_add, uint32_t bufsz,
-			uint32_t mempool_id, bool add_pages);
-int avcs_core_query_timer_offset(int64_t *av_offset, int32_t clock_id);
 int q6core_get_service_version(uint32_t service_id,
 			       struct avcs_fwk_ver_info *ver_info,
 			       size_t size);
@@ -158,7 +150,7 @@ struct avcs_cmd_register_topologies {
 } __packed;
 
 
-#define AVCS_CMD_DEREGISTER_TOPOLOGIES                             0x0001292a
+#define AVCS_CMD_DEREGISTER_TOPOLOGIES                                0x0001292a
 
 /* The payload for the AVCS_CMD_DEREGISTER_TOPOLOGIES command */
 struct avcs_cmd_deregister_topologies {
@@ -198,134 +190,16 @@ struct avcs_cmd_deregister_topologies {
 
 #define CORE_UNLOAD_TOPOLOGY	1
 
-#define ADSP_MEMORY_MAP_HLOS_PHYSPOOL 4
-#define AVCS_CMD_ADD_POOL_PAGES 0x0001292E
-#define AVCS_CMD_REMOVE_POOL_PAGES 0x0001292F
-
-#define AVCS_CMD_GET_KEY (0x000132ED)
-#define AVCS_CMDRSP_GET_KEY (0x000132EE)
-
 struct avcs_cmd_load_unload_topo_modules {
 	struct apr_hdr hdr;
 	uint32_t topology_id;
 } __packed;
 
-struct avs_mem_assign_region {
-	struct apr_hdr       hdr;
-	u32                  pool_id;
-	u32                  size;
-	u32                  addr_lsw;
-	u32                  addr_msw;
-} __packed;
-
-/* This command allows a remote client(HLOS) creates a client to LPASS NPA
- * resource node. Currently, this command supports only the NPA Sleep resource
- * "/island/core/drivers" node ID.
- */
-#define AVCS_CMD_CREATE_LPASS_NPA_CLIENT    0x00012985
-
-#define AVCS_SLEEP_ISLAND_CORE_DRIVER_NODE_ID    0x00000001
-
-struct avcs_cmd_create_lpass_npa_client_t {
-	struct apr_hdr hdr;
-	uint32_t  node_id;
-	/* Unique ID of the NPA node.
-	 * @values
-	 *   - #AVCS_SLEEP_ISLAND_CORE_DRIVER_NODE_ID
-	 */
-
-	char client_name[16];
-	/* Client name, up to a maximum of sixteen characters.*/
-};
-
-/* In response to the #AVCS_CMD_CREATE_LPASS_NPA_CLIENT command, the AVCS
- * returns the handle to remote HLOS client.
- */
-#define AVCS_CMDRSP_CREATE_LPASS_NPA_CLIENT    0x00012986
-
-struct avcs_cmdrsp_create_lpass_npa_client_t {
-	uint32_t status;
-	/* Status message (error code).
-	 * @values
-	 *   - ADSP_EOK -- Create was successful
-	 *   - ADSP_EFAILED -- Create failed
-	 */
-
-	uint32_t  client_handle;
-	/* Handle of the client.*/
-};
-
-/* The remote HLOS client use this command to issue the request to the npa
- * resource. Remote client(HLOS) must send the valid npa client handle and
- * resource id info.
- */
-#define AVCS_CMD_REQUEST_LPASS_NPA_RESOURCES    0x00012987
-
-#define AVCS_SLEEP_NODE_ISLAND_TRANSITION_RESOURCE_ID    0x00000001
-
-#define SLEEP_RESTRICT_ISLAND                0x0
-#define SLEEP_ALLOW_ISLAND                   0x1
-
-/* Immediately following this structure is the resource request configuration
- * data payload. Payload varies depend on the resource_id requested.
- * Currently supported only island transition payload.
- */
-struct avcs_cmd_request_lpass_npa_resources_t {
-	struct apr_hdr hdr;
-	uint32_t  client_handle;
-	/* Handle of the client.
-	 * @values
-	 * - Valid uint32 number
-	 */
-
-	uint32_t  resource_id;
-	/* Unique ID of the NPA resource ID.
-	 * @values
-	 * - #AVCS_SLEEP_NODE_ISLAND_TRANSITION_RESOURCE_ID
-	 */
-};
-
-/* This structure contains the sleep node resource payload data.
- */
-struct avcs_sleep_node_island_transition_config_t {
-	struct avcs_cmd_request_lpass_npa_resources_t req_lpass_npa_rsc;
-	uint32_t  island_allow_mode;
-	/* Specifies the island state.
-	 * @values
-	 * - #SLEEP_RESTRICT_ISLAND
-	 * - #SLEEP_ALLOW_ISLAND
-	 */
-};
-
-/* This command allows remote client(HLOS) to destroy the npa node client
- * handle, which is created using the #AVCS_CMD_CREATE_LPASS_NPA_CLIENT command.
- * Remote client(HLOS) must send the valid npa client handle.
- */
-#define AVCS_CMD_DESTROY_LPASS_NPA_CLIENT    0x00012988
-
-struct avcs_cmd_destroy_lpass_npa_client_t {
-	struct apr_hdr hdr;
-	uint32_t  client_handle;
-	/* Handle of the client.
-	 * @values
-	 * - Valid uint32 number
-	 */
-};
-
-struct avs_get_key {
-	struct apr_hdr       hdr;
-	u32                  version;
-	u32                  sys_id;
-} __packed;
 
 int q6core_map_memory_regions(phys_addr_t *buf_add, uint32_t mempool_id,
 			uint32_t *bufsz, uint32_t bufcnt, uint32_t *map_handle);
 int q6core_memory_unmap_regions(uint32_t mem_map_handle);
-
-int q6core_map_mdf_memory_regions(uint64_t *buf_add, uint32_t mempool_id,
-			uint32_t *bufsz, uint32_t bufcnt, uint32_t *map_handle);
-
-int q6core_map_mdf_shared_memory(uint32_t map_handle, uint64_t *buf_add,
+int q6core_map_mdf_shared_memory(uint32_t map_handle, phys_addr_t *buf_add,
 			uint32_t proc_id, uint32_t *bufsz, uint32_t bufcnt);
 
 int32_t core_set_license(uint32_t key, uint32_t module_id);
@@ -333,15 +207,18 @@ int32_t core_get_license_status(uint32_t module_id);
 
 int32_t q6core_load_unload_topo_modules(uint32_t topology_id,
 			bool preload_type);
-
-int q6core_create_lpass_npa_client(uint32_t node_id, char *client_name,
-				   uint32_t *client_handle);
-int q6core_destroy_lpass_npa_client(uint32_t client_handle);
-int q6core_request_island_transition(uint32_t client_handle,
-				     uint32_t island_allow_mode);
 int q6core_is_avs_up(int32_t *avs_state);
 
-int q6core_get_avcs_avs_build_version_info(
-	uint32_t *build_major_version, uint32_t *build_minor_version,
-					uint32_t *build_branch_version);
+#if IS_ENABLED(CONFIG_USE_Q6_32CH_SUPPORT)
+static inline bool q6core_use_Q6_32ch_support(void)
+{
+	return true;
+}
+#else
+static inline bool q6core_use_Q6_32ch_support(void)
+{
+	return false;
+}
+#endif
+
 #endif /* __Q6CORE_H__ */

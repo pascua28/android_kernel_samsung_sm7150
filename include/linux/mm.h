@@ -2219,6 +2219,17 @@ extern void zone_pcp_reset(struct zone *zone);
 extern int min_free_kbytes;
 extern int watermark_scale_factor;
 
+/* ion rbin heap.. */
+void wake_ion_rbin_heap_prereclaim(void);
+void wake_ion_rbin_heap_shrink(void);
+
+/* rbincache.c */
+int init_rbincache(unsigned long pfn, unsigned long nr_pages);
+extern unsigned long totalrbin_pages;
+extern atomic_t rbin_allocated_pages;
+extern atomic_t rbin_cached_pages;
+extern atomic_t rbin_pool_pages;
+
 /* nommu.c */
 extern atomic_long_t mmap_pages_allocated;
 extern int nommu_shrink_inode_mappings(struct inode *, size_t, size_t);
@@ -2422,8 +2433,9 @@ int __must_check write_one_page(struct page *page);
 void task_dirty_inc(struct task_struct *tsk);
 
 /* readahead.c */
-#define VM_MAX_READAHEAD	512	/* kbytes */
+#define VM_MAX_READAHEAD	128	/* kbytes */
 #define VM_MIN_READAHEAD	16	/* kbytes (includes current page) */
+extern int mmap_readaround_limit;
 
 int force_page_cache_readahead(struct address_space *mapping, struct file *filp,
 			pgoff_t offset, unsigned long nr_to_read);
@@ -2837,6 +2849,25 @@ void __init setup_nr_node_ids(void);
 #else
 static inline void setup_nr_node_ids(void) {}
 #endif
+
+enum memsize_kernel_type {
+	MEMSIZE_KERNEL_KERNEL = 0,
+	MEMSIZE_KERNEL_PAGING,
+	MEMSIZE_KERNEL_LOGBUF,
+	MEMSIZE_KERNEL_PIDHASH,
+	MEMSIZE_KERNEL_VFSHASH,
+	MEMSIZE_KERNEL_MM_INIT,
+	MEMSIZE_KERNEL_OTHERS,
+	MEMSIZE_KERNEL_STOP,
+};
+extern void set_memsize_reserved_name(const char *name);
+extern void unset_memsize_reserved_name(void);
+extern void set_memsize_kernel_type(enum memsize_kernel_type type);
+extern void free_memsize_reserved(phys_addr_t free_base, phys_addr_t free_size);
+extern void record_memsize_reserved(const char *name, phys_addr_t base,
+				    phys_addr_t size, bool nomap,
+				    bool reusable);
+extern inline bool need_memory_boosting(struct pglist_data *pgdat);
 
 extern int want_old_faultaround_pte;
 

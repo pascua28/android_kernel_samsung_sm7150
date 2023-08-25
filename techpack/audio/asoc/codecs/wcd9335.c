@@ -158,8 +158,6 @@ MODULE_PARM_DESC(cpe_debug_mode, "boot cpe in debug mode");
 
 static char on_demand_supply_name[][MAX_ON_DEMAND_SUPPLY_NAME_LENGTH] = {
 	"cdc-vdd-mic-bias",
-	"cdc-vdd-tx-h",
-	"cdc-vdd-rx-h"
 };
 
 enum {
@@ -5431,9 +5429,6 @@ static int tasha_codec_enable_on_demand_supply(
 	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	struct tasha_priv *tasha = snd_soc_codec_get_drvdata(codec);
 	struct on_demand_supply *supply;
-	struct wcd9xxx *wcd9xxx = tasha->wcd9xxx;
-	struct wcd9xxx_pdata *pdata = dev_get_platdata(codec->dev->parent);
-	const char *supply_name;
 
 	if (w->shift >= ON_DEMAND_SUPPLIES_MAX) {
 		dev_err(codec->dev, "%s: error index > MAX Demand supplies",
@@ -5446,7 +5441,6 @@ static int tasha_codec_enable_on_demand_supply(
 		__func__, on_demand_supply_name[w->shift], event);
 
 	supply = &tasha->on_demand_list[w->shift];
-	supply_name = on_demand_supply_name[w->shift];
 	WARN_ONCE(!supply->supply, "%s isn't defined\n",
 		on_demand_supply_name[w->shift]);
 	if (!supply->supply) {
@@ -5457,15 +5451,6 @@ static int tasha_codec_enable_on_demand_supply(
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		if (pdata->vote_regulator_on_demand) {
-			ret = wcd9xxx_vote_ondemand_regulator(wcd9xxx, pdata,
-							      supply_name,
-							      true);
-			if (ret)
-				dev_err(codec->dev, "%s: Failed to vote %s\n",
-					__func__,
-					on_demand_supply_name[w->shift]);
-		}
 		ret = regulator_enable(supply->supply);
 		if (ret)
 			dev_err(codec->dev, "%s: Failed to enable %s\n",
@@ -5478,15 +5463,6 @@ static int tasha_codec_enable_on_demand_supply(
 			dev_err(codec->dev, "%s: Failed to disable %s\n",
 				__func__,
 				on_demand_supply_name[w->shift]);
-		if (pdata->vote_regulator_on_demand) {
-			ret = wcd9xxx_vote_ondemand_regulator(wcd9xxx, pdata,
-							      supply_name,
-							      false);
-			if (ret)
-				dev_err(codec->dev, "%s: Failed to unvote %s\n",
-					__func__,
-					on_demand_supply_name[w->shift]);
-		}
 		break;
 	default:
 		break;
@@ -10830,14 +10806,7 @@ static const struct snd_soc_dapm_widget tasha_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY(DAPM_LDO_H_STANDALONE, SND_SOC_NOPM, 0, 0,
 			    tasha_codec_force_enable_ldo_h,
 			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_SUPPLY("tx regulator", SND_SOC_NOPM,
-			    ON_DEMAND_TX_SUPPLY, 0,
-			    tasha_codec_enable_on_demand_supply,
-			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_SUPPLY("rx regulator", SND_SOC_NOPM,
-			    ON_DEMAND_RX_SUPPLY, 0,
-			    tasha_codec_enable_on_demand_supply,
-			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+
 	SND_SOC_DAPM_MUX("ANC0 FB MUX", SND_SOC_NOPM, 0, 0, &anc0_fb_mux),
 	SND_SOC_DAPM_MUX("ANC1 FB MUX", SND_SOC_NOPM, 0, 0, &anc1_fb_mux),
 
@@ -11957,21 +11926,6 @@ static struct snd_soc_dai_driver tasha_i2s_dai[] = {
 			.rate_min = 8000,
 			.channels_min = 1,
 			.channels_max = 4,
-		},
-		.ops = &tasha_dai_ops,
-	},
-	{
-		.name = "tasha_mad1",
-		.id = AIF4_MAD_TX,
-		.capture = {
-			.stream_name = "AIF4 MAD TX",
-			.rates = SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_48000 |
-				SNDRV_PCM_RATE_192000 | SNDRV_PCM_RATE_384000,
-			.formats = TASHA_FORMATS_S16_S24_S32_LE,
-			.rate_min = 16000,
-			.rate_max = 384000,
-			.channels_min = 1,
-			.channels_max = 1,
 		},
 		.ops = &tasha_dai_ops,
 	},
@@ -13449,14 +13403,6 @@ static int tasha_post_reset_cb(struct wcd9xxx *wcd9xxx)
 	else if (control->mclk_rate == TASHA_MCLK_CLK_9P6MHZ)
 		snd_soc_update_bits(codec, WCD9335_CODEC_RPM_CLK_MCLK_CFG,
 				    0x03, 0x01);
-
-	if (control->mclk_div_by_2)
-		snd_soc_update_bits(codec, WCD9335_ANA_CLK_TOP,
-				    0x10, 0x10);
-	else
-		snd_soc_update_bits(codec, WCD9335_ANA_CLK_TOP,
-				    0x10, 0x00);
-
 	tasha_codec_init_reg(codec);
 
 	wcd_resmgr_post_ssr_v2(tasha->resmgr);
@@ -13604,14 +13550,6 @@ static int tasha_codec_probe(struct snd_soc_codec *codec)
 	else if (control->mclk_rate == TASHA_MCLK_CLK_9P6MHZ)
 		snd_soc_update_bits(codec, WCD9335_CODEC_RPM_CLK_MCLK_CFG,
 				    0x03, 0x01);
-
-	if (control->mclk_div_by_2)
-		snd_soc_update_bits(codec, WCD9335_ANA_CLK_TOP,
-				    0x10, 0x10);
-	else
-		snd_soc_update_bits(codec, WCD9335_ANA_CLK_TOP,
-				    0x10, 0x00);
-
 	tasha_codec_init_reg(codec);
 
 	tasha_enable_efuse_sensing(codec);
@@ -13623,14 +13561,12 @@ static int tasha_codec_probe(struct snd_soc_codec *codec)
 		goto err;
 	}
 
-	for (i = ON_DEMAND_MICBIAS; i < ON_DEMAND_SUPPLIES_MAX; i++) {
-		supply = tasha_codec_find_ondemand_regulator(codec,
-			on_demand_supply_name[i]);
-		if (supply) {
-			tasha->on_demand_list[i].supply = supply;
-			tasha->on_demand_list[i].ondemand_supply_count =
-					0;
-		}
+	supply = tasha_codec_find_ondemand_regulator(codec,
+		on_demand_supply_name[ON_DEMAND_MICBIAS]);
+	if (supply) {
+		tasha->on_demand_list[ON_DEMAND_MICBIAS].supply = supply;
+		tasha->on_demand_list[ON_DEMAND_MICBIAS].ondemand_supply_count =
+				0;
 	}
 
 	tasha->fw_data = devm_kzalloc(codec->dev,
@@ -14448,7 +14384,6 @@ static struct platform_driver tasha_codec_driver = {
 #ifdef CONFIG_PM
 		.pm = &tasha_pm_ops,
 #endif
-		.suppress_bind_attrs = true,
 	},
 };
 

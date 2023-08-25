@@ -17,6 +17,7 @@
 #include <linux/swap.h>
 #include <linux/falloc.h>
 #include <linux/uio.h>
+#include <linux/sched/mm.h>
 #include <linux/fs.h>
 
 static const struct file_operations fuse_direct_io_file_operations;
@@ -174,9 +175,14 @@ void fuse_finish_open(struct inode *inode, struct file *file)
 {
 	struct fuse_file *ff = file->private_data;
 	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_inode *fi = get_fuse_inode(inode);
 
-	if (ff->open_flags & FOPEN_DIRECT_IO)
+	if (ff->open_flags & FOPEN_DIRECT_IO ||
+			test_bit(FUSE_I_ATTR_FORCE_SYNC, &fi->state)) {
+		ff->open_flags |= FOPEN_DIRECT_IO;
 		file->f_op = &fuse_direct_io_file_operations;
+		set_bit(FUSE_I_ATTR_FORCE_SYNC, &fi->state);
+	}
 	if (!(ff->open_flags & FOPEN_KEEP_CACHE))
 		invalidate_inode_pages2(inode->i_mapping);
 	if (ff->open_flags & FOPEN_STREAM)
@@ -379,7 +385,7 @@ static int fuse_wait_on_page_writeback(struct inode *inode, pgoff_t index)
 {
 	struct fuse_inode *fi = get_fuse_inode(inode);
 
-	wait_event(fi->page_waitq, !fuse_page_is_writeback(inode, index));
+	fuse_wait_event(fi->page_waitq, !fuse_page_is_writeback(inode, index));
 	return 0;
 }
 
@@ -410,9 +416,6 @@ static int fuse_flush(struct file *file, fl_owner_t id)
 	if (is_bad_inode(inode))
 		return -EIO;
 
-	if (fc->no_flush)
-		return 0;
-
 	err = write_inode_now(inode, 1);
 	if (err)
 		return err;
@@ -424,6 +427,9 @@ static int fuse_flush(struct file *file, fl_owner_t id)
 	err = filemap_check_errors(file->f_mapping);
 	if (err)
 		return err;
+
+	if (fc->no_flush)
+		return 0;
 
 	req = fuse_get_req_nofail_nopages(fc, file);
 	memset(&inarg, 0, sizeof(inarg));
@@ -1619,12 +1625,15 @@ int fuse_write_inode(struct inode *inode, struct writeback_control *wbc)
 	struct fuse_inode *fi = get_fuse_inode(inode);
 	struct fuse_file *ff;
 	int err;
+	/* @fs.sec -- E8B3F75DDB82DFE8F52508F039ABE4FF -- */
+	unsigned int nofs_flag = memalloc_nofs_save();
 
 	ff = __fuse_write_file_get(fc, fi);
 	err = fuse_flush_times(inode, ff);
 	if (ff)
 		fuse_file_put(ff, false, false);
 
+	memalloc_nofs_restore(nofs_flag);
 	return err;
 }
 

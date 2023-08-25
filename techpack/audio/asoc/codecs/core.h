@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -18,7 +18,6 @@
 #include <linux/of_irq.h>
 #include <linux/interrupt.h>
 #include <linux/pm_qos.h>
-#include "pdata.h"
 
 #define WCD9XXX_MAX_IRQ_REGS 4
 #define WCD9XXX_MAX_NUM_IRQS (WCD9XXX_MAX_IRQ_REGS * 8)
@@ -371,8 +370,6 @@ struct wcd9xxx {
 	struct wcd9xxx_ch *rx_chs;
 	struct wcd9xxx_ch *tx_chs;
 	u32 mclk_rate;
-	bool mclk_div_by_2;
-
 	enum codec_variant type;
 	struct regmap *regmap;
 
@@ -407,11 +404,6 @@ int wcd9xxx_page_write(struct wcd9xxx *wcd9xxx, unsigned short *reg);
 int wcd9xxx_slim_bulk_write(struct wcd9xxx *wcd9xxx,
 			    struct wcd9xxx_reg_val *bulk_reg,
 			    unsigned int size, bool interface);
-
-int wcd9xxx_vote_ondemand_regulator(struct wcd9xxx *wcd9xxx,
-				    struct wcd9xxx_pdata *pdata,
-				    const char *supply_name,
-				    bool enable);
 
 extern int wcd9xxx_core_res_init(
 	struct wcd9xxx_core_resource *wcd9xxx_core_res,

@@ -34,6 +34,12 @@
 #include "avc_ss.h"
 #include "classmap.h"
 
+// [ SEC_SELINUX_PORTING_COMMON
+#ifdef SEC_SELINUX_DEBUG
+#include <linux/signal.h>
+#endif
+// ] SEC_SELINUX_PORTING_COMMON
+
 #define AVC_CACHE_SLOTS			512
 #define AVC_DEF_CACHE_THRESHOLD		512
 #define AVC_CACHE_RECLAIM		16
@@ -895,7 +901,11 @@ static int avc_update_node(struct selinux_avc *avc,
 	if (orig->ae.xp_node) {
 		rc = avc_xperms_populate(node, orig->ae.xp_node);
 		if (rc) {
+//[SEC_SELINUX_PORTING_COMMON
+// P191014-03912 - avc_cache.active_nodes is not decresed when "avc_alloc_node-success"&"avc_xperms_populate-fail"
+//			kmem_cache_free(avc_node_cachep, node);
 			avc_node_kill(avc, node);
+//]SEC_SELINUX_PORTING_COMMON
 			goto out_unlock;
 		}
 	}
@@ -1017,9 +1027,61 @@ static noinline int avc_denied(struct selinux_state *state,
 	if (flags & AVC_STRICT)
 		return -EACCES;
 
-	if (enforcing_enabled(state) &&
-	    !(avd->flags & AVD_FLAGS_PERMISSIVE))
+// [ SEC_SELINUX_PORTING_COMMON
+#ifdef SEC_SELINUX_DEBUG
+	if ((requested & avd->auditallow) && selinux_enforcing && !(avd->flags & AVD_FLAGS_PERMISSIVE)) {
+		char *scontext, *tcontext;
+		const char **perms;
+		int i, perm;
+		int rc1, rc2;
+		u32 scontext_len, tcontext_len;
+
+		perms = secclass_map[tclass-1].perms;
+		i = 0;
+		perm = 1;
+		while (i < (sizeof(requested) * 8)) {
+			if ((perm & requested) && perms[i])
+				break;
+			i++;
+			perm <<= 1;
+		}
+
+		rc1 = security_sid_to_context(ssid, &scontext, &scontext_len);
+		rc2 = security_sid_to_context(tsid, &tcontext, &tcontext_len);
+
+		if (rc1 || rc2) {
+			pr_err("SELinux DEBUG : %s: ssid=%d tsid=%d tclass=%s perm=%s requested(%d) auditallow(%d)\n",
+		       __func__, ssid, tsid, secclass_map[tclass-1].name, perms[i], requested, avd->auditallow);
+		} else {
+			pr_err("SELinux DEBUG : %s: scontext=%s tcontext=%s tclass=%s perm=%s requested(%d) auditallow(%d)\n",
+		       __func__, scontext, tcontext, secclass_map[tclass-1].name, perms[i], requested, avd->auditallow);
+		}
+
+		/* print call stack */
+		pr_err("SELinux DEBUG : FATAL denial and start dump_stack\n");
+		dump_stack();
+
+		/* enforcing : SIGABRT and take debuggerd log */
+		if (enforcing_enabled(state) && !(avd->flags & AVD_FLAGS_PERMISSIVE)) {
+			pr_err("SELinux DEBUG : send SIGABRT to current tsk\n");
+			send_sig(SIGABRT, current, 2);
+		}
+
+		if (!rc1)
+			kfree(scontext);
+		if (!rc2)
+			kfree(tcontext);
+
+	}
+#endif
+
+#ifdef CONFIG_ALWAYS_ENFORCE
+	if (!(avd->flags & AVD_FLAGS_PERMISSIVE))
+#else
+	if (selinux_enforcing && !(avd->flags & AVD_FLAGS_PERMISSIVE))
+#endif
 		return -EACCES;
+// ] SEC_SELINUX_PORTING_COMMON
 
 	avc_update_node(state->avc, AVC_CALLBACK_GRANT, requested, driver,
 			xperm, ssid, tsid, tclass, avd->seqno, NULL, flags);

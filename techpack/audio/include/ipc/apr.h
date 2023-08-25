@@ -137,10 +137,6 @@ struct apr_svc {
 	struct mutex m_lock;
 	spinlock_t w_lock;
 	uint8_t pkt_owner;
-#ifdef CONFIG_MSM_QDSP6_APRV2_VM
-	uint16_t vm_dest_svc;
-	uint32_t vm_handle;
-#endif
 };
 
 struct apr_client {

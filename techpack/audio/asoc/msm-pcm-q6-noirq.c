@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -187,10 +187,10 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd;
 	int ret = 0;
-	enum apr_subsys_state subsys_state;
+	enum apr_subsys_state q6_state;
 
-	subsys_state = apr_get_subsys_state();
-	if (subsys_state == APR_SUBSYS_DOWN) {
+	q6_state = apr_get_q6_state();
+	if (q6_state == APR_SUBSYS_DOWN) {
 		pr_debug("%s: adsp is down\n", __func__);
 		return -ENETRESET;
 	}
@@ -477,7 +477,7 @@ static int msm_pcm_mmap_fd(struct snd_pcm_substream *substream,
 	 * This was the flag used by previous internal wrapper API, which
 	 * used to call dma_buf_fd internally.
 	 */
-	mmap_fd->fd = dma_buf_fd((struct dma_buf*)ab->mem_handle, O_CLOEXEC);
+	mmap_fd->fd = dma_buf_fd(ab->dma_buf, O_CLOEXEC);
 	if (mmap_fd->fd < 0) {
 		pr_err("%s: dma_buf_fd failed, fd:%d\n",
 			__func__, mmap_fd->fd);
@@ -609,7 +609,11 @@ static int msm_pcm_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 	struct asm_softvolume_params softvol = {
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+		.period = SOFT_VOLUME_MMAP_PERIOD,
+#else
 		.period = SOFT_VOLUME_PERIOD,
+#endif
 		.step = SOFT_VOLUME_STEP,
 		.rampingcurve = SOFT_VOLUME_CURVE_LINEAR,
 	};
@@ -712,12 +716,24 @@ static int msm_pcm_volume_ctl_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_pcm_volume *vol = snd_kcontrol_chip(kcontrol);
 	struct msm_plat_data *pdata = NULL;
-	struct snd_pcm_substream *substream =
-		vol->pcm->streams[vol->stream].substream;
+	struct snd_pcm_substream *substream = NULL;
 	struct snd_soc_pcm_runtime *soc_prtd = NULL;
 	struct msm_audio *prtd;
 
 	pr_debug("%s\n", __func__);
+
+	if (!vol) {
+		pr_err("%s: vol is NULL\n", __func__);
+		return -ENODEV;
+	}
+
+	if (!vol->pcm) {
+		pr_err("%s: vol->pcm is NULL\n", __func__);
+		return -ENODEV;
+	}
+
+	substream = vol->pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream;
+
 	if (!substream) {
 		pr_err("%s substream not found\n", __func__);
 		return -ENODEV;
@@ -749,12 +765,23 @@ static int msm_pcm_volume_ctl_put(struct snd_kcontrol *kcontrol,
 	int rc = 0;
 	struct snd_pcm_volume *vol = snd_kcontrol_chip(kcontrol);
 	struct msm_plat_data *pdata = NULL;
-	struct snd_pcm_substream *substream =
-		vol->pcm->streams[vol->stream].substream;
+	struct snd_pcm_substream *substream = NULL;
 	struct snd_soc_pcm_runtime *soc_prtd = NULL;
 	struct msm_audio *prtd;
 	int volume = ucontrol->value.integer.value[0];
 
+	pr_debug("%s\n", __func__);
+	if (!vol) {
+		pr_err("%s: vol is NULL\n", __func__);
+		return -ENODEV;
+	}
+
+	if (!vol->pcm) {
+		pr_err("%s: vol->pcm is NULL\n", __func__);
+		return -ENODEV;
+	}
+
+	substream = vol->pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream;
 	pr_debug("%s: volume : 0x%x\n", __func__, volume);
 	if (!substream) {
 		pr_err("%s substream not found\n", __func__);
@@ -783,16 +810,15 @@ static int msm_pcm_volume_ctl_put(struct snd_kcontrol *kcontrol,
 	return rc;
 }
 
-static int msm_pcm_add_volume_control(struct snd_soc_pcm_runtime *rtd,
-				      int stream)
+static int msm_pcm_add_volume_control(struct snd_soc_pcm_runtime *rtd)
 {
 	int ret = 0;
 	struct snd_pcm *pcm = rtd->pcm;
 	struct snd_pcm_volume *volume_info;
 	struct snd_kcontrol *kctl;
 
-	dev_dbg(rtd->dev, "%s, volume control add\n", __func__);
-	ret = snd_pcm_add_volume_ctls(pcm, stream,
+	dev_dbg(rtd->dev, "%s, Volume control add\n", __func__);
+	ret = snd_pcm_add_volume_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
 			NULL, 1, rtd->dai_link->id,
 			&volume_info);
 	if (ret < 0) {
@@ -1285,16 +1311,12 @@ static int msm_asoc_pcm_new(struct snd_soc_pcm_runtime *rtd)
 		pr_err("%s: Could not add pcm Channel Map Control\n",
 			__func__);
 
-	ret = msm_pcm_add_volume_control(rtd, SNDRV_PCM_STREAM_PLAYBACK);
+	ret = msm_pcm_add_volume_control(rtd);
 	if (ret) {
-		pr_err("%s: Could not add pcm playback volume Control %d\n",
+		pr_err("%s: Could not add pcm Volume Control %d\n",
 			__func__, ret);
 	}
-	ret = msm_pcm_add_volume_control(rtd, SNDRV_PCM_STREAM_CAPTURE);
-	if (ret) {
-		pr_err("%s: Could not add pcm capture volume Control %d\n",
-			__func__, ret);
-	}
+
 	ret = msm_pcm_add_fe_topology_control(rtd);
 	if (ret) {
 		pr_err("%s: Could not add pcm topology control %d\n",
@@ -1402,7 +1424,6 @@ static struct platform_driver msm_pcm_driver_noirq = {
 		.name = "msm-pcm-dsp-noirq",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_pcm_noirq_dt_match,
-		.suppress_bind_attrs = true,
 	},
 	.probe = msm_pcm_probe,
 	.remove = msm_pcm_remove,

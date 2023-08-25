@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, 2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
@@ -18,14 +18,6 @@
 #ifdef CONFIG_QTI_PP
 int msm_adsp_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
 			uint32_t *payload);
-int msm_adsp_adm_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
-			uint32_t *payload);
-int msm_adsp_init_mixer_ctl_adm_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
-int msm_adsp_clean_mixer_ctl_adm_pp_event_queue(
-		struct snd_soc_pcm_runtime *rtd);
-int msm_adsp_copp_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
-			uint32_t *payload);
-
 int msm_adsp_init_mixer_ctl_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
 int msm_adsp_clean_mixer_ctl_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
 int msm_adsp_stream_cmd_info(struct snd_kcontrol *kcontrol,
@@ -82,22 +74,6 @@ static inline int msm_adsp_stream_callback_info(struct snd_kcontrol *kcontrol,
 {
 	return 0;
 }
-static inline void msm_qti_pp_send_eq_values(int fedai_id)
-{
-}
-
-static inline int msm_qti_pp_send_stereo_to_custom_stereo_cmd(int port_id,
-			int copp_idx, unsigned int session_id,
-			uint16_t op_FL_ip_FL_weight,
-			uint16_t op_FL_ip_FR_weight,
-			uint16_t op_FR_ip_FL_weight,
-			uint16_t op_FR_ip_FR_weight)
-{
-	return 0;
-}
-static inline void msm_qti_pp_add_controls(struct snd_soc_platform *platform)
-{
-}
 
 int msm_qti_pp_send_chmix_cfg_cmd(int port_id, int copp_idx,
 				  unsigned int session_id, int ip_channel_count,
@@ -117,14 +93,9 @@ int msm_qti_pp_send_chmix_cfg_cmd(int port_id, int copp_idx,
 #if defined(CONFIG_QTI_PP) && defined(CONFIG_QTI_PP_AUDIOSPHERE)
 int msm_qti_pp_asphere_init(int port_id, int copp_idx);
 void msm_qti_pp_asphere_deinit(int port_id);
-#else /* CONFIG_QTI_PP && CONFIG_QTI_PP_AUDIOSPHERE */
-static inline int msm_qti_pp_asphere_init(int port_id, int copp_idx)
-{
-	return 0;
-}
-static inline void msm_qti_pp_asphere_deinit(int port_id)
-{
-}
-#endif /* CONFIG_QTI_PP && CONFIG_QTI_PP_AUDIOSPHERE */
+#else
+#define msm_qti_pp_asphere_init(port_id, copp_idx) (0)
+#define msm_qti_pp_asphere_deinit(port_id) do {} while (0)
+#endif
 
 #endif /* _MSM_QTI_PP_H_ */

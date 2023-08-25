@@ -20,6 +20,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -31,15 +36,9 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm670autoconf.h
 	endif
         ifeq ($(CONFIG_ARCH_SM6150), y)
-		ifdef CONFIG_SND_SOC_SA6155
-			include $(AUDIO_ROOT)/config/sa6155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa6155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm6150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
-		endif
+                include $(AUDIO_ROOT)/config/sm6150auto.conf
+                export
+                INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
         endif
         ifeq ($(CONFIG_ARCH_TRINKET), y)
                 include $(AUDIO_ROOT)/config/trinketauto.conf
@@ -47,15 +46,9 @@ ifeq ($(KERNEL_BUILD), 0)
                 INCS    +=  -include $(AUDIO_ROOT)/config/trinketautoconf.h
         endif
 	ifeq ($(CONFIG_ARCH_SM8150), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_QCS405), y)
 		include $(AUDIO_ROOT)/config/qcs405auto.conf
@@ -63,25 +56,9 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SDMSHRIKE), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
 		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
-	endif
-	ifeq ($(CONFIG_QTI_GVM), y)
-		include $(AUDIO_ROOT)/config/gvmauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 endif
 
@@ -121,11 +98,6 @@ ifdef CONFIG_MSM_QDSP6_APRV3_RPMSG
 APRV_GLINK += apr.o
 APRV_GLINK += apr_v3.o
 APRV_GLINK += apr_tal_rpmsg.o
-endif
-
-ifdef CONFIG_MSM_QDSP6_APRV2_VM
-APRV_GLINK += apr_vm.o
-APRV_GLINK += apr_v2.o
 endif
 
 ifdef CONFIG_WCD_DSP_GLINK
@@ -186,7 +158,6 @@ endif
 # Module information used by KBuild framework
 obj-$(CONFIG_MSM_QDSP6_APRV2_RPMSG) += apr_dlkm.o
 obj-$(CONFIG_MSM_QDSP6_APRV3_RPMSG) += apr_dlkm.o
-obj-$(CONFIG_MSM_QDSP6_APRV2_VM) += apr_dlkm.o
 apr_dlkm-y := $(APRV_GLINK)
 
 obj-$(CONFIG_WCD_DSP_GLINK) += wglink_dlkm.o

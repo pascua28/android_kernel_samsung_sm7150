@@ -21,6 +21,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -50,11 +55,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		include $(AUDIO_ROOT)/config/sm8150auto.conf
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
 	endif
 endif
 

@@ -199,7 +199,10 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_LP,
 	CONNECTOR_PROP_FB_TRANSLATION_MODE,
 	CONNECTOR_PROP_QSYNC_MODE,
-
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	/* SAMSUNG_FINGERPRINT */
+	CONNECTOR_PROP_FINGERPRINT_MASK,
+#endif
 	/* total # of properties */
 	CONNECTOR_PROP_COUNT
 };
@@ -462,6 +465,9 @@ struct msm_display_topology {
  */
 struct msm_mode_info {
 	uint32_t frame_rate;
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	uint32_t frame_rate_org;
+#endif
 	uint32_t vtotal;
 	uint32_t prefill_lines;
 	uint32_t jitter_numer;
@@ -872,6 +878,10 @@ struct drm_framebuffer * msm_alloc_stolen_fb(struct drm_device *dev,
 
 struct drm_fb_helper *msm_fbdev_init(struct drm_device *dev);
 void msm_fbdev_free(struct drm_device *dev);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+int __msm_drm_notifier_call_chain(unsigned long event, void *data);
+#endif
 
 struct hdmi;
 #ifdef CONFIG_DRM_MSM_HDMI

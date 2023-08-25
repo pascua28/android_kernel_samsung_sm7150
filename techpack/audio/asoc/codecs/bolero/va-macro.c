@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,12 +20,9 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
-#include <linux/pm_runtime.h>
 #include "bolero-cdc.h"
 #include "bolero-cdc-registers.h"
 
-/* pm runtime auto suspend timer in msecs */
-#define VA_AUTO_SUSPEND_DELAY          100 /* delay in msec */
 #define VA_MACRO_MAX_OFFSET 0x1000
 
 #define VA_MACRO_NUM_DECIMATORS 8
@@ -598,7 +595,7 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 							CF_MIN_3DB_150HZ)
 			schedule_delayed_work(
 					&va_priv->va_hpf_work[decimator].dwork,
-					msecs_to_jiffies(50));
+					msecs_to_jiffies(300));
 		/* apply gain after decimator is enabled */
 		snd_soc_write(codec, tx_gain_ctl_reg,
 			      snd_soc_read(codec, tx_gain_ctl_reg));
@@ -1629,10 +1626,6 @@ static int va_macro_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: register macro failed\n", __func__);
 		goto reg_macro_fail;
 	}
-	pm_runtime_set_autosuspend_delay(&pdev->dev, VA_AUTO_SUSPEND_DELAY);
-	pm_runtime_use_autosuspend(&pdev->dev);
-	pm_runtime_set_suspended(&pdev->dev);
-	pm_runtime_enable(&pdev->dev);
 	return ret;
 
 reg_macro_fail:
@@ -1648,8 +1641,7 @@ static int va_macro_remove(struct platform_device *pdev)
 
 	if (!va_priv)
 		return -EINVAL;
-	pm_runtime_disable(&pdev->dev);
-	pm_runtime_set_suspended(&pdev->dev);
+
 	bolero_unregister_macro(&pdev->dev, VA_MACRO);
 	mutex_destroy(&va_priv->mclk_lock);
 	return 0;
@@ -1661,19 +1653,10 @@ static const struct of_device_id va_macro_dt_match[] = {
 	{}
 };
 
-static const struct dev_pm_ops bolero_dev_pm_ops = {
-	SET_RUNTIME_PM_OPS(
-		bolero_runtime_suspend,
-		bolero_runtime_resume,
-		NULL
-	)
-};
-
 static struct platform_driver va_macro_driver = {
 	.driver = {
 		.name = "va_macro",
 		.owner = THIS_MODULE,
-		.pm = &bolero_dev_pm_ops,
 		.of_match_table = va_macro_dt_match,
 	},
 	.probe = va_macro_probe,

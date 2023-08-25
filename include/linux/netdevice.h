@@ -52,6 +52,8 @@
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
 
+#include <linux/netlog.h>
+
 struct netpoll_info;
 struct device;
 struct phy_device;
@@ -3405,7 +3407,17 @@ void netdev_run_todo(void);
  */
 static inline void dev_put(struct net_device *dev)
 {
+	u32 refcnt;
+
 	this_cpu_dec(*dev->pcpu_refcnt);
+
+	if (strstr(dev->name, "rmnet_data")) {
+		refcnt = netdev_refcnt_read(dev);
+		net_log("dev_put() %s : %d : %pS -> %pS\n",
+					dev->name, refcnt,
+					__builtin_return_address(1),
+					__builtin_return_address(0));
+	}
 }
 
 /**
@@ -3416,7 +3428,16 @@ static inline void dev_put(struct net_device *dev)
  */
 static inline void dev_hold(struct net_device *dev)
 {
+	u32 refcnt;
+
 	this_cpu_inc(*dev->pcpu_refcnt);
+	if (strstr(dev->name, "rmnet_data")) {
+		refcnt = netdev_refcnt_read(dev);
+		net_log("dev_hold() %s : %d : %pS -> %pS\n",
+					dev->name, refcnt,
+					__builtin_return_address(1),
+					__builtin_return_address(0));
+	}
 }
 
 /* Carrier loss detection, dial on demand. The functions netif_carrier_on

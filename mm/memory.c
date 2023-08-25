@@ -1087,7 +1087,6 @@ static int copy_pte_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	spinlock_t *src_ptl, *dst_ptl;
 	int progress = 0;
 	int rss[NR_MM_COUNTERS];
-	unsigned long orig_addr = addr;
 	swp_entry_t entry = (swp_entry_t){0};
 
 again:
@@ -1126,15 +1125,6 @@ again:
 	} while (dst_pte++, src_pte++, addr += PAGE_SIZE, addr != end);
 
 	arch_leave_lazy_mmu_mode();
-
-	/*
-	 * Prevent the page fault handler to copy the page while stale tlb entry
-	 * are still not flushed.
-	 */
-	if (IS_ENABLED(CONFIG_SPECULATIVE_PAGE_FAULT) &&
-	    is_cow_mapping(vma->vm_flags))
-		flush_tlb_range(vma, orig_addr, end);
-
 	spin_unlock(src_ptl);
 	pte_unmap(orig_src_pte);
 	add_mm_rss_vec(dst_mm, rss);
@@ -3745,10 +3735,14 @@ int finish_fault(struct vm_fault *vmf)
  * there is no much gain with fault_around.
  */
 static unsigned long fault_around_bytes __read_mostly =
+#ifdef CONFIG_FAULT_AROUND_4KB
+	rounddown_pow_of_two(4096);
+#else
 #ifndef __HAVE_ARCH_PTEP_SET_ACCESS_FLAGS
 	PAGE_SIZE;
 #else
 	rounddown_pow_of_two(65536);
+#endif
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -4592,6 +4586,7 @@ int __handle_speculative_fault(struct mm_struct *mm, unsigned long address,
 		count_vm_event(SPECULATIVE_PGFAULT);
 		put_vma(vmf.vma);
 		*vma = NULL;
+		check_sync_rss_stat(current);
 	}
 
 	/*
@@ -4617,6 +4612,7 @@ out_segv:
 	 */
 	put_vma(vmf.vma);
 	*vma = NULL;
+	check_sync_rss_stat(current);
 	return VM_FAULT_SIGSEGV;
 }
 

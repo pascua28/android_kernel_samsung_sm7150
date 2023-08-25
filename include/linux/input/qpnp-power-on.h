@@ -50,9 +50,13 @@ enum pon_power_off_type {
 	PON_POWER_OFF_WARM_RESET	= PON_POWER_OFF_TYPE_WARM_RESET,
 	PON_POWER_OFF_SHUTDOWN		= PON_POWER_OFF_TYPE_SHUTDOWN,
 	PON_POWER_OFF_HARD_RESET	= PON_POWER_OFF_TYPE_HARD_RESET,
+	PON_POWER_OFF_DVDD_HARD_RESET	= PON_POWER_OFF_TYPE_DVDD_HARD_RESET,
 	PON_POWER_OFF_MAX_TYPE		= 0x10,
 };
 
+#if IS_ENABLED(CONFIG_SEC_DEBUG)
+#include <linux/sec_debug.h>
+#else
 enum pon_restart_reason {
 	PON_RESTART_REASON_UNKNOWN		= 0x00,
 	PON_RESTART_REASON_RECOVERY		= 0x01,
@@ -61,7 +65,16 @@ enum pon_restart_reason {
 	PON_RESTART_REASON_DMVERITY_CORRUPTED	= 0x04,
 	PON_RESTART_REASON_DMVERITY_ENFORCE	= 0x05,
 	PON_RESTART_REASON_KEYS_CLEAR		= 0x06,
+	PON_RESTART_REASON_RECOVERY_UPDATE	= 0x07,
 };
+#endif
+
+
+#ifdef CONFIG_SEC_PM
+int qpnp_pon_check_chg_det(void);
+ssize_t sec_get_pwrsrc(char *buf);
+char* qpnp_pon_get_off_reason(void);
+#endif
 
 #ifdef CONFIG_INPUT_QPNP_POWER_ON
 int qpnp_pon_system_pwr_off(enum pon_power_off_type type);

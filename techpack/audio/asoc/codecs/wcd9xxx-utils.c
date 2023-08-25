@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -389,23 +389,6 @@ struct wcd9xxx_pdata *wcd9xxx_populate_dt_data(struct device *dev)
 		goto err_parse_dt_prop;
 	}
 
-	if (!(wcd9xxx_read_of_property_u32(dev, "qcom,cdc-ext-clk-rate",
-					   &prop_val))) {
-		if (prop_val % pdata->mclk_rate == 0) {
-			if (prop_val / pdata->mclk_rate == 2) {
-				pdata->mclk_div_by_2 = 1;
-			} else if (prop_val / pdata->mclk_rate != 1) {
-				dev_err(dev, "%s: Invalid ext clk_rate = %u\n",
-					__func__, prop_val);
-				goto err_parse_dt_prop;
-			}
-		} else {
-			dev_err(dev, "%s: Invalid ext clk rate = %u\n",
-				__func__, prop_val);
-			goto err_parse_dt_prop;
-		}
-	}
-
 	if (!(wcd9xxx_read_of_property_u32(dev, "qcom,cdc-dmic-sample-rate",
 					   &prop_val)))
 		dmic_sample_rate = prop_val;
@@ -448,14 +431,6 @@ struct wcd9xxx_pdata *wcd9xxx_populate_dt_data(struct device *dev)
 	}
 
 	pdata->dmic_clk_drv = dmic_clk_drive;
-
-	rc = of_property_read_u32(dev->of_node,
-					"qcom,vote-dynamic-supply-on-demand",
-					&pdata->vote_regulator_on_demand);
-	if (rc)
-		dev_dbg(dev, "%s No entry for %s property in node %s\n",
-				__func__, "qcom,vote-dynamic-supply-on-demand",
-				dev->of_node->full_name);
 
 	return pdata;
 

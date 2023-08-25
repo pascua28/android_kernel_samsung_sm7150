@@ -24,21 +24,8 @@ int audio_cal_init(void);
 int core_init(void);
 int rtac_init(void);
 int msm_audio_ion_init(void);
-int avtimer_init(void);
-#ifndef CONFIG_QTI_GVM
 int audio_slimslave_init(void);
-void audio_slimslave_exit(void);
-#else
-static inline int audio_slimslave_init(void)
-{
-	return 0;
-}
-
-static inline void audio_slimslave_exit(void)
-{
-	return;
-}
-#endif
+int avtimer_init(void);
 #ifdef CONFIG_MSM_MDF
 int msm_mdf_init(void);
 void msm_mdf_exit(void);
@@ -52,6 +39,9 @@ static inline void msm_mdf_exit(void)
 {
 	return;
 }
+#endif
+#ifdef CONFIG_SEC_SND_ADAPTATION
+int sec_soc_platform_init(void);
 #endif
 #ifdef CONFIG_XT_LOGGING
 int spk_params_init(void);
@@ -67,6 +57,7 @@ static inline void spk_params_exit(void)
 #endif
 
 void avtimer_exit(void);
+void audio_slimslave_exit(void);
 void msm_audio_ion_exit(void);
 void rtac_exit(void);
 void core_exit(void);
@@ -77,6 +68,9 @@ void q6asm_exit(void);
 void afe_exit(void);
 void adm_exit(void);
 void adsp_err_exit(void);
+#ifdef CONFIG_SEC_SND_ADAPTATION
+void sec_soc_platform_exit(void);
+#endif
 
 #ifdef CONFIG_VOICE_MHI
 int voice_mhi_init(void);

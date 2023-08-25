@@ -35,7 +35,7 @@
 	qcom,msm-name = "SDMMAGPIE";
 	interrupt-parent = <&pdc>;
 
-	aliases {
+	aliases: aliases {
 		spi0 = &qupv3_se0_spi;
 		spi1 = &qupv3_se4_spi;
 		i2c0 = &qupv3_se2_i2c;
@@ -465,13 +465,15 @@
 	soc: soc { };
 
 	firmware: firmware {
-		android {
+		android: android {
 			compatible = "android,firmware";
-			vbmeta {
+			shared_meta: vbmeta {
 				compatible = "android,vbmeta";
 				parts = "vbmeta,boot,system,vendor,dtbo";
 			};
-			fstab {
+/* Disabled for VTS. VTS test check if devicetree-dt fstab is or not. If it is, it check metadata. 
+ * It does not match SS style. Because SS does not support dt fstab in Q
+			android_q_fstab: fstab {
 				compatible = "android,fstab";
 				vendor {
 					compatible = "android,vendor";
@@ -482,10 +484,11 @@
 					status = "ok";
 				};
 			};
+*/
 		};
 	};
 
-	reserved-memory {
+	reserved_memory: reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
@@ -496,10 +499,10 @@
 			reg = <0 0x85700000 0 0x600000>;
 		};
 
-		xbl_aop_mem: xbl_aop_mem@85e00000 {
+		xbl_aop_mem: xbl_aop_mem@85d00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0x0 0x85e00000 0x0 0x1ff000>;
+			reg = <0x0 0x85d00000 0x0 0x2ff000>;
 		};
 
 		sec_apps_mem: sec_apps_region@85fff000 {
@@ -629,7 +632,7 @@
 			alloc-ranges = <0 0x00000000 0 0xffffffff>;
 			reusable;
 			alignment = <0 0x400000>;
-			size = <0 0x5c00000>;
+			size = <0 0x8c00000>;
 		};
 
 		cont_splash_memory: cont_splash_region@9c000000 {
@@ -643,7 +646,7 @@
 		};
 
 		dfps_data_memory: dfps_data_region@9d700000 {
-			reg = <0x0 0x9d700000 0x0 0x0100000>;
+			reg = <0x0 0x9e300000 0x0 0x0100000>;
 			label = "dfps_data_region";
 		};
 
@@ -663,6 +666,7 @@
 			linux,cma-default;
 		};
 	};
+
 };
 
 &soc {
@@ -1056,6 +1060,11 @@
 		diag_dload@c8 {
 			compatible = "qcom,msm-imem-diag-dload";
 			reg = <0xc8 200>;
+		};
+
+		upload_cause@66c {
+			compatible = "qcom,msm-imem-upload_cause";
+			reg = <0x66c 4>;
 		};
 	};
 
@@ -1611,6 +1620,7 @@
 	qcom,msm_fastrpc {
 		compatible = "qcom,msm-fastrpc-compute";
 		qcom,rpc-latency-us = <611>;
+ 		qcom,secure-domains = <0x0F>;
 		qcom,adsp-remoteheap-vmid = <22 37>;
 		qcom,fastrpc-adsp-audio-pdr;
 		qcom,fastrpc-adsp-sensors-pdr;
@@ -2346,7 +2356,6 @@
 
 		lanes-per-direction = <1>;
 		dev-ref-clk-freq = <0>; /* 19.2 MHz */
-		spm-level = <5>;
 
 		clock-names =
 			"core_clk",
@@ -2637,8 +2646,8 @@
 		qcom,msm-bus,num-cases = <2>;
 		qcom,msm-bus,num-paths = <1>;
 		qcom,msm-bus,vectors-KBps =
-			<129 512 0 0>,
-			<129 512 0 7000000>;
+		<129 512 0 0>,
+		<129 512 0 7000000>;
 
 		/* Inputs from mss */
 		interrupts-extended = <&pdc GIC_SPI 266 IRQ_TYPE_EDGE_RISING>,
@@ -2726,7 +2735,6 @@
 		vdd-1.8-xo-supply = <&pm6150l_l1>;
 		vdd-1.3-rfa-supply = <&pm6150l_l2>;
 		vdd-3.3-ch0-supply = <&pm6150l_l10>;
-		vdd-3.3-ch1-supply = <&pm6150l_l11>;
 		qcom,vdd-cx-mx-config = <640000 640000>;
 		qcom,smp2p_map_wlan_1_in {
 			interrupts-extended = <&smp2p_wlan_1_in 0 0>,

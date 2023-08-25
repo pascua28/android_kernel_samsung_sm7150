@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -89,8 +89,6 @@ enum wcd9335_codec_event {
 
 enum tasha_on_demand_supply {
 	ON_DEMAND_MICBIAS = 0,
-	ON_DEMAND_TX_SUPPLY,
-	ON_DEMAND_RX_SUPPLY,
 	ON_DEMAND_SUPPLIES_MAX,
 };
 

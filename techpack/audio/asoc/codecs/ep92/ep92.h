@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -77,6 +77,63 @@
 
 #define   EP92_MAX_REGISTER_ADDR                EP92_OTHER_PACKETS_GC_PACKET_2
 
+
+/* EP92 register default values */
+static struct reg_default ep92_reg_defaults[] = {
+	{EP92_BI_VENDOR_ID_0,                   0x17},
+	{EP92_BI_VENDOR_ID_1,                   0x7A},
+	{EP92_BI_DEVICE_ID_0,                   0x94},
+	{EP92_BI_DEVICE_ID_1,                   0xA3},
+	{EP92_BI_VERSION_NUM,                   0x10},
+	{EP92_BI_VERSION_YEAR,                  0x09},
+	{EP92_BI_VERSION_MONTH,                 0x07},
+	{EP92_BI_VERSION_DATE,                  0x06},
+	{EP92_BI_GENERAL_INFO_0,                0x00},
+	{EP92_BI_GENERAL_INFO_1,                0x00},
+	{EP92_BI_GENERAL_INFO_2,                0x00},
+	{EP92_BI_GENERAL_INFO_3,                0x00},
+	{EP92_BI_GENERAL_INFO_4,                0x00},
+	{EP92_BI_GENERAL_INFO_5,                0x00},
+	{EP92_BI_GENERAL_INFO_6,                0x00},
+	{EP92_ISP_MODE_ENTER_ISP,               0x00},
+	{EP92_GENERAL_CONTROL_0,                0x20},
+	{EP92_GENERAL_CONTROL_1,                0x00},
+	{EP92_GENERAL_CONTROL_2,                0x00},
+	{EP92_GENERAL_CONTROL_3,                0x10},
+	{EP92_GENERAL_CONTROL_4,                0x00},
+	{EP92_CEC_EVENT_CODE,                   0x00},
+	{EP92_CEC_EVENT_PARAM_1,                0x00},
+	{EP92_CEC_EVENT_PARAM_2,                0x00},
+	{EP92_CEC_EVENT_PARAM_3,                0x00},
+	{EP92_CEC_EVENT_PARAM_4,                0x00},
+	{EP92_AUDIO_INFO_SYSTEM_STATUS_0,       0x00},
+	{EP92_AUDIO_INFO_SYSTEM_STATUS_1,       0x00},
+	{EP92_AUDIO_INFO_AUDIO_STATUS,          0x00},
+	{EP92_AUDIO_INFO_CHANNEL_STATUS_0,      0x00},
+	{EP92_AUDIO_INFO_CHANNEL_STATUS_1,      0x00},
+	{EP92_AUDIO_INFO_CHANNEL_STATUS_2,      0x00},
+	{EP92_AUDIO_INFO_CHANNEL_STATUS_3,      0x00},
+	{EP92_AUDIO_INFO_CHANNEL_STATUS_4,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_0,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_1,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_2,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_3,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_4,      0x00},
+	{EP92_AUDIO_INFO_ADO_INFO_FRAME_5,      0x00},
+	{EP92_OTHER_PACKETS_HDMI_VS_0,          0x00},
+	{EP92_OTHER_PACKETS_HDMI_VS_1,          0x00},
+	{EP92_OTHER_PACKETS_ACP_PACKET,         0x00},
+	{EP92_OTHER_PACKETS_AVI_INFO_FRAME_0,   0x00},
+	{EP92_OTHER_PACKETS_AVI_INFO_FRAME_1,   0x00},
+	{EP92_OTHER_PACKETS_AVI_INFO_FRAME_2,   0x00},
+	{EP92_OTHER_PACKETS_AVI_INFO_FRAME_3,   0x00},
+	{EP92_OTHER_PACKETS_AVI_INFO_FRAME_4,   0x00},
+	{EP92_OTHER_PACKETS_GC_PACKET_0,        0x00},
+	{EP92_OTHER_PACKETS_GC_PACKET_1,        0x00},
+	{EP92_OTHER_PACKETS_GC_PACKET_2,        0x00},
+};
+
+
 /* shift/masks for register bits
  * GI = General Info
  * GC = General Control
@@ -84,12 +141,6 @@
  */
 #define EP92_GI_ADO_CHF_MASK        0x01
 #define EP92_GI_CEC_ECF_MASK        0x02
-#define EP92_GI_ARC_ON_SHIFT        0
-#define EP92_GI_ARC_ON_MASK         0x01
-#define EP92_GI_EARC_ON_SHIFT       1
-#define EP92_GI_EARC_ON_MASK        0x02
-#define EP92_GI_EARC_SEL_SHIFT      2
-#define EP92_GI_EARC_SEL_MASK       0x04
 #define EP92_GI_TX_HOT_PLUG_SHIFT   7
 #define EP92_GI_TX_HOT_PLUG_MASK    0x80
 #define EP92_GI_VIDEO_LATENCY_SHIFT 0
@@ -97,8 +148,6 @@
 
 #define EP92_GC_POWER_SHIFT      7
 #define EP92_GC_POWER_MASK       0x80
-#define EP92_GC_EARC_EN_SHIFT    6
-#define EP92_GC_EARC_EN_MASK     0x40
 #define EP92_GC_AUDIO_PATH_SHIFT 5
 #define EP92_GC_AUDIO_PATH_MASK  0x20
 #define EP92_GC_CEC_MUTE_SHIFT   1
@@ -107,8 +156,6 @@
 #define EP92_GC_ARC_EN_MASK      0x01
 #define EP92_GC_ARC_DIS_SHIFT    6
 #define EP92_GC_ARC_DIS_MASK     0x40
-#define EP92_GC_EARC_DIS_SHIFT   5
-#define EP92_GC_EARC_DIS_MASK    0x20
 #define EP92_GC_RX_SEL_SHIFT     0
 #define EP92_GC_RX_SEL_MASK      0x07
 #define EP92_GC_CEC_VOLUME_SHIFT 0
@@ -126,28 +173,12 @@
 #define EP92_AI_AVMUTE_MASK      0x20
 #define EP92_AI_LAYOUT_SHIFT     0
 #define EP92_AI_LAYOUT_MASK      0x01
-#define EP92_AI_DSD_RATE_SHIFT   4
-#define EP92_AI_DSD_RATE_MASK    0x30
-#define EP92_AI_EARC_CON_SHIFT   0
-#define EP92_AI_EARC_CON_MASK    0x01
-#define EP92_AI_COMP_ADO_SHIFT   7
-#define EP92_AI_COMP_ADO_MASK    0x80
 #define EP92_AI_HBR_ADO_SHIFT    5
 #define EP92_AI_HBR_ADO_MASK     0x20
-#define EP92_AI_DSD_ADO_SHIFT    4
-#define EP92_AI_DSD_ADO_MASK     0x10
 #define EP92_AI_STD_ADO_SHIFT    3
 #define EP92_AI_STD_ADO_MASK     0x08
 #define EP92_AI_RATE_MASK        0x07
 #define EP92_AI_NPCM_MASK        0x02
-#define EP92_AI_PREEMPH_SHIFT    3
-#define EP92_AI_PREEMPH_MASK     0x38
-#define EP92_AI_EARC_MODE_MASK   0x3b
-#define EP92_AI_EARC_MODE_LPCM_2CH   0x00
-#define EP92_AI_EARC_MODE_LPCM_MCH   0x20
-#define EP92_AI_EARC_MODE_IEC61937   0x02
-#define EP92_AI_EARC_RATE_SHIFT  0
-#define EP92_AI_EARC_RATE_MASK   0xcf
 #define EP92_AI_CH_COUNT_MASK    0x07
 #define EP92_AI_CH_ALLOC_MASK    0xff
 
@@ -181,7 +212,5 @@ enum {
 	EP92_KCTL_CH_ALLOC,
 	EP92_KCTL_MAX
 };
-
-int ep92_set_ext_mclk(struct snd_soc_codec *codec, uint32_t mclk_freq);
 
 #endif /* __EP92_H__ */

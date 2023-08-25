@@ -490,6 +490,9 @@ struct ring_buffer {
 	struct rb_irq_work		irq_work;
 };
 
+typedef struct ring_buffer ring_buffer_t;
+volatile ring_buffer_t *p_ring_buffer;
+
 struct ring_buffer_iter {
 	struct ring_buffer_per_cpu	*cpu_buffer;
 	unsigned long			head;
@@ -1368,6 +1371,9 @@ void
 ring_buffer_free(struct ring_buffer *buffer)
 {
 	int cpu;
+
+	if (!buffer)
+		return;
 
 	cpuhp_state_remove_instance(CPUHP_TRACE_RB_PREPARE, &buffer->node);
 

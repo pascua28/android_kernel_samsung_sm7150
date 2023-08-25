@@ -15,6 +15,7 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/clk.h>
+#include <linux/thermal.h>
 #include <linux/clk-provider.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -46,7 +47,7 @@
 #define NUM_INTERPOLATORS 2
 
 #define WSA_MACRO_MUX_INP_SHFT 0x3
-#define WSA_MACRO_MUX_INP_MASK1 0x38
+#define WSA_MACRO_MUX_INP_MASK1 0x07
 #define WSA_MACRO_MUX_INP_MASK2 0x38
 #define WSA_MACRO_MUX_CFG_OFFSET 0x8
 #define WSA_MACRO_MUX_CFG1_OFFSET 0x4
@@ -56,9 +57,8 @@
 #define WSA_MACRO_RX_PATH_CFG3_OFFSET 0x10
 #define WSA_MACRO_RX_PATH_DSMDEM_OFFSET 0x4C
 #define WSA_MACRO_FS_RATE_MASK 0x0F
-#define WSA_MACRO_EC_MIX_TX0_MASK 0x03
-#define WSA_MACRO_EC_MIX_TX1_MASK 0x18
 
+#define WSA_MACRO_MAX_DMA_CH_PER_PORT 0x2
 
 enum {
 	WSA_MACRO_RX0 = 0,
@@ -101,6 +101,14 @@ enum {
 	INTn_1_INP_SEL_RX3,
 	INTn_1_INP_SEL_DEC0,
 	INTn_1_INP_SEL_DEC1,
+};
+
+enum {
+	INTn_2_INP_SEL_ZERO = 0,
+	INTn_2_INP_SEL_RX0,
+	INTn_2_INP_SEL_RX1,
+	INTn_2_INP_SEL_RX2,
+	INTn_2_INP_SEL_RX3,
 };
 
 struct interp_sample_rate {
@@ -239,6 +247,8 @@ struct wsa_macro_priv {
 	int is_softclip_on[WSA_MACRO_SOFTCLIP_MAX];
 	int softclip_clk_users[WSA_MACRO_SOFTCLIP_MAX];
 	struct wsa_macro_bcl_pmic_params bcl_pmic_params;
+	struct thermal_cooling_device *tcdev;
+	unsigned long thermal_cur_state;
 	int wsa_digital_mute_status[WSA_MACRO_RX_MAX];
 };
 
@@ -591,13 +601,16 @@ static int wsa_macro_set_prim_interpolator_rate(struct snd_soc_dai *dai,
 			inp0_sel = int_mux_cfg0_val & WSA_MACRO_MUX_INP_MASK1;
 			inp1_sel = (int_mux_cfg0_val >>
 					WSA_MACRO_MUX_INP_SHFT) &
-					WSA_MACRO_MUX_INP_MASK2;
+					WSA_MACRO_MUX_INP_MASK1;
 			inp2_sel = (int_mux_cfg1_val >>
 					WSA_MACRO_MUX_INP_SHFT) &
-					WSA_MACRO_MUX_INP_MASK2;
-			if ((inp0_sel == int_1_mix1_inp) ||
-			    (inp1_sel == int_1_mix1_inp) ||
-			    (inp2_sel == int_1_mix1_inp)) {
+					WSA_MACRO_MUX_INP_MASK1;
+			if ((inp0_sel == (int_1_mix1_inp +
+						INTn_1_INP_SEL_RX0)) ||
+			    (inp1_sel == (int_1_mix1_inp +
+						INTn_1_INP_SEL_RX0)) ||
+			    (inp2_sel == int_1_mix1_inp +
+						INTn_1_INP_SEL_RX0)) {
 				int_fs_reg = BOLERO_CDC_WSA_RX0_RX_PATH_CTL +
 					     WSA_MACRO_RX_PATH_OFFSET * j;
 				dev_dbg(wsa_dev,
@@ -649,7 +662,8 @@ static int wsa_macro_set_mix_interpolator_rate(struct snd_soc_dai *dai,
 		for (j = 0; j < NUM_INTERPOLATORS; j++) {
 			int_mux_cfg1_val = snd_soc_read(codec, int_mux_cfg1) &
 							WSA_MACRO_MUX_INP_MASK1;
-			if (int_mux_cfg1_val == int_2_inp) {
+			if (int_mux_cfg1_val == (int_2_inp +
+						INTn_2_INP_SEL_RX0)) {
 				int_fs_reg =
 					BOLERO_CDC_WSA_RX0_RX_PATH_MIX_CTL +
 					WSA_MACRO_RX_PATH_OFFSET * j;
@@ -744,7 +758,7 @@ static int wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 	struct snd_soc_codec *codec = dai->codec;
 	struct device *wsa_dev = NULL;
 	struct wsa_macro_priv *wsa_priv = NULL;
-	u16 val = 0, mask = 0, cnt = 0;
+	unsigned int temp = 0, ch_mask = 0, i = 0;
 
 	if (!wsa_macro_get_data(codec, &wsa_dev, &wsa_priv, __func__))
 		return -EINVAL;
@@ -755,27 +769,22 @@ static int wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 
 	switch (dai->id) {
 	case WSA_MACRO_AIF_VI:
+	case WSA_MACRO_AIF_ECHO:
 		*tx_slot = wsa_priv->active_ch_mask[dai->id];
 		*tx_num = wsa_priv->active_ch_cnt[dai->id];
 		break;
 	case WSA_MACRO_AIF1_PB:
 	case WSA_MACRO_AIF_MIX1_PB:
-		*rx_slot = wsa_priv->active_ch_mask[dai->id];
-		*rx_num = wsa_priv->active_ch_cnt[dai->id];
-		break;
-	case WSA_MACRO_AIF_ECHO:
-		val = snd_soc_read(codec,
-			BOLERO_CDC_WSA_RX_INP_MUX_RX_MIX_CFG0);
-		if (val & WSA_MACRO_EC_MIX_TX1_MASK) {
-			mask |= 0x2;
-			cnt++;
+		for_each_set_bit(temp, &wsa_priv->active_ch_mask[dai->id],
+				WSA_MACRO_RX_MAX) {
+			ch_mask |= (1 << temp);
+			if (++i == WSA_MACRO_MAX_DMA_CH_PER_PORT)
+				break;
 		}
-		if (val & WSA_MACRO_EC_MIX_TX0_MASK) {
-			mask |= 0x1;
-			cnt++;
-		}
-		*tx_slot = mask;
-		*tx_num = cnt;
+		if (ch_mask & 0x0C)
+			ch_mask = ch_mask >> 0x2;
+		*rx_slot = ch_mask;
+		*rx_num = i;
 		break;
 	default:
 		dev_err(wsa_dev, "%s: Invalid AIF\n", __func__);
@@ -817,8 +826,10 @@ static int wsa_macro_digital_mute(struct snd_soc_dai *dai, int mute)
 		if (snd_soc_read(codec, dsm_reg) & 0x01) {
 			if (int_mux_cfg0_val || (int_mux_cfg1_val & 0x38))
 				snd_soc_update_bits(codec, reg, 0x20, 0x20);
-			if (int_mux_cfg1_val & 0x07)
+			if (int_mux_cfg1_val & 0x07) {
+				snd_soc_update_bits(codec, reg, 0x20, 0x20);
 				snd_soc_update_bits(codec, mix_reg, 0x20, 0x20);
+			}
 		}
 	}
 	bolero_wsa_pa_on(wsa_dev);
@@ -1004,7 +1015,7 @@ static int wsa_macro_event_handler(struct snd_soc_codec *codec, u16 event,
 		swrm_wcd_notify(
 			wsa_priv->swr_ctrl_data[0].wsa_swr_pdev,
 			SWR_DEVICE_SSR_UP, NULL);
-		break;
+			break;
 	case BOLERO_MACRO_EVT_CLK_RESET:
 		wsa_macro_mclk_reset(wsa_dev);
 		break;
@@ -1638,6 +1649,11 @@ static int wsa_macro_spk_boost_event(struct snd_soc_dapm_widget *w,
 	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
 	u16 boost_path_ctl, boost_path_cfg1;
 	u16 reg, reg_mix;
+	struct device *wsa_dev = NULL;
+	struct wsa_macro_priv *wsa_priv = NULL;
+
+	if (!wsa_macro_get_data(codec, &wsa_dev, &wsa_priv, __func__))
+		return -EINVAL;
 
 	dev_dbg(codec->dev, "%s %s %d\n", __func__, w->name, event);
 
@@ -1665,7 +1681,8 @@ static int wsa_macro_spk_boost_event(struct snd_soc_dapm_widget *w,
 			snd_soc_update_bits(codec, reg_mix, 0x10, 0x00);
 		break;
 	case SND_SOC_DAPM_POST_PMU:
-		snd_soc_update_bits(codec, reg, 0x10, 0x00);
+		if (!wsa_priv->wsa_digital_mute_status[w->shift])
+			snd_soc_update_bits(codec, reg, 0x10, 0x00);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		snd_soc_update_bits(codec, boost_path_ctl, 0x10, 0x00);
@@ -1827,10 +1844,10 @@ static int wsa_macro_enable_echo(struct snd_soc_dapm_widget *w,
 				BOLERO_CDC_WSA_RX_INP_MUX_RX_MIX_CFG0,
 				0x1 << ec_tx, 0x1 << ec_tx);
 		ec_hq_reg = BOLERO_CDC_WSA_EC_HQ0_EC_REF_HQ_PATH_CTL +
-							0x40 * ec_tx;
+							0x20 * ec_tx;
 		snd_soc_update_bits(codec, ec_hq_reg, 0x01, 0x01);
 		ec_hq_reg = BOLERO_CDC_WSA_EC_HQ0_EC_REF_HQ_CFG0 +
-							0x40 * ec_tx;
+							0x20 * ec_tx;
 		/* default set to 48k */
 		snd_soc_update_bits(codec, ec_hq_reg, 0x1E, 0x08);
 	}
@@ -2127,9 +2144,9 @@ static int wsa_macro_rx_mux_put(struct snd_kcontrol *kcontrol,
 	case 0:
 		if (wsa_priv->active_ch_cnt[aif_rst]) {
 			clear_bit(bit_input,
-				  &wsa_priv->active_ch_mask[aif_rst]);
+				&wsa_priv->active_ch_mask[aif_rst]);
 			wsa_priv->active_ch_cnt[aif_rst]--;
-		}
+		}		
 		break;
 	case 1:
 	case 2:
@@ -2734,9 +2751,6 @@ static int wsa_swrm_clock(void *handle, bool enable)
 					BOLERO_CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
 					0x02, 0x00);
 			wsa_priv->reset_swr = false;
-			regmap_update_bits(regmap,
-				BOLERO_CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
-				0x1C, 0x0C);
 			msm_cdc_pinctrl_select_active_state(
 						wsa_priv->wsa_swr_gpio_p);
 		}
@@ -2764,6 +2778,72 @@ exit:
 	mutex_unlock(&wsa_priv->swr_clk_lock);
 	return ret;
 }
+
+/* Thermal Functions */
+static int wsa_macro_get_max_state(struct thermal_cooling_device *cdev,
+					unsigned long *state)
+{
+	pr_debug("%s: Max_state: 1\n", __func__);
+	*state = 2;
+	return 0;
+}
+
+static int wsa_macro_get_cur_state(struct thermal_cooling_device *cdev,
+					unsigned long *state)
+{
+	struct wsa_macro_priv *wsa_priv = cdev->devdata;
+
+	if (!wsa_priv) {
+		pr_err("%s: cdev->devdata is NULL\n", __func__);
+		return -EINVAL;
+	}
+	*state = wsa_priv->thermal_cur_state;
+
+	pr_debug("%s: thermal current state:%lu\n", __func__, *state);
+	return 0;
+}
+
+static int wsa_macro_set_cur_state(struct thermal_cooling_device *cdev,
+					unsigned long state)
+{
+	struct wsa_macro_priv *wsa_priv = cdev->devdata;
+
+	pr_debug("%s: requested state:%lu\n", __func__, state);
+	if (!wsa_priv) {
+		pr_err("%s: cdev->devdata is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	wsa_priv->thermal_cur_state = state;
+
+	if (wsa_priv->thermal_cur_state == 0x1) {
+		pr_debug("%s: Set codec attenuation to -2dB\n", __func__);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX0_RX_VOL_CTL, 0xFF, 0xFE);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX1_RX_VOL_CTL, 0xFF, 0xFE);
+	} else if (wsa_priv->thermal_cur_state == 0x2) {
+		pr_debug("%s: Set codec attenuation to -5dB\n", __func__);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX0_RX_VOL_CTL, 0xFF, 0xFB);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX1_RX_VOL_CTL, 0xFF, 0xFB);
+	} else {
+		pr_debug("%s: Reset codec attenuation\n", __func__);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX0_RX_VOL_CTL, 0xFF, 0x00);
+		snd_soc_update_bits(wsa_priv->codec,
+			BOLERO_CDC_WSA_RX1_RX_VOL_CTL, 0xFF, 0x00);
+	}
+
+	return 0;
+}
+
+static struct thermal_cooling_device_ops wsa_cooling_ops = {
+	.get_max_state = wsa_macro_get_max_state,
+	.get_cur_state = wsa_macro_get_cur_state,
+	.set_cur_state = wsa_macro_set_cur_state,
+};
 
 static int wsa_macro_init(struct snd_soc_codec *codec)
 {
@@ -2826,6 +2906,18 @@ static int wsa_macro_init(struct snd_soc_codec *codec)
 	wsa_priv->codec = codec;
 	wsa_priv->spkr_gain_offset = WSA_MACRO_GAIN_OFFSET_0_DB;
 	wsa_macro_init_reg(codec);
+	
+	wsa_priv->tcdev = thermal_of_cooling_device_register(
+						wsa_priv->dev->of_node,
+						"wsa", wsa_priv,
+						&wsa_cooling_ops);
+
+	if (IS_ERR(wsa_priv->tcdev)) {
+		dev_err(wsa_dev,
+			"%s: failed to register wsa macro as cooling device\n",
+			__func__);
+		wsa_priv->tcdev = NULL;
+	}
 
 	return 0;
 }
@@ -3073,6 +3165,8 @@ static int wsa_macro_remove(struct platform_device *pdev)
 	mutex_destroy(&wsa_priv->mclk_lock);
 	mutex_destroy(&wsa_priv->swr_clk_lock);
 	mutex_destroy(&wsa_priv->clk_lock);
+	if (wsa_priv->tcdev)
+		thermal_cooling_device_unregister(wsa_priv->tcdev);
 	return 0;
 }
 

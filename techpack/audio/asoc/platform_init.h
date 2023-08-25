@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2017, 2019 The Linux Foundation. All rights reserved.
+Copyright (c) 2017, The Linux Foundation. All rights reserved.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 and
@@ -18,6 +18,7 @@ int msm_compress_dsp_init(void);
 int msm_fe_dai_init(void);
 int msm_dai_q6_hdmi_init(void);
 int msm_dai_q6_init(void);
+int msm_dai_slim_init(void);
 int msm_dai_stub_init(void);
 int msm_lsm_client_init(void);
 int msm_pcm_afe_init(void);
@@ -33,21 +34,6 @@ int msm_pcm_voip_init(void);
 int msm_transcode_loopback_init(void);
 int msm_cpe_lsm_init(void);
 
-#ifndef CONFIG_QTI_GVM
-int msm_dai_slim_init(void);
-void msm_dai_slim_exit(void);
-#else
-static inline int msm_dai_slim_init(void)
-{
-	return 0;
-}
-
-static inline void msm_dai_slim_exit(void)
-{
-	return;
-}
-#endif
-
 void msm_cpe_lsm_exit(void);
 void msm_transcode_loopback_exit(void);
 void msm_pcm_voip_exit(void);
@@ -62,6 +48,7 @@ void msm_pcm_dtmf_exit(void);
 void msm_pcm_afe_exit(void);
 void msm_lsm_client_exit(void);
 void msm_dai_stub_exit(void);
+void msm_dai_slim_exit(void);
 void msm_dai_q6_exit(void);
 void msm_dai_q6_hdmi_exit(void);
 void msm_fe_dai_exit(void);

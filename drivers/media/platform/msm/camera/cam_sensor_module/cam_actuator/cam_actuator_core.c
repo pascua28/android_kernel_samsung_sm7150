@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,15 +19,24 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#if defined(CONFIG_SAMSUNG_HW_SOFTLANDING)
+#define ACTUATOR_IDLE 0x0
+#define ACTUATOR_BUSY 0x1
+#endif
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+#include "cam_sensor_i2c.h"
+#endif
+
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
 	int rc = 0;
 
-	power_info->power_setting_size = 1;
+	power_info->power_setting_size = 2;
 	power_info->power_setting =
 		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		kzalloc(sizeof(struct cam_sensor_power_setting) * MAX_POWER_CONFIG,
 			GFP_KERNEL);
 	if (!power_info->power_setting)
 		return -ENOMEM;
@@ -35,21 +44,30 @@ int32_t cam_actuator_construct_default_power_setting(
 	power_info->power_setting[0].seq_type = SENSOR_VAF;
 	power_info->power_setting[0].seq_val = CAM_VAF;
 	power_info->power_setting[0].config_val = 1;
-	power_info->power_setting[0].delay = 2;
+	power_info->power_setting[0].delay = 1;
 
-	power_info->power_down_setting_size = 1;
+	power_info->power_setting[1].seq_type = SENSOR_VIO;
+	power_info->power_setting[1].seq_val = CAM_VIO;
+	power_info->power_setting[1].config_val = 1;
+	power_info->power_setting[1].delay = 10;
+
+	power_info->power_down_setting_size = 2;
 	power_info->power_down_setting =
 		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		kzalloc(sizeof(struct cam_sensor_power_setting) * MAX_POWER_CONFIG,
 			GFP_KERNEL);
 	if (!power_info->power_down_setting) {
 		rc = -ENOMEM;
 		goto free_power_settings;
 	}
 
-	power_info->power_down_setting[0].seq_type = SENSOR_VAF;
-	power_info->power_down_setting[0].seq_val = CAM_VAF;
+	power_info->power_down_setting[0].seq_type = SENSOR_VIO;
+	power_info->power_down_setting[0].seq_val = CAM_VIO;
 	power_info->power_down_setting[0].config_val = 0;
+
+	power_info->power_down_setting[1].seq_type = SENSOR_VAF;
+	power_info->power_down_setting[1].seq_val = CAM_VAF;
+	power_info->power_down_setting[1].config_val = 0;
 
 	return rc;
 
@@ -60,7 +78,7 @@ free_power_settings:
 	return rc;
 }
 
-static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
+int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 {
 	int rc = 0;
 	struct cam_hw_soc_info  *soc_info =
@@ -108,12 +126,20 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 
 	power_info->dev = soc_info->dev;
 
+	CAM_INFO(CAM_ACTUATOR, "POWER UP ABOUT TO CALL");
 	rc = cam_sensor_core_power_up(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR,
 			"failed in actuator power up rc %d", rc);
 		return rc;
 	}
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	//skip actuator power up and cci1 init , sensor has been power up and ois has init cci1 master 1
+	a_ctrl->io_master_info.cci_client->cci_subdev =
+	cam_cci_get_subdev(a_ctrl->io_master_info.cci_client->cci_device);	
+	return rc;
+#endif
 
 	rc = camera_io_init(&a_ctrl->io_master_info);
 	if (rc < 0)
@@ -122,7 +148,254 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 	return rc;
 }
 
-static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
+#if defined(CONFIG_SAMSUNG_HW_SOFTLANDING)
+static int32_t cam_actuator_i2c_read(struct cam_actuator_ctrl_t *a_ctrl, uint32_t addr,
+		uint32_t *data,
+        enum camera_sensor_i2c_type addr_type,
+        enum camera_sensor_i2c_type data_type)
+{
+	uint32_t rc = 0;
+
+	if (a_ctrl == NULL) {
+		CAM_ERR(CAM_ACTUATOR, "failed. a_ctrl is NULL");
+		return -EINVAL;
+	}
+
+	rc = camera_io_dev_read(&a_ctrl->io_master_info, addr,
+		(uint32_t *)data, addr_type, data_type);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "Failed to read 0x%x", addr);
+	}
+
+	return rc;
+}
+
+static int32_t cam_actuator_i2c_write(struct cam_actuator_ctrl_t *a_ctrl, uint32_t reg_addr, 
+		uint32_t reg_data, uint32_t data_type)
+{
+	struct cam_sensor_i2c_reg_setting reg_setting;
+	struct cam_sensor_i2c_reg_array reg_arr;
+	int rc = 0;
+
+	memset(&reg_setting, 0, sizeof(reg_setting));
+	memset(&reg_arr, 0, sizeof(reg_arr));
+
+	if (a_ctrl == NULL) {
+		CAM_ERR(CAM_ACTUATOR, "failed. a_ctrl is NULL");
+		return -EINVAL;
+	}
+
+	reg_setting.size = 1;
+	reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	reg_setting.data_type = data_type;
+	reg_setting.reg_setting = &reg_arr;
+
+	reg_arr.reg_addr = reg_addr;
+	reg_arr.reg_data = reg_data;
+	rc = camera_io_dev_write(&a_ctrl->io_master_info, &reg_setting);
+
+	if (rc < 0) {
+ 		CAM_ERR(CAM_ACTUATOR, "Failed to random write I2C settings for reg:0x%x data:0x%x err:%d", reg_addr, reg_data, rc);
+	}
+
+	return rc;
+}
+
+static int32_t cam_actuator_get_status(struct cam_actuator_ctrl_t *a_ctrl, uint16_t *info)
+{
+	int32_t rc = 0;
+	uint32_t val = 0;
+
+	rc = cam_actuator_i2c_read(a_ctrl, 0x05, &val, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "get status i2c read fail:%d", rc);
+		return -EINVAL;
+	}
+
+	*info = ((val & 0x03) == 0) ? ACTUATOR_IDLE : ACTUATOR_BUSY;
+
+	return rc;
+}
+
+static void cam_actuator_busywait(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	uint16_t info = 0, status_check_count = 0;
+	int32_t rc = 0;
+
+	CAM_INFO(CAM_ACTUATOR, "before to check status");
+	do {
+		rc = cam_actuator_get_status(a_ctrl, &info);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "cam_actuator_get_status failed:%d", rc);
+		}
+		if  (info) {
+			CAM_DBG(CAM_ACTUATOR, "Busy");
+#if defined(CONFIG_SAMSUNG_ACTUATOR_DW9817)
+			msleep(5);
+#elif defined(CONFIG_SAMSUNG_ACTUATOR_DW9808) || defined(CONFIG_SAMSUNG_ACTUATOR_FP5529)
+			msleep(10);
+#endif
+		}
+	       status_check_count++;
+	} while (info && status_check_count < 8);
+
+	if(status_check_count == 8)
+	   CAM_ERR(CAM_ACTUATOR, "status check failed");
+	else
+	   CAM_INFO(CAM_ACTUATOR, "Idle");
+}
+
+
+#if defined(CONFIG_SAMSUNG_ACTUATOR_DW9817)
+static int32_t cam_actuator_do_soft_landing(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	uint32_t pos1, pos2;
+	uint32_t position;
+	uint32_t reg_data;
+	int32_t interval = 50;
+	int32_t i;
+	CAM_INFO(CAM_ACTUATOR, "cam_actuator_do_soft_landing() Entry ");
+
+	// Check if IC is off
+	cam_actuator_busywait(a_ctrl);
+	rc = cam_actuator_i2c_read(a_ctrl, 0x02, &reg_data, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "IC status - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	if ((reg_data & 0x01) == 0x01) {
+		CAM_ERR(CAM_ACTUATOR, "park lens skip for dev:0x%x reg[0x02]:0x%x", a_ctrl->io_master_info.client->addr, reg_data);
+		return rc;
+	}	
+
+	// read DAC value to get position of lens
+	rc = cam_actuator_i2c_read(a_ctrl, 0x03, &pos1, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "det pos1 - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	rc = cam_actuator_i2c_read(a_ctrl, 0x04, &pos2, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "det pos2 - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	// PRESET initial position
+	pos1 = pos1 & 0x03;
+	position = ((uint16_t)pos1 << 8) | pos2;
+
+	interval = (int32_t) (512 - position) / 3;
+
+	CAM_INFO(CAM_ACTUATOR, "current position:%d ", position);
+	CAM_INFO(CAM_ACTUATOR, "interval:%d ", interval);
+
+	for(i = 0; i < 3; i++) {
+		position += interval;
+		rc = cam_actuator_i2c_write(a_ctrl, 0x03, position, CAMERA_SENSOR_I2C_TYPE_WORD);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "preset register - i2c write fail err:%d", rc);
+			return -EINVAL;
+		}
+
+		cam_actuator_busywait(a_ctrl);
+		CAM_ERR(CAM_ACTUATOR, "current position is set to :%d ", position);
+	}
+
+	CAM_DBG(CAM_ACTUATOR, "cam_actuator_do_soft_landing() Exit ");
+	return rc;
+}
+#endif
+
+#if defined(CONFIG_SAMSUNG_ACTUATOR_DW9808) || defined(CONFIG_SAMSUNG_ACTUATOR_FP5529)
+static int32_t cam_actuator_do_soft_landing(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	uint32_t pos1, pos2;
+	uint32_t position;
+	uint32_t reg_data;
+
+	CAM_INFO(CAM_ACTUATOR, "cam_actuator_do_soft_landing() Entry ");
+
+	// Check if IC is off
+	cam_actuator_busywait(a_ctrl);
+	rc = cam_actuator_i2c_read(a_ctrl, 0x02, &reg_data, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "IC status - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	if ((reg_data & 0x01) == 0x01) {
+		CAM_ERR(CAM_ACTUATOR, "park lens skip for dev:0x%x reg[0x02]:0x%x", a_ctrl->io_master_info.client->addr, reg_data);
+		return rc;
+	}	
+
+	// read DAC value to get position of lens
+	rc = cam_actuator_i2c_read(a_ctrl, 0x03, &pos1, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "det pos1 - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	rc = cam_actuator_i2c_read(a_ctrl, 0x04, &pos2, CAMERA_SENSOR_I2C_TYPE_BYTE, CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "det pos2 - i2c read fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	// PRESET initial position
+	pos1 = pos1 & 0x03;
+	position = ((uint16_t)pos1 << 8) | pos2;
+
+	CAM_INFO(CAM_ACTUATOR, "current position:%d ", position);
+
+	/*Max position is 1023, keep half of max. lens position*/
+	if( position > 512 ) {
+		position = 512;
+
+		rc = cam_actuator_i2c_write(a_ctrl, 0x03, position - 1, CAMERA_SENSOR_I2C_TYPE_WORD);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR, "preset register - i2c write fail err:%d", rc);
+			return -EINVAL;
+		}
+
+		cam_actuator_busywait(a_ctrl);
+		CAM_INFO(CAM_ACTUATOR, "current position is set to :%d ", position);
+	}
+	rc = cam_actuator_i2c_write(a_ctrl, 0x0A,  ((position >> 1) - 1), CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "preset register - i2c write fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	CAM_INFO(CAM_ACTUATOR, "preset initial position:%d ", position);
+
+	// NRC Time Setting
+	cam_actuator_i2c_write(a_ctrl, 0x0C, 0x85,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "nrc timing issue- i2c write fail err:%d", rc);
+		return -EINVAL;
+	}
+
+	// Enable - softlanding
+	cam_actuator_i2c_write(a_ctrl, 0x0B, 0x01,CAMERA_SENSOR_I2C_TYPE_BYTE);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "softlanding register configuration failed, rc:%d", rc);
+		return -EINVAL;
+	}
+
+	// Check if busy -> wait
+	cam_actuator_busywait(a_ctrl);
+	CAM_DBG(CAM_ACTUATOR, "cam_actuator_do_soft_landing() Exit ");
+
+	return rc;
+}
+#endif
+#endif
+
+int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 {
 	int32_t rc = 0;
 	struct cam_sensor_power_ctrl_t *power_info;
@@ -134,6 +407,14 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_SAMSUNG_HW_SOFTLANDING)
+	rc = cam_actuator_do_soft_landing(a_ctrl);
+	if (rc < 0) {
+		CAM_ERR(CAM_ACTUATOR, "actuator soft landing is failed:%d", rc);
+		// Even if Soft landing fails, we must Power_down
+	}
+#endif
+
 	soc_private =
 		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
 	power_info = &soc_private->power_info;
@@ -143,11 +424,16 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 		CAM_ERR(CAM_ACTUATOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
+	CAM_INFO(CAM_ACTUATOR, "ABOUT TO POWER DOWN at slot:%d", soc_info->index);
 	rc = cam_sensor_util_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR, "power down the core is failed:%d", rc);
 		return rc;
 	}
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	return rc;
+#endif
 
 	camera_io_release(&a_ctrl->io_master_info);
 
@@ -231,12 +517,14 @@ int32_t cam_actuator_slaveInfo_pkt_parser(struct cam_actuator_ctrl_t *a_ctrl,
 			a_ctrl->cci_i2c_master;
 		a_ctrl->io_master_info.cci_client->i2c_freq_mode =
 			i2c_info->i2c_freq_mode;
-		a_ctrl->io_master_info.cci_client->sid =
-			i2c_info->slave_addr >> 1;
+		if (i2c_info->slave_addr > 0)
+			a_ctrl->io_master_info.cci_client->sid =
+				i2c_info->slave_addr >> 1;
 		CAM_DBG(CAM_ACTUATOR, "Slave addr: 0x%x Freq Mode: %d",
 			i2c_info->slave_addr, i2c_info->i2c_freq_mode);
 	} else if (a_ctrl->io_master_info.master_type == I2C_MASTER) {
-		a_ctrl->io_master_info.client->addr = i2c_info->slave_addr;
+		if (i2c_info->slave_addr > 0)
+			a_ctrl->io_master_info.client->addr = i2c_info->slave_addr;
 		CAM_DBG(CAM_ACTUATOR, "Slave addr: 0x%x", i2c_info->slave_addr);
 	} else {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Master type: %d",
@@ -252,6 +540,10 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 {
 	struct i2c_settings_list *i2c_list;
 	int32_t rc = 0;
+
+#if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
+	struct cam_hw_param *hw_param = NULL;
+#endif
 
 	if (a_ctrl == NULL || i2c_set == NULL) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -272,6 +564,61 @@ int32_t cam_actuator_apply_settings(struct cam_actuator_ctrl_t *a_ctrl,
 			CAM_ERR(CAM_ACTUATOR,
 				"Failed to apply settings: %d",
 				rc);
+#if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
+			if ((rc < 0) && (i2c_list->i2c_settings.reg_setting->reg_data == 0x0)) {
+				if (a_ctrl != NULL) {
+					switch (a_ctrl->soc_info.index) {
+					case CAMERA_0:
+						if (!msm_is_sec_get_rear_hw_param(&hw_param)) {
+							if (hw_param != NULL) {
+								CAM_ERR(CAM_HWB, "[R][AF] Err\n");
+								hw_param->i2c_af_err_cnt++;
+								hw_param->need_update_to_file = TRUE;
+							}
+						}
+						break;
+
+					case CAMERA_1:
+						if (!msm_is_sec_get_front_hw_param(&hw_param)) {
+							if (hw_param != NULL) {
+								CAM_ERR(CAM_HWB, "[F][AF] Err\n");
+								hw_param->i2c_af_err_cnt++;
+								hw_param->need_update_to_file = TRUE;
+							}
+						}
+						break;
+
+#if defined(CONFIG_SAMSUNG_REAR_TRIPLE)
+					case CAMERA_2:
+						if (!msm_is_sec_get_rear3_hw_param(&hw_param)) {
+							if (hw_param != NULL) {
+								CAM_ERR(CAM_HWB, "[R3][AF] Err\n");
+								hw_param->i2c_af_err_cnt++;
+								hw_param->need_update_to_file = TRUE;
+							}
+						}
+						break;
+#endif
+
+#if defined(CONFIG_SAMSUNG_SECURE_CAMERA)
+					case CAMERA_3:
+						if (!msm_is_sec_get_iris_hw_param(&hw_param)) {
+							if (hw_param != NULL) {
+								CAM_ERR(CAM_HWB, "[I][AF] Err\n");
+								hw_param->i2c_af_err_cnt++;
+								hw_param->need_update_to_file = TRUE;
+							}
+						}
+						break;
+#endif
+
+					default:
+						CAM_ERR(CAM_HWB, "[NON][AF] Unsupport\n");
+						break;
+					}
+				}
+			}
+#endif
 		} else {
 			CAM_DBG(CAM_ACTUATOR,
 				"Success:request ID: %d",
@@ -428,6 +775,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 	struct cam_cmd_buf_desc   *cmd_desc = NULL;
 	struct cam_actuator_soc_private *soc_private = NULL;
 	struct cam_sensor_power_ctrl_t  *power_info = NULL;
+	int32_t retry = 0;
 
 	if (!a_ctrl || !arg) {
 		CAM_ERR(CAM_ACTUATOR, "Invalid Args");
@@ -588,8 +936,19 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			a_ctrl->cam_act_state = CAM_ACTUATOR_CONFIG;
 		}
 
-		rc = cam_actuator_apply_settings(a_ctrl,
-			&a_ctrl->i2c_data.init_settings);
+		for (retry = 0; retry < 3; retry++)
+		{
+			rc = cam_actuator_apply_settings(a_ctrl,
+				&a_ctrl->i2c_data.init_settings);
+			if (rc < 0) {
+				CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings, retry %d", retry);
+				cam_actuator_power_down(a_ctrl);
+				msleep(20);
+				cam_actuator_power_up(a_ctrl);
+			} else {
+				break;
+			}
+		}
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			goto rel_pkt_buf;
@@ -768,6 +1127,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 		struct cam_sensor_acquire_dev actuator_acq_dev;
 		struct cam_create_dev_hdl bridge_params;
 
+		CAM_INFO(CAM_ACTUATOR, "CAM_ACQUIRE_DEV");
 		if (a_ctrl->bridge_intf.device_hdl != -1) {
 			CAM_ERR(CAM_ACTUATOR, "Device is already acquired");
 			rc = -EINVAL;
@@ -786,7 +1146,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 		bridge_params.v4l2_sub_dev_flag = 0;
 		bridge_params.media_entity_flag = 0;
 		bridge_params.priv = a_ctrl;
-		bridge_params.dev_id = CAM_ACTUATOR;
+
 		actuator_acq_dev.device_handle =
 			cam_create_device_hdl(&bridge_params);
 		a_ctrl->bridge_intf.device_hdl = actuator_acq_dev.device_handle;
@@ -807,6 +1167,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	}
 		break;
 	case CAM_RELEASE_DEV: {
+		CAM_INFO(CAM_ACTUATOR, "CAM_RELEASE_DEV");
 		if (a_ctrl->cam_act_state == CAM_ACTUATOR_START) {
 			rc = -EINVAL;
 			CAM_WARN(CAM_ACTUATOR,
@@ -870,6 +1231,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	}
 		break;
 	case CAM_START_DEV: {
+		CAM_INFO(CAM_ACTUATOR, "CAM_START_DEV");
 		if (a_ctrl->cam_act_state != CAM_ACTUATOR_CONFIG) {
 			rc = -EINVAL;
 			CAM_WARN(CAM_ACTUATOR,
@@ -884,6 +1246,7 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	case CAM_STOP_DEV: {
 		struct i2c_settings_array *i2c_set = NULL;
 		int i;
+		CAM_INFO(CAM_ACTUATOR, "CAM_STOP_DEV");
 
 		if (a_ctrl->cam_act_state != CAM_ACTUATOR_START) {
 			rc = -EINVAL;
@@ -1005,3 +1368,56 @@ int32_t cam_actuator_flush_request(struct cam_req_mgr_flush_request *flush_req)
 	mutex_unlock(&(a_ctrl->actuator_mutex));
 	return rc;
 }
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+/***** for only ois selftest , set the actuator initial position to 256 *****/
+int16_t cam_actuator_move_for_ois_test(struct cam_actuator_ctrl_t *a_ctrl)
+{
+	struct cam_sensor_i2c_reg_setting reg_setting;
+	struct cam_sensor_i2c_reg_array reg_arr;
+	int rc = 0;
+
+	memset(&reg_setting, 0, sizeof(reg_setting));
+	memset(&reg_arr, 0, sizeof(reg_arr));
+	if (a_ctrl == NULL) {
+		CAM_ERR(CAM_ACTUATOR, "failed. a_ctrl is NULL");
+		return -EINVAL;
+	}
+
+	reg_setting.size = 1;
+	reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	reg_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+	reg_setting.reg_setting = &reg_arr;
+
+	/* SET Position MSB - 0x00 */
+	reg_arr.reg_addr = 0x00;
+	reg_arr.reg_data = 0x80;
+	rc = camera_io_dev_write(&a_ctrl->io_master_info,
+		&reg_setting);
+	if (rc < 0)
+		CAM_ERR(CAM_ACTUATOR,
+			"Failed to random write I2C settings: %d",
+			rc);
+
+	/* SET Position LSB - 0x00 */
+	reg_arr.reg_addr = 0x01;
+	reg_arr.reg_data = 0x00;
+	rc = camera_io_dev_write(&a_ctrl->io_master_info,
+		&reg_setting);
+	if (rc < 0)
+		CAM_ERR(CAM_ACTUATOR,
+			"Failed to random write I2C settings: %d",
+			rc);
+
+	/* SET Active Mode */
+	reg_arr.reg_addr = 0x02;
+	reg_arr.reg_data = 0x00;
+	rc = camera_io_dev_write(&a_ctrl->io_master_info,
+		&reg_setting);
+	if (rc < 0)
+		CAM_ERR(CAM_ACTUATOR,
+			"Failed to random write I2C settings: %d",
+			rc);
+
+	return rc;
+}
+#endif

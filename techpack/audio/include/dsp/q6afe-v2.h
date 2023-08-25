@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2020, 2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -41,11 +41,7 @@
 #define RT_PROXY_DAI_001_TX	0xF0
 #define RT_PROXY_DAI_002_RX	0xF1
 #define RT_PROXY_DAI_002_TX	0xE1
-#define RT_PROXY_DAI_003_RX	0xE2
-#define RT_PROXY_DAI_003_TX	0xF2
 #define VIRTUAL_ID_TO_PORTID(val) ((val & 0xF) | 0x2000)
-#define PORTID_TO_IDX(val)	((val & 0xF) >> 1)
-#define NUM_PROXY_PORTS	2
 
 #define AFE_CLK_VERSION_V1    1
 #define AFE_CLK_VERSION_V2    2
@@ -54,11 +50,6 @@
 #define AFE_API_VERSION_V3		3
 /* for VAD and Island mode */
 #define AFE_API_VERSION_V4		4
-/* for VAD enable */
-#define AFE_API_VERSION_V6		6
-/* for external mclk dynamic switch */
-#define AFE_API_VERSION_V8		8
-#define AFE_API_VERSION_V9		9
 
 typedef int (*routing_cb)(int port);
 
@@ -271,18 +262,12 @@ enum {
 	/* IDX 185 to 186 */
 	IDX_SLIMBUS_9_RX,
 	IDX_SLIMBUS_9_TX,
-	/* IDX 187 -> 189 */
+	/* IDX 187 -> 188 */
 	IDX_AFE_PORT_ID_SENARY_PCM_RX,
 	IDX_AFE_PORT_ID_SENARY_PCM_TX,
-	IDX_AFE_LOOPBACK_TX,
-	/* IDX 190-> 192 */
-	IDX_AFE_PORT_ID_PRIMARY_META_MI2S_RX,
-	IDX_AFE_PORT_ID_SECONDARY_META_MI2S_RX,
-	IDX_HDMI_RX_MS,
-	/* IDX 193 */
-	IDX_VOICE2_RECORD_RX,
-	/* IDX 194 */
+	/* IDX 189 -> 190 */
 	IDX_RT_PROXY_PORT_002_RX,
+	IDX_RT_PROXY_PORT_002_TX,
 	AFE_MAX_PORTS
 };
 
@@ -309,31 +294,13 @@ struct vad_config {
 	u32 pre_roll;
 };
 
-enum afe_mclk_src_id {
-	MCLK_SRC_INT = 0x00,
-	MCLK_SRC_EXT_0 = 0x01,
-	MCLK_SRC_MAX,
-};
-
-enum afe_mclk_freq {
-	MCLK_FREQ_MIN = 0,
-	MCLK_FREQ_11P2896_MHZ = MCLK_FREQ_MIN,
-	MCLK_FREQ_12P288_MHZ,
-	MCLK_FREQ_16P384_MHZ,
-	MCLK_FREQ_22P5792_MHZ,
-	MCLK_FREQ_24P576_MHZ,
-	MCLK_FREQ_MAX,
-};
-
-#define Q6AFE_EXT_MCLK_FREQ_DEFAULT 0
-
 struct afe_audio_buffer {
 	dma_addr_t phys;
 	void       *data;
 	uint32_t   used;
 	uint32_t   size;/* size of buffer */
 	uint32_t   actual_size; /* actual number of bytes read by DSP */
-	void       *mem_handle;
+	struct     dma_buf *dma_buf;
 };
 
 struct afe_audio_port_data {
@@ -378,7 +345,6 @@ int afe_set_display_stream(u16 rx_port_id, u32 stream_idx, u32 ctl_idx);
 int afe_loopback_gain(u16 port_id, u16 volume);
 int afe_validate_port(u16 port_id);
 int afe_get_port_index(u16 port_id);
-int afe_get_port_id(u16 port_idx);
 int afe_get_topology(int port_id);
 int afe_start_pseudo_port(u16 port_id);
 int afe_stop_pseudo_port(u16 port_id);
@@ -402,7 +368,7 @@ int afe_unregister_get_events(u16 port_id);
 int afe_rt_proxy_port_write(phys_addr_t buf_addr_p,
 			u32 mem_map_handle, int bytes);
 int afe_rt_proxy_port_read(phys_addr_t buf_addr_p,
-			u32 mem_map_handle, u16 port_id, int bytes);
+			u32 mem_map_handle, int bytes);
 void afe_set_cal_mode(u16 port_id, enum afe_cal_mode afe_cal_mode);
 void afe_set_vad_cfg(u32 vad_enable, u32 preroll_config,
 		     u32 port_id);
@@ -415,17 +381,17 @@ int afe_port_start_v2(u16 port_id, union afe_port_config *afe_config,
 		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
 		      struct afe_enc_config *enc_config,
 		      struct afe_dec_config *dec_config);
-int afe_port_start_v3(u16 port_id, union afe_port_config *afe_config,
-		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
-		      struct afe_enc_config *enc_config,
-		      struct afe_dec_config *dec_config,
-		      struct afe_ttp_config *ttp_config);
 int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 	int l_ch, int r_ch, u32 enable);
 int afe_spk_prot_get_calib_data(struct afe_spkr_prot_get_vi_calib *calib);
 int afe_port_stop_nowait(int port_id);
 int afe_apply_gain(u16 port_id, u16 gain);
 int afe_q6_interface_prepare(void);
+int afe_q6_update_dyn_bitrate(uint32_t bitrate);
+int afe_q6_slimbus_update_dyn_bitrate(uint32_t bitrate);
+int afe_q6_update_mtu(int mtu);
+int afe_q6_update_a2dp_suspend(int a2dp_suspend);
+int afe_q6_update_enc_format(uint32_t enc_format);
 int afe_get_port_type(u16 port_id);
 int q6afe_audio_client_buf_alloc_contiguous(unsigned int dir,
 			struct afe_audio_client *ac,
@@ -479,8 +445,7 @@ int afe_set_aanc_noise_level(int val);
 int afe_port_group_set_param(u16 group_id,
 	union afe_port_group_config *afe_group_config);
 int afe_port_group_enable(u16 group_id,
-	union afe_port_group_config *afe_group_config, u16 enable,
-	struct afe_param_id_tdm_lane_cfg *lane_cfg);
+	union afe_port_group_config *afe_group_config, u16 enable);
 int afe_unmap_rtac_block(uint32_t *mem_map_handle);
 int afe_map_rtac_block(struct rtac_cal_block_data *cal_block);
 int afe_send_slot_mapping_cfg(
@@ -499,32 +464,16 @@ int afe_get_sp_rx_tmax_xmax_logging_data(
 		u16 port_id);
 int afe_cal_init_hwdep(void *card);
 int afe_send_port_island_mode(u16 port_id);
-int afe_send_port_vad_cfg_params(u16 port_id);
 int afe_send_cmd_wakeup_register(void *handle, bool enable);
 void afe_register_wakeup_irq_callback(
 	void (*afe_cb_wakeup_irq)(void *handle));
-int afe_get_doa_tracking_mon(u16 port_id,
-	struct doa_tracking_mon_param *doa_tracking_data);
-int afe_set_pll_clk_drift(u16 port_id, int32_t set_clk_drift,
-			  uint32_t clk_reset);
-int afe_set_clk_id(u16 port_id, uint32_t clk_id);
-
-int afe_set_mclk_src_cfg(u16 port_id, uint32_t mclk_src_id, uint32_t mclk_freq);
-
-typedef int (*afe_enable_mclk_and_get_info_cb_func) (void *private_data,
-			uint32_t enable, uint32_t mclk_freq,
-			struct afe_param_id_clock_set_v2_t *dyn_mclk_cfg);
-
-int afe_register_ext_mclk_cb(afe_enable_mclk_and_get_info_cb_func fn1,
-				void *private_data);
-void afe_unregister_ext_mclk_cb(void);
+void afe_set_lsm_afe_port_id(int idx, int lsm_port);
 
 #define AFE_LPASS_CORE_HW_BLOCK_ID_NONE                        0
 #define AFE_LPASS_CORE_HW_BLOCK_ID_AVTIMER                     2
 #define AFE_LPASS_CORE_HW_MACRO_BLOCK                          3
 
-/* Handles audio-video timer (avtimer) and BTSC vote requests from clients.
- */
+/* Handles audio-video timer (avtimer) and BTSC vote requests from clients */
 #define AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST            0x000100f4
 
 struct afe_cmd_remote_lpass_core_hw_vote_request {

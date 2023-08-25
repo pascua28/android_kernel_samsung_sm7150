@@ -329,6 +329,10 @@ enum {
 	RX_MACRO_AIF3_CAP,
 	RX_MACRO_MAX_AIF_CAP_DAIS
 };
+
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+static int wcd_impedance_offset;
+#endif
 /*
  * @dev: rx macro device pointer
  * @comp_enabled: compander enable mixer value set
@@ -656,6 +660,61 @@ static struct snd_soc_dai_driver rx_macro_dai[] = {
 	},
 };
 
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+static int wcd_impedance_vol_get(struct snd_kcontrol *kcontrol,
+		      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct soc_mixer_control *mc =
+	    (struct soc_mixer_control *)kcontrol->private_value;
+	unsigned int reg = mc->reg;
+	unsigned int shift = mc->shift;
+	int max = mc->max;
+	int min = mc->min;
+	unsigned int mask = (1 << (fls(min + max) - 1)) - 1;
+	unsigned int val;
+	int ret;
+
+	ret = snd_soc_component_read(component, reg, &val);
+	if (ret < 0)
+		return ret;
+
+	ucontrol->value.integer.value[0] = ((val >> shift) - min) & mask;
+
+	return 0;
+}
+
+static int wcd_impedance_vol_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct soc_mixer_control *mc =
+		(struct soc_mixer_control *)kcontrol->private_value;	
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
+	unsigned int reg = mc->reg;
+	unsigned int shift = mc->shift;
+	int min = mc->min;
+	int max = mc->max;
+	unsigned int mask = (1U << (fls(min + max) - 1)) - 1;
+	unsigned int val, val_mask;
+	int ret;
+
+	val = (ucontrol->value.integer.value[0] + min) & mask;
+
+	pr_info("%s impedance_offset %d\n", __func__, wcd_impedance_offset);
+
+	val += wcd_impedance_offset;
+	val = val << shift;
+
+	val_mask = mask << shift;
+
+	ret = snd_soc_update_bits(codec, reg, val_mask, val);
+	if (ret < 0)
+		return ret;
+
+	return ret;
+}
+#endif
+
 static int get_impedance_index(int imped)
 {
 	int i = 0;
@@ -683,6 +742,16 @@ ret:
 			__func__, imped_index[i].index);
 	return imped_index[i].index;
 }
+
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+static void sec_wcd_imp_offset(struct snd_soc_codec *codec,
+					   int imped)
+{
+	wcd_impedance_offset = imped;
+	pr_info("%s: selected impedance offset = %d\n",
+			__func__, wcd_impedance_offset);
+}
+#endif
 
 /*
  * rx_macro_wcd_clsh_imped_config -
@@ -831,9 +900,9 @@ static int rx_macro_set_prim_interpolator_rate(struct snd_soc_dai *dai,
 			inp0_sel = int_mux_cfg0_val & 0x0F;
 			inp1_sel = (int_mux_cfg0_val >> 4) & 0x0F;
 			inp2_sel = (int_mux_cfg1_val >> 4) & 0x0F;
-			if ((inp0_sel == int_1_mix1_inp) ||
-			    (inp1_sel == int_1_mix1_inp) ||
-			    (inp2_sel == int_1_mix1_inp)) {
+			if ((inp0_sel == int_1_mix1_inp + INTn_1_INP_SEL_RX0) ||
+			    (inp1_sel == int_1_mix1_inp + INTn_1_INP_SEL_RX0) ||
+			    (inp2_sel == int_1_mix1_inp + INTn_1_INP_SEL_RX0)) {
 				int_fs_reg = BOLERO_CDC_RX_RX0_RX_PATH_CTL +
 					     0x80 * j;
 				pr_debug("%s: AIF_PB DAI(%d) connected to INT%u_1\n",
@@ -880,7 +949,7 @@ static int rx_macro_set_mix_interpolator_rate(struct snd_soc_dai *dai,
 		for (j = 0; j < INTERP_MAX; j++) {
 			int_mux_cfg1_val = snd_soc_read(codec, int_mux_cfg1) &
 						0x0F;
-			if (int_mux_cfg1_val == int_2_inp) {
+			if (int_mux_cfg1_val == int_2_inp + INTn_2_INP_SEL_RX0) {
 				int_fs_reg = BOLERO_CDC_RX_RX0_RX_PATH_MIX_CTL +
 						0x80 * j;
 				pr_debug("%s: AIF_PB DAI(%d) connected to INT%u_2\n",
@@ -1007,8 +1076,23 @@ static int rx_macro_get_channel_map(struct snd_soc_dai *dai,
 			if (++i == RX_MACRO_MAX_DMA_CH_PER_PORT)
 				break;
 		}
+		/*
+		 * CDC_DMA_RX_0 port drives RX0/RX1 -- ch_mask 0x1/0x2/0x3
+		 * CDC_DMA_RX_1 port drives RX2/RX3 -- ch_mask 0x1/0x2/0x3
+		 * CDC_DMA_RX_2 port drives RX4     -- ch_mask 0x1
+		 * CDC_DMA_RX_3 port drives RX5     -- ch_mask 0x1
+		 * AIFn can pair to any CDC_DMA_RX_n port.
+		 * In general, below convention is used::
+		 * CDC_DMA_RX_0(AIF1)/CDC_DMA_RX_1(AIF2)/
+		 * CDC_DMA_RX_2(AIF3)/CDC_DMA_RX_3(AIF4)
+		 * Above is reflected in machine driver BE dailink
+		 */
+		if (ch_mask & 0x0C)
+			ch_mask = ch_mask >> 2;
+		if ((ch_mask & 0x10) || (ch_mask & 0x20))
+			ch_mask = 0x1;
 		*rx_slot = ch_mask;
-		*rx_num = rx_priv->active_ch_cnt[dai->id];
+		*rx_num = i;
 		break;
 	case RX_MACRO_AIF_ECHO:
 		val = snd_soc_read(codec,
@@ -1073,8 +1157,10 @@ static int rx_macro_digital_mute(struct snd_soc_dai *dai, int mute)
 		if (snd_soc_read(codec, dsm_reg) & 0x01) {
 			if (int_mux_cfg0_val || (int_mux_cfg1_val & 0xF0))
 				snd_soc_update_bits(codec, reg, 0x20, 0x20);
-			if (int_mux_cfg1_val & 0x0F)
+			if (int_mux_cfg1_val & 0x0F) {
+				snd_soc_update_bits(codec, reg, 0x20, 0x20);
 				snd_soc_update_bits(codec, mix_reg, 0x20, 0x20);
+			}
 		}
 	}
 		break;
@@ -1304,10 +1390,15 @@ static int rx_macro_event_handler(struct snd_soc_codec *codec, u16 event,
 		swrm_wcd_notify(
 			rx_priv->swr_ctrl_data[0].rx_swr_pdev,
 			SWR_DEVICE_SSR_UP, NULL);
-		break;
+			break;
 	case BOLERO_MACRO_EVT_CLK_RESET:
 		rx_macro_mclk_reset(rx_dev);
 		break;
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	case SEC_BOLERO_MACRO_EVT_IMPED_TRUE:
+		sec_wcd_imp_offset(codec, data);
+		break;
+#endif
 	}
 	return 0;
 }
@@ -2650,6 +2741,16 @@ static const struct snd_kcontrol_new rx_macro_snd_controls[] = {
 	SOC_SINGLE_SX_TLV("RX_RX1 Digital Volume",
 			  BOLERO_CDC_RX_RX1_RX_VOL_CTL,
 			  0, -84, 40, digital_gain),
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	SOC_SINGLE_RANGE_EXT_TLV("RX_RX0 HPH Digital Volume",
+			  BOLERO_CDC_RX_RX0_RX_VOL_CTL, 0, -84, 40, 0,
+			  wcd_impedance_vol_get, wcd_impedance_vol_put,
+			  digital_gain),
+	SOC_SINGLE_RANGE_EXT_TLV("RX_RX1 HPH Digital Volume",
+			  BOLERO_CDC_RX_RX1_RX_VOL_CTL, 0, -84, 40, 0,
+			  wcd_impedance_vol_get, wcd_impedance_vol_put,
+			  digital_gain),
+#endif
 	SOC_SINGLE_SX_TLV("RX_RX2 Digital Volume",
 			  BOLERO_CDC_RX_RX2_RX_VOL_CTL,
 			  0, -84, 40, digital_gain),

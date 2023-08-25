@@ -79,6 +79,9 @@ obj-$(CONFIG_LEDS_MLXCPLD)		+= leds-mlxcpld.o
 obj-$(CONFIG_LEDS_NIC78BX)		+= leds-nic78bx.o
 obj-$(CONFIG_LEDS_MT6323)		+= leds-mt6323.o
 obj-$(CONFIG_LEDS_QPNP_VIBRATOR_LDO)	+= leds-qpnp-vibrator-ldo.o
+obj-$(CONFIG_LEDS_SM5714)		+= leds-sm5714-fled.o
+obj-$(CONFIG_LEDS_S2MU107_FLASH)	+= leds-s2mu107.o
+obj-$(CONFIG_LEDS_S2MU106_FLASH)	+= leds-s2mu106.o
 
 # LED SPI Drivers
 obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o

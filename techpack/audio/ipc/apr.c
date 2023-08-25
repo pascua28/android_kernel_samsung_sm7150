@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2014, 2016-2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, 2016-2020 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -29,7 +29,6 @@
 #include <linux/slab.h>
 #include <linux/ipc_logging.h>
 #include <linux/of_platform.h>
-#include <soc/qcom/boot_stats.h>
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/scm.h>
 #include <soc/snd_event.h>
@@ -314,7 +313,6 @@ static void apr_add_child_devices(struct work_struct *work)
 static void apr_adsp_up(void)
 {
 	pr_info("%s: Q6 is Up\n", __func__);
-	place_marker("M - ADSP Ready");
 	apr_set_q6_state(APR_SUBSYS_LOADED);
 
 	spin_lock(&apr_priv->apr_lock);
@@ -1126,9 +1124,9 @@ static int __init apr_debug_init(void)
 }
 #else
 static int __init apr_debug_init(void)
-(
+{
 	return 0;
-)
+}
 #endif
 
 static void apr_cleanup(void)
@@ -1149,7 +1147,9 @@ static void apr_cleanup(void)
 				mutex_destroy(&client[i][j].svc[k].m_lock);
 		}
 	}
+#ifdef CONFIG_DEBUG_FS
 	debugfs_remove(debugfs_apr_debug);
+#endif
 }
 
 static int apr_probe(struct platform_device *pdev)
@@ -1244,7 +1244,6 @@ static struct platform_driver apr_driver = {
 		.name = "audio_apr",
 		.owner = THIS_MODULE,
 		.of_match_table = apr_machine_of_match,
-		.suppress_bind_attrs = true,
 	}
 };
 

@@ -19,6 +19,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -30,15 +35,9 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm670autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM6150), y)
-		ifdef CONFIG_SND_SOC_SA6155
-			include $(AUDIO_ROOT)/config/sa6155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa6155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm6150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm6150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_TRINKET), y)
 		include $(AUDIO_ROOT)/config/trinketauto.conf
@@ -46,41 +45,19 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/trinketautoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM8150), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SDMSHRIKE), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_QCS405), y)
 		include $(AUDIO_ROOT)/config/qcs405auto.conf
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
-	endif
-	ifeq ($(CONFIG_QTI_GVM), y)
-		include $(AUDIO_ROOT)/config/gvmauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
 endif
 
@@ -130,31 +107,16 @@ ifdef CONFIG_SND_SOC_MSM_QDSP6V2_INTF
 	Q6_OBJS += msm_audio_ion.o
 	Q6_OBJS += avtimer.o
 	Q6_OBJS += q6_init.o
-endif
 
-ifdef CONFIG_SND_SOC_MSM_QDSP6V2_VM
-	Q6_OBJS += msm-audio-event-notify.o
-	Q6_OBJS += audio_calibration.o
-	Q6_OBJS += audio_cal_utils.o
-	Q6_OBJS += q6adm.o
-	Q6_OBJS += q6afe.o
-	Q6_OBJS += q6asm.o
-	Q6_OBJS += q6audio-v2.o
-	Q6_OBJS += q6voice.o
-	Q6_OBJS += q6core.o
-	Q6_OBJS += q6common.o
-	Q6_OBJS += rtac.o
-	Q6_OBJS += q6lsm.o
-	Q6_OBJS += adsp_err.o
-	Q6_OBJS += msm_audio_ion_vm.o
-	Q6_OBJS += avtimer.o
-	Q6_OBJS += q6_init.o
 endif
 
 ifdef CONFIG_XT_LOGGING
 	Q6_OBJS += sp_params.o
 endif
 
+ifdef CONFIG_SEC_SND_ADAPTATION
+	Q6_OBJS += q6audio_adaptation.o
+endif
 ifdef CONFIG_DTS_SRS_TM
 	Q6_OBJS += msm-dts-srs-tm-config.o
 endif
@@ -244,9 +206,6 @@ GCOV_PROFILE := y
 endif
 
 obj-$(CONFIG_SND_SOC_MSM_QDSP6V2_INTF) += q6_dlkm.o
-q6_dlkm-y := $(Q6_OBJS)
-
-obj-$(CONFIG_SND_SOC_MSM_QDSP6V2_VM) += q6_dlkm.o
 q6_dlkm-y := $(Q6_OBJS)
 
 obj-$(CONFIG_MSM_ULTRASOUND) += usf_dlkm.o

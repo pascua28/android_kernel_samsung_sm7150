@@ -1,6 +1,6 @@
 /* Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2009-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2018, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -119,7 +119,7 @@ struct ws_mgr {
 
 struct audio_aio_ion_region {
 	struct list_head list;
-	void *mem_handle;
+	struct dma_buf *dma_buf;
 	int fd;
 	void *vaddr;
 	phys_addr_t paddr;

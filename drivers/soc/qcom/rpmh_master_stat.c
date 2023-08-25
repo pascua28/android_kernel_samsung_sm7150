@@ -34,6 +34,12 @@
 
 #define GET_ADDR(REG, UNIT_NO) (REG + (UNIT_DIST * UNIT_NO))
 
+#ifdef CONFIG_SEC_PM
+#define MSM_ARCH_TIMER_FREQ	19200000
+#define GET_SEC(A)		((A) / (MSM_ARCH_TIMER_FREQ))
+#define GET_MSEC(A)		(((A) / (MSM_ARCH_TIMER_FREQ / 1000)) % 1000)
+#endif
+
 enum master_smem_id {
 	MPSS = 605,
 	ADSP,
@@ -101,6 +107,55 @@ static struct msm_rpmh_master_stats apss_master_stats;
 static void __iomem *rpmh_unit_base;
 
 static DEFINE_MUTEX(rpmh_stats_mutex);
+
+#ifdef CONFIG_SEC_PM
+void debug_masterstats_show(char *annotation)
+{
+	int i = 0;
+	size_t size = 0;
+	struct msm_rpmh_master_stats *record = NULL;
+	uint64_t accumulated_duration;
+	unsigned int duration_sec, duration_msec;
+	char buf[256];
+	char *buf_ptr = buf;
+
+	mutex_lock(&rpmh_stats_mutex);
+
+	buf_ptr += sprintf(buf_ptr, "PM: %s: ", annotation);
+	/* Read SMEM data written by other masters */
+	for (i = 0; i < ARRAY_SIZE(rpmh_masters); i++) {
+		record = (struct msm_rpmh_master_stats *) qcom_smem_get(
+					rpmh_masters[i].pid,
+					rpmh_masters[i].smem_id, &size);
+
+		if (!IS_ERR_OR_NULL(record)) {
+			accumulated_duration = record->accumulated_duration;
+			if (record->last_entered > record->last_exited)
+				accumulated_duration +=
+					(arch_counter_get_cntvct() -
+						record->last_entered);
+
+			duration_sec = GET_SEC(accumulated_duration);
+			duration_msec = GET_MSEC(accumulated_duration);
+
+			buf_ptr += sprintf(buf_ptr, "%s(%d, %u.%u), ",
+					rpmh_masters[i].master_name,
+					record->counts,
+					duration_sec, duration_msec);
+		} else {
+			continue;
+		}
+	}
+
+	buf_ptr--;
+	buf_ptr--;
+	buf_ptr += sprintf(buf_ptr, "\n");
+	mutex_unlock(&rpmh_stats_mutex);
+
+	printk(KERN_INFO "%s", buf);
+}
+EXPORT_SYMBOL(debug_masterstats_show);
+#endif
 
 static ssize_t msm_rpmh_master_stats_print_data(char *prvbuf, ssize_t length,
 				struct msm_rpmh_master_stats *record,

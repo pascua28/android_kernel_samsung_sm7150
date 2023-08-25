@@ -25,6 +25,8 @@
 #include <net/sock.h>
 #include <uapi/linux/sched/types.h>
 
+#include <soc/qcom/subsystem_restart.h>
+
 #include "qrtr.h"
 
 #define QRTR_LOG_PAGE_CNT 4
@@ -706,15 +708,20 @@ EXPORT_SYMBOL(qrtr_peek_pkt_size);
 static void qrtr_alloc_backup(struct work_struct *work)
 {
 	struct sk_buff *skb;
+	int errcode;
 
 	while (skb_queue_len(&qrtr_backup_lo) < QRTR_BACKUP_LO_NUM) {
-		skb = alloc_skb(QRTR_BACKUP_LO_SIZE, GFP_KERNEL);
+		skb = alloc_skb_with_frags(sizeof(struct qrtr_hdr_v1),
+				QRTR_BACKUP_LO_SIZE, 0, &errcode,
+				GFP_KERNEL);
 		if (!skb)
 			break;
 		skb_queue_tail(&qrtr_backup_lo, skb);
 	}
 	while (skb_queue_len(&qrtr_backup_hi) < QRTR_BACKUP_HI_NUM) {
-		skb = alloc_skb(QRTR_BACKUP_HI_SIZE, GFP_KERNEL);
+		skb = alloc_skb_with_frags(sizeof(struct qrtr_hdr_v1),
+				QRTR_BACKUP_HI_SIZE, 0, &errcode,
+				GFP_KERNEL);
 		if (!skb)
 			break;
 		skb_queue_tail(&qrtr_backup_hi, skb);
@@ -1742,6 +1749,11 @@ static int qrtr_recvmsg(struct socket *sock, struct msghdr *msg,
 	rc = copied;
 
 	if (addr) {
+		/* There is an anonymous 2-byte hole after sq_family,
+		 * make sure to clear it.
+		 */
+		memset(addr, 0, sizeof(*addr));
+
 		addr->sq_family = AF_QIPCRTR;
 		addr->sq_node = cb->src_node;
 		addr->sq_port = cb->src_port;
@@ -1828,6 +1840,8 @@ static int qrtr_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	long len = 0;
 	int rc = 0;
 
+	struct msm_ipc_subsys_request subsys_req;
+	
 	lock_sock(sk);
 
 	switch (cmd) {
@@ -1869,6 +1883,20 @@ static int qrtr_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	case SIOCGIFNETMASK:
 	case SIOCSIFNETMASK:
 		rc = -EINVAL;
+		break;
+	case IPC_SUB_IOCTL_SUBSYS_GET_RESTART:
+		rc = copy_from_user(&subsys_req, (void *)arg, sizeof(subsys_req));
+		if (rc) {
+			rc = -EFAULT;
+			break;
+		}
+
+		if (subsys_req.request_id == SUBSYS_RES_REQ)
+			subsys_force_stop((const char *)(subsys_req.name), true);
+		else if (subsys_req.request_id == SUBSYS_CR_REQ)
+			subsys_force_stop((const char *)(subsys_req.name), false);
+		else
+			rc = -EINVAL;
 		break;
 	default:
 		rc = -ENOIOCTLCMD;

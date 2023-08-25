@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014, 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,7 +25,7 @@
 static int srs_port_id[AFE_MAX_PORTS] = {-1};
 static int srs_copp_idx[AFE_MAX_PORTS] = {-1};
 static union srs_trumedia_params_u msm_srs_trumedia_params;
-void *mem_handle;
+struct dma_buf *dma_buf;
 static struct param_outband po;
 static atomic_t ref_cnt;
 #define ION_MEM_SIZE	(8 * 1024)
@@ -298,13 +298,13 @@ static int reg_ion_mem(void)
 {
 	int rc;
 
-	rc = msm_audio_ion_alloc(&mem_handle, ION_MEM_SIZE,
+	rc = msm_audio_ion_alloc(&dma_buf, ION_MEM_SIZE,
 				 &po.paddr, (size_t *)&po.size,
 				 &po.kvaddr);
 	if (rc != 0)
 		pr_err("%s: failed to allocate memory.\n", __func__);
-		pr_debug("%s: exited mem_handle = %pK, phys_addr = %lu, length = %d, vaddr = %pK, rc = 0x%x\n",
-			__func__, mem_handle, (long)po.paddr,
+		pr_debug("%s: exited dma_buf = %pK, phys_addr = %lu, length = %d, vaddr = %pK, rc = 0x%x\n",
+			__func__, dma_buf, (long)po.paddr,
 			(unsigned int)po.size, po.kvaddr, rc);
 	return rc;
 }
@@ -322,8 +322,8 @@ void msm_dts_srs_tm_ion_memmap(struct param_outband *po_)
 
 static void unreg_ion_mem(void)
 {
-	msm_audio_ion_free(mem_handle);
-	mem_handle = NULL;
+	msm_audio_ion_free(dma_buf);
+	dma_buf = NULL;
 	po.kvaddr = NULL;
 	po.paddr = 0;
 	po.size = 0;

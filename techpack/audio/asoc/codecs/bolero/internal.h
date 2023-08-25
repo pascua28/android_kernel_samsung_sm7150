@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,6 +38,9 @@ enum {
 	WCD_BOLERO_EVT_RX_MUTE = 1, /* for RX mute/unmute */
 	WCD_BOLERO_EVT_IMPED_TRUE,   /* for imped true */
 	WCD_BOLERO_EVT_IMPED_FALSE,  /* for imped false */
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	SEC_WCD_BOLERO_EVT_IMPED_TRUE,	/* for SEC imped true */
+#endif
 };
 
 struct wcd_ctrl_platform_data {
@@ -66,7 +69,6 @@ struct bolero_priv {
 	u16 current_mclk_mux_macro[MAX_MACRO];
 	struct work_struct bolero_add_child_devices_work;
 	u32 version;
-	struct clk *lpass_core_hw_vote;
 
 	/* Entry for version info */
 	struct snd_info_entry *entry;

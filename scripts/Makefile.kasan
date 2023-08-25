@@ -62,6 +62,11 @@ CFLAGS_KASAN := -fsanitize=kernel-hwaddress \
 
 endif # CONFIG_KASAN_SW_TAGS
 
+# clang+kasan stack usage bug. Worked around with KASAN_THREAD_SHIFT.
+ifneq ($(CONFIG_FRAME_WARN),0)
+CFLAGS_KASAN += -Wno-error=frame-larger-than=
+endif
+
 ifdef CONFIG_KASAN
 CFLAGS_KASAN_NOSANITIZE := -fno-builtin
 endif

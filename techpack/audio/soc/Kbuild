@@ -19,6 +19,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDM660), y)
+		include $(AUDIO_ROOT)/config/sdm660auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
+	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -30,26 +35,14 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm670autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM8150), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SM6150), y)
-		ifdef CONFIG_SND_SOC_SA6155
-			include $(AUDIO_ROOT)/config/sa6155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa6155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm6150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm6150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm6150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_TRINKET), y)
 		include $(AUDIO_ROOT)/config/trinketauto.conf
@@ -57,30 +50,14 @@ ifeq ($(KERNEL_BUILD), 0)
 		INCS    +=  -include $(AUDIO_ROOT)/config/trinketautoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_SDMSHRIKE), y)
-		ifdef CONFIG_SND_SOC_SA8155
-			include $(AUDIO_ROOT)/config/sa8155auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sa8155autoconf.h
-		else
-			include $(AUDIO_ROOT)/config/sm8150auto.conf
-			export
-			INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
-		endif
+		include $(AUDIO_ROOT)/config/sm8150auto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
 	ifeq ($(CONFIG_ARCH_QCS405), y)
 		include $(AUDIO_ROOT)/config/qcs405auto.conf
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
-	endif
-	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
-		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
-	endif
-	ifeq ($(CONFIG_QTI_GVM), y)
-		include $(AUDIO_ROOT)/config/gvmauto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
 endif
 
@@ -137,11 +114,6 @@ endif
 
 ifdef CONFIG_SND_EVENT
 	SND_EVENT_OBJS += snd_event.o
-endif
-
-ifdef CONFIG_WCD_SPI_AC
-	WCD_SPI_ACC_CTL_OBJS += wcd-spi-ac.o
-	WCD_SPI_ACC_CTL_OBJS += wcd_spi_ctl_v01.o
 endif
 
 LINUX_INC +=	-Iinclude/linux
@@ -201,9 +173,6 @@ snd_event_dlkm-y := $(SND_EVENT_OBJS)
 obj-$(CONFIG_SOUNDWIRE_WCD_CTRL) += swr_ctrl_dlkm.o
 obj-$(CONFIG_SOUNDWIRE_MSTR_CTRL) += swr_ctrl_dlkm.o
 swr_ctrl_dlkm-y := $(SWR_CTRL_OBJS)
-
-obj-$(CONFIG_WCD_SPI_AC) += wcd_spi_acc_ctl_dlkm.o
-wcd_spi_acc_ctl_dlkm-y := $(WCD_SPI_ACC_CTL_OBJS)
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, 2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,10 +22,10 @@
 #include "msm-pcm-routing-v2.h"
 #include "sdm660-common.h"
 #include "sdm660-external.h"
-#include "codecs/msm-cdc-pinctrl.h"
 #include "codecs/wcd9335.h"
 #include "codecs/wcd934x/wcd934x.h"
 #include "codecs/wcd934x/wcd934x-mbhc.h"
+#include <soc/qcom/socinfo.h>
 
 #define SDM660_SPK_ON     1
 #define SDM660_SPK_OFF    0
@@ -35,11 +35,26 @@
 #define CODEC_EXT_CLK_RATE          9600000
 #define ADSP_STATE_READY_TIMEOUT_MS 3000
 
+#define TLMM_CENTER_MPM_WAKEUP_INT_EN_0 0x03596000
+#define LPI_GPIO_22_WAKEUP_VAL 0x00000002
+
+#define TLMM_LPI_DIR_CONN_INTR1_CFG_APPS 0x0359D004
+#define LPI_GPIO_22_INTR1_CFG_VAL 0x01
+#define LPI_GPIO_22_INTR1_CFG_MASK 0x03
+
+#define TLMM_LPI_GPIO_INTR_CFG1  0x0359B004
+#define LPI_GPIO_INTR_CFG1_VAL 0x00000113
+
+#define TLMM_LPI_GPIO22_CFG  0x15078040
+#define LPI_GPIO22_CFG_VAL 0x0000009
+
+#define TLMM_LPI_GPIO22_INOUT  0x179D1318
+#define LPI_GPIO22_INOUT_VAL 0x0020000
+
+
 #define WSA8810_NAME_1 "wsa881x.20170211"
 #define WSA8810_NAME_2 "wsa881x.20170212"
-
-#define MSM_HIFI_ON 1
-
+#define SDM660_SOC_MSM_ID 0x13D
 static int msm_ext_spk_control = 1;
 static struct wcd_mbhc_config *wcd_mbhc_cfg_ptr;
 
@@ -51,7 +66,6 @@ struct msm_asoc_wcd93xx_codec {
 
 static struct msm_asoc_wcd93xx_codec msm_codec_fn;
 static struct platform_device *spdev;
-static int msm_hifi_control;
 
 static bool is_initial_boot;
 
@@ -82,12 +96,6 @@ enum {
 	SLIM_TX_MAX,
 };
 
-struct dev_config {
-	u32 sample_rate;
-	u32 bit_format;
-	u32 channels;
-};
-
 /* Default configuration of slimbus channels */
 static struct dev_config slim_rx_cfg[] = {
 	[SLIM_RX_0] = {SAMPLING_RATE_48KHZ, SNDRV_PCM_FORMAT_S16_LE, 1},
@@ -113,9 +121,7 @@ static struct dev_config slim_tx_cfg[] = {
 };
 
 static int msm_vi_feed_tx_ch = 2;
-static const char *const slim_rx_ch_text[] = {"One", "Two", "Three", "Four",
-						"Five", "Six", "Seven",
-						"Eight"};
+static const char *const slim_rx_ch_text[] = {"One", "Two"};
 static const char *const slim_tx_ch_text[] = {"One", "Two", "Three", "Four",
 						"Five", "Six", "Seven",
 						"Eight"};
@@ -130,7 +136,6 @@ static const char *const spk_function_text[] = {"Off", "On"};
 static char const *bt_sample_rate_text[] = {"KHZ_8", "KHZ_16",
 					"KHZ_44P1", "KHZ_48",
 					"KHZ_88P2", "KHZ_96"};
-static const char *const hifi_text[] = {"Off", "On"};
 
 static SOC_ENUM_SINGLE_EXT_DECL(spk_func_en, spk_function_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_0_rx_chs, slim_rx_ch_text);
@@ -150,7 +155,6 @@ static SOC_ENUM_SINGLE_EXT_DECL(slim_0_tx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_5_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(slim_6_rx_sample_rate, slim_sample_rate_text);
 static SOC_ENUM_SINGLE_EXT_DECL(bt_sample_rate, bt_sample_rate_text);
-static SOC_ENUM_SINGLE_EXT_DECL(hifi_function, hifi_text);
 
 static int slim_get_sample_rate_val(int sample_rate)
 {
@@ -615,56 +619,6 @@ static int msm_vi_feed_tx_ch_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
-static int msm_hifi_ctrl(struct snd_soc_codec *codec)
-{
-	struct snd_soc_dapm_context *dapm = snd_soc_codec_get_dapm(codec);
-	struct snd_soc_card *card = codec->component.card;
-	struct msm_asoc_mach_data *pdata =
-				snd_soc_card_get_drvdata(card);
-
-	pr_debug("%s: msm_hifi_control = %d\n", __func__,
-		 msm_hifi_control);
-
-	if (!pdata || !pdata->hph_en1_gpio_p) {
-		pr_err("%s: hph_en1_gpio is invalid\n", __func__);
-		return -EINVAL;
-	}
-	if (msm_hifi_control == MSM_HIFI_ON) {
-		msm_cdc_pinctrl_select_active_state(pdata->hph_en1_gpio_p);
-		/* 5msec delay needed as per HW requirement */
-		usleep_range(5000, 5010);
-	} else {
-		msm_cdc_pinctrl_select_sleep_state(pdata->hph_en1_gpio_p);
-	}
-	snd_soc_dapm_sync(dapm);
-
-	return 0;
-}
-
-static int msm_hifi_get(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	pr_debug("%s: msm_hifi_control = %d\n",
-		 __func__, msm_hifi_control);
-	ucontrol->value.integer.value[0] = msm_hifi_control;
-
-	return 0;
-}
-
-static int msm_hifi_put(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
-
-	pr_debug("%s() ucontrol->value.integer.value[0] = %ld\n",
-		 __func__, ucontrol->value.integer.value[0]);
-
-	msm_hifi_control = ucontrol->value.integer.value[0];
-	msm_hifi_ctrl(codec);
-
-	return 0;
-}
-
 static void *def_ext_mbhc_cal(void)
 {
 	void *wcd_mbhc_cal;
@@ -808,8 +762,6 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 	SOC_ENUM_EXT("BT SampleRate", bt_sample_rate,
 			msm_bt_sample_rate_get,
 			msm_bt_sample_rate_put),
-	SOC_ENUM_EXT("HiFi Function", hifi_function, msm_hifi_get,
-			msm_hifi_put),
 };
 
 static int msm_slim_get_ch_from_beid(int32_t id)
@@ -1275,6 +1227,29 @@ static void msm_afe_clear_config(void)
 	afe_clear_config(AFE_SLIMBUS_SLAVE_CONFIG);
 }
 
+static void msm_snd_interrupt_config(struct msm_asoc_mach_data *pdata)
+{
+	int val;
+
+	val = ioread32(pdata->msm_snd_intr_lpi.mpm_wakeup);
+	val |= LPI_GPIO_22_WAKEUP_VAL;
+	iowrite32(val, pdata->msm_snd_intr_lpi.mpm_wakeup);
+
+	val = ioread32(pdata->msm_snd_intr_lpi.intr1_cfg_apps);
+	val &= ~(LPI_GPIO_22_INTR1_CFG_MASK);
+	val |= LPI_GPIO_22_INTR1_CFG_VAL;
+	iowrite32(val, pdata->msm_snd_intr_lpi.intr1_cfg_apps);
+
+	iowrite32(LPI_GPIO_INTR_CFG1_VAL,
+		pdata->msm_snd_intr_lpi.lpi_gpio_intr_cfg);
+	iowrite32(LPI_GPIO22_CFG_VAL,
+		pdata->msm_snd_intr_lpi.lpi_gpio_cfg);
+
+	val = ioread32(pdata->msm_snd_intr_lpi.lpi_gpio_inout);
+	val |= LPI_GPIO22_INOUT_VAL;
+	iowrite32(val, pdata->msm_snd_intr_lpi.lpi_gpio_inout);
+}
+
 static int msm_adsp_power_up_config(struct snd_soc_codec *codec,
 				    struct snd_card *card)
 {
@@ -1282,7 +1257,10 @@ static int msm_adsp_power_up_config(struct snd_soc_codec *codec,
 	unsigned long timeout;
 	int adsp_ready = 0;
 	bool snd_card_online = 0;
+	struct snd_soc_card *soc_card = codec->component.card;
+	struct msm_asoc_mach_data *pdata;
 
+	pdata = snd_soc_card_get_drvdata(soc_card);
 	timeout = jiffies +
 		msecs_to_jiffies(ADSP_STATE_READY_TIMEOUT_MS);
 
@@ -1315,6 +1293,10 @@ static int msm_adsp_power_up_config(struct snd_soc_codec *codec,
 		       adsp_ready ? "ready" : "not ready");
 		ret = -ETIMEDOUT;
 		goto err_fail;
+	}
+
+	if (socinfo_get_id() == SDM660_SOC_MSM_ID) {
+		msm_snd_interrupt_config(pdata);
 	}
 
 	ret = msm_afe_set_config(codec);
@@ -1369,7 +1351,6 @@ static int sdm660_notifier_service_cb(struct notifier_block *this,
 			goto done;
 		}
 		codec = rtd->codec;
-
 		ret = msm_adsp_power_up_config(codec, card->snd_card);
 		if (ret < 0) {
 			dev_err(card->dev,
@@ -1459,39 +1440,6 @@ static int msm_ext_mclk_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int msm_hifi_ctrl_event(struct snd_soc_dapm_widget *w,
-				struct snd_kcontrol *k, int event)
-{
-	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
-	struct snd_soc_card *card = codec->component.card;
-	struct msm_asoc_mach_data *pdata =
-				snd_soc_card_get_drvdata(card);
-
-	pr_debug("%s: msm_hifi_control = %d\n", __func__, msm_hifi_control);
-
-	if (!pdata || !pdata->hph_en0_gpio_p) {
-		pr_err("%s: hph_en0_gpio is invalid\n", __func__);
-		return -EINVAL;
-	}
-
-	if (msm_hifi_control != MSM_HIFI_ON) {
-		pr_debug("%s: HiFi mixer control is not set\n",
-			 __func__);
-		return 0;
-	}
-
-	switch (event) {
-	case SND_SOC_DAPM_POST_PMU:
-		msm_cdc_pinctrl_select_active_state(pdata->hph_en0_gpio_p);
-		break;
-	case SND_SOC_DAPM_PRE_PMD:
-		msm_cdc_pinctrl_select_sleep_state(pdata->hph_en0_gpio_p);
-		break;
-	}
-
-	return 0;
-}
-
 static int msm_ext_prepare_hifi(struct msm_asoc_mach_data *pdata)
 {
 	int ret = 0;
@@ -1531,7 +1479,6 @@ static const struct snd_soc_dapm_widget msm_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Lineout_3 amp", NULL),
 	SND_SOC_DAPM_SPK("Lineout_2 amp", NULL),
 	SND_SOC_DAPM_SPK("Lineout_4 amp", NULL),
-	SND_SOC_DAPM_SPK("hifi amp", msm_hifi_ctrl_event),
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("Secondary Mic", NULL),
@@ -1844,7 +1791,7 @@ int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		if (rtd->card->num_aux_devs &&
 		    !list_empty(&rtd->card->aux_comp_list)) {
 			aux_comp = list_first_entry(&rtd->card->aux_comp_list,
-				struct snd_soc_component, list_aux);
+				struct snd_soc_component, card_aux_list);
 			if (!strcmp(aux_comp->name, WSA8810_NAME_1) ||
 			    !strcmp(aux_comp->name, WSA8810_NAME_2)) {
 				tavil_set_spkr_mode(rtd->codec, SPKR_MODE_1);
@@ -1866,7 +1813,7 @@ int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		if (rtd->card->num_aux_devs &&
 		    !list_empty(&rtd->card->aux_comp_list)) {
 			aux_comp = list_first_entry(&rtd->card->aux_comp_list,
-				struct snd_soc_component, list_aux);
+				struct snd_soc_component, card_aux_list);
 			if (!strcmp(aux_comp->name, WSA8810_NAME_1) ||
 			    !strcmp(aux_comp->name, WSA8810_NAME_2)) {
 				tasha_set_spkr_mode(rtd->codec, SPKR_MODE_1);
@@ -1970,7 +1917,35 @@ int msm_ext_cdc_init(struct platform_device *pdev,
 			ret);
 		ret = 0;
 	}
+	pdata->msm_snd_intr_lpi.mpm_wakeup =
+		ioremap(TLMM_CENTER_MPM_WAKEUP_INT_EN_0, 4);
+	pdata->msm_snd_intr_lpi.intr1_cfg_apps =
+		ioremap(TLMM_LPI_DIR_CONN_INTR1_CFG_APPS, 4);
+	pdata->msm_snd_intr_lpi.lpi_gpio_intr_cfg =
+		ioremap(TLMM_LPI_GPIO_INTR_CFG1, 4);
+	pdata->msm_snd_intr_lpi.lpi_gpio_cfg =
+		ioremap(TLMM_LPI_GPIO22_CFG, 4);
+	pdata->msm_snd_intr_lpi.lpi_gpio_inout =
+		ioremap(TLMM_LPI_GPIO22_INOUT, 4);
 err:
 	return ret;
 }
 EXPORT_SYMBOL(msm_ext_cdc_init);
+
+/**
+ * msm_ext_cdc_deinit - external codec machine specific deinit.
+ */
+void msm_ext_cdc_deinit(struct msm_asoc_mach_data *pdata)
+{
+	if (pdata->msm_snd_intr_lpi.mpm_wakeup)
+		iounmap(pdata->msm_snd_intr_lpi.mpm_wakeup);
+	if (pdata->msm_snd_intr_lpi.intr1_cfg_apps)
+		iounmap(pdata->msm_snd_intr_lpi.intr1_cfg_apps);
+	if (pdata->msm_snd_intr_lpi.lpi_gpio_intr_cfg)
+		iounmap(pdata->msm_snd_intr_lpi.lpi_gpio_intr_cfg);
+	if (pdata->msm_snd_intr_lpi.lpi_gpio_cfg)
+		iounmap(pdata->msm_snd_intr_lpi.lpi_gpio_cfg);
+	if (pdata->msm_snd_intr_lpi.lpi_gpio_inout)
+		iounmap(pdata->msm_snd_intr_lpi.lpi_gpio_inout);
+}
+EXPORT_SYMBOL(msm_ext_cdc_deinit);

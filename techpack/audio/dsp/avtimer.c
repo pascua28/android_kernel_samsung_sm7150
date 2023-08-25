@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2015, 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2015, 2017-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,9 +30,6 @@
 #endif
 #include <ipc/apr.h>
 #include <dsp/q6core.h>
-#if IS_ENABLED(CONFIG_CNSS_TIMESYNC)
-#include <net/cnss_utils.h>
-#endif
 
 #define DEVICE_NAME "avtimer"
 #define TIMEOUT_MS 1000
@@ -73,12 +70,10 @@ struct avtimer_t {
 	uint32_t clk_mult;
 	atomic_t adsp_ready;
 	int num_retries;
-	bool cnss_avtimer;
 };
 
 static struct avtimer_t avtimer;
 static void avcs_set_isp_fptr(bool enable);
-static void avcs_set_cnss_avtimer_fptr(bool enable);
 
 static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 {
@@ -284,7 +279,6 @@ int avcs_core_disable_power_collapse(int enable)
 				rc = avcs_core_disable_avtimer(
 				avtimer.timer_handle);
 				avtimer.timer_handle = 0;
-				atomic_set(&avtimer.adsp_ready, 0);
 			}
 		}
 	}
@@ -335,61 +329,6 @@ int avcs_core_query_timer(uint64_t *avtimer_tick)
 }
 EXPORT_SYMBOL(avcs_core_query_timer);
 
-/*
- * avcs_core_query_timer_offset:
- *       derive offset between system clock & avtimer clock
- *
- * @ avoffset: offset between system clock & avtimer clock
- * @ clock_id: clock id to get the system time
- *
- */
-int avcs_core_query_timer_offset(int64_t *av_offset, int32_t clock_id)
-{
-	uint32_t avtimer_msw = 0, avtimer_lsw = 0;
-	uint64_t avtimer_tick_temp, avtimer_tick, sys_time = 0;
-	struct timespec ts;
-
-	if ((avtimer.p_avtimer_lsw == NULL) ||
-	    (avtimer.p_avtimer_msw == NULL)) {
-		return -EINVAL;
-	}
-
-	memset(&ts, 0, sizeof(struct timespec));
-	avtimer_lsw = ioread32(avtimer.p_avtimer_lsw);
-	avtimer_msw = ioread32(avtimer.p_avtimer_msw);
-
-	switch (clock_id) {
-	case CLOCK_MONOTONIC_RAW:
-		getrawmonotonic(&ts);
-		break;
-	case CLOCK_BOOTTIME:
-		get_monotonic_boottime(&ts);
-		break;
-	case CLOCK_MONOTONIC:
-		ktime_get_ts(&ts);
-		break;
-	case CLOCK_REALTIME:
-		ktime_get_real_ts(&ts);
-		break;
-	default:
-		pr_debug("%s: unsupported clock id %d\n", __func__, clock_id);
-		return -EINVAL;
-	}
-
-	sys_time = ts.tv_sec * 1000000LL + div64_u64(ts.tv_nsec, 1000);
-	avtimer_tick_temp = (uint64_t)((uint64_t)avtimer_msw << 32) |
-						 avtimer_lsw;
-
-	avtimer_tick = mul_u64_u32_div(avtimer_tick_temp, avtimer.clk_mult,
-					avtimer.clk_div);
-	*av_offset = sys_time - avtimer_tick;
-	pr_debug("%s: sys_time: %llu, offset %lld, avtimer tick %lld\n",
-		 __func__, sys_time, *av_offset, avtimer_tick);
-
-	return 0;
-}
-EXPORT_SYMBOL(avcs_core_query_timer_offset);
-
 #if IS_ENABLED(CONFIG_AVTIMER_LEGACY)
 static void avcs_set_isp_fptr(bool enable)
 {
@@ -409,29 +348,6 @@ static void avcs_set_isp_fptr(bool enable)
 }
 #else
 static void avcs_set_isp_fptr(bool enable)
-{
-}
-#endif
-
-#if IS_ENABLED(CONFIG_CNSS_TIMESYNC)
-static void avcs_set_cnss_avtimer_fptr(bool enable)
-{
-	struct avtimer_cnss_fptr_t av_fptr;
-
-	if (enable) {
-		av_fptr.fptr_avtimer_open = avcs_core_open;
-		av_fptr.fptr_avtimer_enable = avcs_core_disable_power_collapse;
-		av_fptr.fptr_avtimer_get_time = avcs_core_query_timer;
-		cnss_utils_set_avtimer_fptr(av_fptr);
-	} else {
-		av_fptr.fptr_avtimer_open = NULL;
-		av_fptr.fptr_avtimer_enable = NULL;
-		av_fptr.fptr_avtimer_get_time = NULL;
-		cnss_utils_set_avtimer_fptr(av_fptr);
-	}
-}
-#else
-static void avcs_set_cnss_avtimer_fptr(bool enable)
 {
 }
 #endif
@@ -497,8 +413,7 @@ static int dev_avtimer_probe(struct platform_device *pdev)
 	struct device *device_handle;
 	struct resource *reg_lsb = NULL, *reg_msb = NULL;
 	uint32_t clk_div_val;
-	uint32_t clk_mult_val, cnss_avtimer = 0;
-	int rc = 0;
+	uint32_t clk_mult_val;
 
 	if (!pdev) {
 		pr_err("%s: Invalid params\n", __func__);
@@ -595,16 +510,6 @@ static int dev_avtimer_probe(struct platform_device *pdev)
 
 	avcs_set_isp_fptr(true);
 
-	rc = of_property_read_u32(pdev->dev.of_node, "qcom,cnss-avtimer",
-				  &cnss_avtimer);
-	if (rc) {
-		avtimer.cnss_avtimer = false;
-		pr_debug("%s: cnss-avtimer property not defined \n", __func__);
-	} else {
-		avtimer.cnss_avtimer = true;
-		avcs_set_cnss_avtimer_fptr(true);
-	}
-
 	pr_debug("%s: avtimer.clk_div = %d, avtimer.clk_mult = %d\n",
 		 __func__, avtimer.clk_div, avtimer.clk_mult);
 	return 0;
@@ -638,9 +543,6 @@ static int dev_avtimer_remove(struct platform_device *pdev)
 	unregister_chrdev_region(MKDEV(major, 0), 1);
 	avcs_set_isp_fptr(false);
 
-	if (avtimer.cnss_avtimer)
-		avcs_set_cnss_avtimer_fptr(false);
-
 	return 0;
 }
 
@@ -654,7 +556,6 @@ static struct platform_driver dev_avtimer_driver = {
 	.driver = {
 		.name = "dev_avtimer",
 		.of_match_table = avtimer_machine_of_match,
-		.suppress_bind_attrs = true,
 	},
 };
 

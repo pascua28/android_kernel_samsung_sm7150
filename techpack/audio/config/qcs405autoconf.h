@@ -1,4 +1,4 @@
-/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,4 +48,4 @@
 #define CONFIG_MSM_AVTIMER 1
 #define CONFIG_SND_SOC_MSM_HDMI_CODEC_RX 1
 #define CONFIG_SND_SOC_EP92 1
-#define CONFIG_DOA_PARAMS_ENABLED 1
+#define CONFIG_USE_Q6_32CH_SUPPORT 1

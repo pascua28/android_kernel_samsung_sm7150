@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -58,7 +58,6 @@
 #define FORMAT_TRUEHD       0x0020
 #define FORMAT_IEC61937     0x0021
 #define FORMAT_BESPOKE      0x0022
-#define FORMAT_MAT          0x0023
 
 #define ENCDEC_SBCBITRATE   0x0001
 #define ENCDEC_IMMEDIATE_DECODE 0x0002
@@ -99,12 +98,11 @@
 
 #define NO_TIMESTAMP    0xFF00
 #define SET_TIMESTAMP   0x0000
-#define SET_CONTINUE_FLAG  0x20000000
 
 #define SOFT_PAUSE_ENABLE	1
 #define SOFT_PAUSE_DISABLE	0
 
-#define ASM_ACTIVE_STREAMS_ALLOWED	0xF
+#define ASM_ACTIVE_STREAMS_ALLOWED	0x8
 /* Control session is used for mapping calibration memory */
 #define ASM_CONTROL_SESSION	(ASM_ACTIVE_STREAMS_ALLOWED + 1)
 
@@ -153,6 +151,9 @@ enum {
 	SOFT_PAUSE_CURVE_LOG,
 };
 
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+#define SOFT_VOLUME_MMAP_PERIOD       0   /* ramp up/down for mmap 0ms    */
+#endif
 #define SOFT_VOLUME_PERIOD       30   /* ramp up/down for 30ms    */
 #define SOFT_VOLUME_STEP         0 /* Step value 0ms or 0us */
 enum {
@@ -173,7 +174,7 @@ struct audio_buffer {
 	uint32_t   used;
 	uint32_t   size;/* size of buffer */
 	uint32_t   actual_size; /* actual number of bytes read by DSP */
-	void       *mem_handle;
+	struct      dma_buf *dma_buf;
 };
 
 struct audio_aio_write_param {
@@ -216,12 +217,6 @@ struct shared_io_config {
 	uint32_t bufcnt;
 };
 
-struct dsp_timestamp {
-	uint64_t time_stamp;
-	uint64_t abs_time_stamp;
-	uint64_t last_time_stamp;
-};
-
 struct audio_client {
 	int                    session;
 	app_cb		       cb;
@@ -233,7 +228,7 @@ struct audio_client {
 	atomic_t               mem_state;
 	void		       *priv;
 	uint32_t               io_mode;
-	struct dsp_timestamp   dsp_ts;
+	uint64_t	       time_stamp;
 	struct apr_svc         *apr;
 	struct apr_svc         *mmap_apr;
 	struct apr_svc         *apr2;
@@ -311,9 +306,6 @@ int q6asm_open_read_v5(struct audio_client *ac, uint32_t format,
 			uint16_t bits_per_sample, bool ts_mode,
 			uint32_t enc_cfg_id);
 
-int q6asm_open_read_with_retry(struct audio_client *ac, uint32_t format,
-		       uint16_t bits_per_sample, bool ts_mode);
-
 int q6asm_open_write(struct audio_client *ac, uint32_t format
 		/*, uint16_t bits_per_sample*/);
 
@@ -331,9 +323,6 @@ int q6asm_open_write_v4(struct audio_client *ac, uint32_t format,
 			uint16_t bits_per_sample);
 
 int q6asm_open_write_v5(struct audio_client *ac, uint32_t format,
-			uint16_t bits_per_sample);
-
-int q6asm_open_write_with_retry(struct audio_client *ac, uint32_t format,
 			uint16_t bits_per_sample);
 
 int q6asm_stream_open_write_v2(struct audio_client *ac, uint32_t format,
@@ -368,9 +357,6 @@ int q6asm_open_read_write_v2(struct audio_client *ac, uint32_t rd_format,
 			     int topology);
 
 int q6asm_open_loopback_v2(struct audio_client *ac,
-			   uint16_t bits_per_sample);
-
-int q6asm_open_loopback_with_retry(struct audio_client *ac,
 			   uint16_t bits_per_sample);
 
 int q6asm_open_transcode_loopback(struct audio_client *ac,
@@ -707,15 +693,14 @@ int q6asm_set_multich_gain(struct audio_client *ac, uint32_t channels,
 int q6asm_set_mute(struct audio_client *ac, int muteflag);
 
 int q6asm_get_session_time(struct audio_client *ac, uint64_t *tstamp);
-int q6asm_get_session_time_v2(struct audio_client *ac, uint64_t *ses_time,
-			      uint64_t *abs_time);
+
 int q6asm_get_session_time_legacy(struct audio_client *ac, uint64_t *tstamp);
 
 int q6asm_send_stream_cmd(struct audio_client *ac,
 			  struct msm_adsp_event_data *data);
 
-int q6asm_audio_map_shm_fd(struct audio_client *ac, void **mem_hdl,
-			   int fd);
+int q6asm_send_ion_fd(struct audio_client *ac, int fd);
+
 int q6asm_send_rtic_event_ack(struct audio_client *ac,
 			      void *param, uint32_t params_length);
 
@@ -743,13 +728,9 @@ int q6asm_send_mtmx_strtr_window(struct audio_client *ac,
 		struct asm_session_mtmx_strtr_param_window_v2_t *window_param,
 		uint32_t param_id);
 
-int q6asm_send_mtmx_strtr_ttp_offset(struct audio_client *ac,
-		struct asm_session_mtmx_strtr_param_ttp_offset_t *ttp_offset,
-		uint32_t param_id, int dir);
-
 /* Configure DSP render mode */
 int q6asm_send_mtmx_strtr_render_mode(struct audio_client *ac,
-		uint32_t render_mode, int dir);
+		uint32_t render_mode);
 
 /* Configure DSP clock recovery mode */
 int q6asm_send_mtmx_strtr_clk_rec_mode(struct audio_client *ac,
@@ -771,12 +752,8 @@ int q6asm_adjust_session_clock(struct audio_client *ac,
 		uint32_t adjust_time_lsw,
 		uint32_t adjust_time_msw);
 
-/* Provide default asm channel mapping for given channel count */
-int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
-		bool use_back_flavor);
+#ifdef CONFIG_SEC_SND_ADAPTATION
+struct audio_session *q6asm_get_audio_session(void);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
 
-/* Set MAT-THD parameters to DSP*/
-int q6asm_thd_stream_endp_params(struct audio_client *ac,
-                                 int param_id, int param_value,
-                                 int stream_id);
 #endif /* __Q6_ASM_H__ */

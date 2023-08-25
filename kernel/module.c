@@ -64,8 +64,15 @@
 #include <linux/bsearch.h>
 #include <linux/dynamic_debug.h>
 #include <linux/audit.h>
+#ifdef CONFIG_RKP_MODULE_SUPPORT
+#include <linux/rkp.h>
+#endif
 #include <uapi/linux/module.h>
 #include "module-internal.h"
+
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -74,6 +81,15 @@
 #define ARCH_SHF_SMALL 0
 #endif
 
+#ifdef CONFIG_UH_LKMAUTH
+/* Return codes for uh_lkmauth */
+#define	RET_UH_LKMAUTH_OK					0x00000000
+#define	RET_UH_LKMAUTH_LKM_BLOCK_FORCE		0x00000002
+
+/* Return codes for lkmauth function */
+#define	RET_LKMAUTH_SUCCESS				0
+#define	RET_LKMAUTH_FAIL				-1
+#endif
 /*
  * Modules' sections will be aligned on page boundaries
  * to ensure complete separation of code and data, but
@@ -161,6 +177,29 @@ static struct mod_tree_root {
 
 #define module_addr_min mod_tree.addr_min
 #define module_addr_max mod_tree.addr_max
+
+#ifdef CONFIG_SEC_DEBUG_MODULE_INFO
+void sec_debug_coreinfo_module(void)
+{
+	SUMMARY_COREINFO_SYMBOL(mod_tree);
+	SUMMARY_COREINFO_OFFSET(mod_tree_root, root);
+	SUMMARY_COREINFO_OFFSET(mod_tree_root, addr_min);
+	SUMMARY_COREINFO_OFFSET(mod_tree_root, addr_max);
+	SUMMARY_COREINFO_OFFSET(module_layout, base);
+	SUMMARY_COREINFO_OFFSET(module_layout, size);
+	SUMMARY_COREINFO_OFFSET(module_layout, text_size);
+	SUMMARY_COREINFO_OFFSET(module_layout, mtn);
+	SUMMARY_COREINFO_OFFSET(mod_tree_node, node);
+	SUMMARY_COREINFO_OFFSET(module, init_layout);
+	SUMMARY_COREINFO_OFFSET(module, core_layout);
+	SUMMARY_COREINFO_OFFSET(module, state);
+	SUMMARY_COREINFO_OFFSET(module, name);
+	SUMMARY_COREINFO_OFFSET(module, kallsyms);
+	SUMMARY_COREINFO_OFFSET(mod_kallsyms, symtab);
+	SUMMARY_COREINFO_OFFSET(mod_kallsyms, num_symtab);
+	SUMMARY_COREINFO_OFFSET(mod_kallsyms, strtab);
+}
+#endif
 
 static noinline void __mod_tree_insert(struct mod_tree_node *node)
 {
@@ -2736,6 +2775,17 @@ static void add_kallsyms(struct module *mod, const struct load_info *info)
 }
 #endif /* CONFIG_KALLSYMS */
 
+#ifdef CONFIG_UH_LKMAUTH
+#ifdef CONFIG_UH_LKM_BLOCK
+static int lkmauth(Elf_Ehdr * hdr, int len)
+{
+	int ret = RET_UH_LKMAUTH_LKM_BLOCK_FORCE;
+	pr_warn("UH: lkmauth--LKM is not allowed by Samsung security policy.\n");
+	return ret;
+}
+#endif
+#endif
+
 static void dynamic_debug_setup(struct module *mod, struct _ddebug *debug, unsigned int num)
 {
 	if (!debug)
@@ -2839,6 +2889,16 @@ static int elf_header_check(struct load_info *info)
 		info->len - info->hdr->e_shoff))
 		return -ENOEXEC;
 
+#ifdef CONFIG_UH_LKMAUTH
+#ifdef CONFIG_UH_LKM_BLOCK
+	if (lkmauth(info->hdr, info->len) != RET_LKMAUTH_SUCCESS) {
+		pr_err
+		    ("UH: lkmauth--unable to load kernel module; module len is %lu.\n",
+		     info->len);
+		return -ENOEXEC;
+	}
+#endif
+#endif
 	return 0;
 }
 
@@ -3463,6 +3523,9 @@ static noinline int do_init_module(struct module *mod)
 {
 	int ret = 0;
 	struct mod_initfree *freeinit;
+#ifdef CONFIG_RKP_MODULE_SUPPORT
+	struct module_info rkp_mod_info;
+#endif
 
 	freeinit = kmalloc(sizeof(*freeinit), GFP_KERNEL);
 	if (!freeinit) {
@@ -3536,6 +3599,16 @@ static noinline int do_init_module(struct module *mod)
 	pr_info("%s: core layout addresses range: 0x%lx-0x%lx\n", mod->name,
 		(long)mod->core_layout.base,
 		(long)(mod->core_layout.base + mod->core_layout.size - 1));
+#endif
+#ifdef CONFIG_RKP_MODULE_SUPPORT
+	rkp_mod_info.base_va = 0;
+	rkp_mod_info.vm_size = 0;
+	rkp_mod_info.core_base_va = (u64)mod->core_layout.base;
+	rkp_mod_info.core_text_size = (u64)mod->core_layout.text_size;
+	rkp_mod_info.core_ro_size = (u64)mod->core_layout.ro_size;
+	rkp_mod_info.init_base_va = (u64)mod->init_layout.base;
+	rkp_mod_info.init_text_size = (u64)mod->init_layout.text_size;
+	uh_call(UH_APP_RKP, RKP_MODULE_LOAD, RKP_MODULE_PXN_SET, (u64)&rkp_mod_info, 0, 0);
 #endif
 	mod->init_layout.base = NULL;
 	mod->init_layout.size = 0;
@@ -3625,6 +3698,9 @@ out_unlocked:
 static int complete_formation(struct module *mod, struct load_info *info)
 {
 	int err;
+#ifdef CONFIG_RKP_MODULE_SUPPORT
+	struct module_info rkp_mod_info;
+#endif
 
 	mutex_lock(&module_mutex);
 
@@ -3643,6 +3719,16 @@ static int complete_formation(struct module *mod, struct load_info *info)
 	 * but kallsyms etc. can see us. */
 	mod->state = MODULE_STATE_COMING;
 	mutex_unlock(&module_mutex);
+#ifdef CONFIG_RKP_MODULE_SUPPORT
+	rkp_mod_info.base_va = 0;
+	rkp_mod_info.vm_size = 0;
+	rkp_mod_info.core_base_va = (u64)mod->core_layout.base;
+	rkp_mod_info.core_text_size = (u64)mod->core_layout.text_size;
+	rkp_mod_info.core_ro_size = (u64)mod->core_layout.ro_size;
+	rkp_mod_info.init_base_va = (u64)mod->init_layout.base;
+	rkp_mod_info.init_text_size = (u64)mod->init_layout.text_size;
+	uh_call(UH_APP_RKP, RKP_MODULE_LOAD, RKP_MODULE_PXN_CLEAR, (u64)&rkp_mod_info, 0, 0);
+#endif
 
 	return 0;
 

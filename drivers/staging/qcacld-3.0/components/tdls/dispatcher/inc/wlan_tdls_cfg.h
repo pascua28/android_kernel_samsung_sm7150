@@ -518,32 +518,6 @@
 
 /*
  * <ini>
- * gTDLSPuapsdPTIWindow - This ini is used to configure peer traffic indication
- * window.
- * @Min: 1
- * @Max: 5
- * @Default: 2
- *
- * This ini is used to configure buffering time in number of beacon intervals.
- *
- * Related: gEnableTDLSSupport.
- *
- * Supported Feature: TDLS
- *
- * Usage: Internal/External
- *
- * </ini>
- */
-#define CFG_TDLS_PUAPSD_PEER_TRAFFIC_RSP_TIMEOUT CFG_INI_UINT( \
-	"gTDLSPuapsdPTRTimeout", \
-	0, \
-	10000, \
-	5000, \
-	CFG_VALUE_OR_DEFAULT, \
-	"Peer Traffic Response timer duration in ms")
-
-/*
- * <ini>
  * gTDLSExternalControl - Enable external TDLS control.
  * @Min: 0
  * @Max: 2
@@ -562,6 +536,32 @@
  * as any other peer which supports tdls.
  *
  * Related: gEnableTDLSSupport, gEnableTDLSImplicitTrigger.
+ *
+ * Supported Feature: TDLS
+ *
+ * Usage: Internal/External
+ *
+ * </ini>
+ */
+#define CFG_TDLS_PUAPSD_PEER_TRAFFIC_RSP_TIMEOUT CFG_INI_UINT( \
+	"gTDLSPuapsdPTRTimeout", \
+	0, \
+	10000, \
+	5000, \
+	CFG_VALUE_OR_DEFAULT, \
+	"Peer Traffic Response timer duration in ms")
+
+/*
+ * <ini>
+ * gTDLSPuapsdPTIWindow - This ini is used to configure peer traffic indication
+ * window.
+ * @Min: 1
+ * @Max: 5
+ * @Default: 2
+ *
+ * This ini is used to configure buffering time in number of beacon intervals.
+ *
+ * Related: gEnableTDLSSupport.
  *
  * Supported Feature: TDLS
  *

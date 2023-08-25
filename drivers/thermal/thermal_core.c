@@ -32,6 +32,16 @@
 #include "thermal_core.h"
 #include "thermal_hwmon.h"
 
+#ifdef CONFIG_SEC_PM
+void *thermal_ipc_log;
+#endif
+
+#ifdef CONFIG_SEC_FACTORY
+static struct delayed_work tz_print_work;
+static int tz_print_id[] = {0, 1, 2, 3, 4, 5, 7, 8};	// Thermal zone for pm6150, pm6150l
+static int print_cnt;
+#endif
+
 MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
@@ -1587,6 +1597,7 @@ static inline int thermal_generate_netlink_event(struct thermal_zone_device *tz,
 		enum events event) { return -ENODEV; }
 #endif /* !CONFIG_NET */
 
+/*
 static int thermal_pm_notify(struct notifier_block *nb,
 			     unsigned long mode, void *_unused)
 {
@@ -1620,6 +1631,54 @@ static int thermal_pm_notify(struct notifier_block *nb,
 static struct notifier_block thermal_pm_nb = {
 	.notifier_call = thermal_pm_notify,
 };
+*/
+
+#ifdef CONFIG_SEC_FACTORY
+static bool is_print_list(struct thermal_zone_device *tz)
+{
+	int i;
+
+	for (i = 0; i < (sizeof(tz_print_id)/sizeof(int)); i++) {
+		if (tz_print_id[i] == tz->id)
+			return true;
+	}
+
+	return false;
+}
+
+static void __ref tz_print(struct work_struct *work)
+{
+	struct thermal_zone_device *tz;
+	int temp = 0;
+	int added = 0, ret = 0, len = 0;
+	char buffer[1024] = { 0, };
+
+	len = snprintf(buffer + added, sizeof(buffer) - added, "tztemp");
+	added += len;
+
+	list_for_each_entry(tz, &thermal_tz_list, node) {
+		if (is_print_list(tz)) {
+			if (tz->id == 61) {
+				len = snprintf(buffer + added, sizeof(buffer) - added,
+						   "\nsdx50m: ");
+				added += len;
+			}
+
+			ret = thermal_zone_get_temp(tz, &temp);
+			if (ret) continue;
+
+			len = snprintf(buffer + added, sizeof(buffer) - added,
+					   "[%d:%d]", tz->id, temp);
+			added += len;
+		}
+	}
+
+	printk("%s\n", buffer);
+
+	print_cnt++;
+	schedule_delayed_work(&tz_print_work, HZ * 5);
+}
+#endif /* CONFIG_SEC_FACTORY */
 
 static int __init thermal_init(void)
 {
@@ -1646,11 +1705,25 @@ static int __init thermal_init(void)
 	result = of_parse_thermal_zones();
 	if (result)
 		goto exit_zone_parse;
-
+/*
 	result = register_pm_notifier(&thermal_pm_nb);
 	if (result)
 		pr_warn("Thermal: Can not register suspend notifier, return %d\n",
 			result);
+*/
+
+#ifdef CONFIG_SEC_PM
+	if (!thermal_ipc_log)
+		thermal_ipc_log = ipc_log_context_create(10, "lmh_dcvs", 0);
+
+	if (!thermal_ipc_log)
+		pr_err("%s: Failed to create thermal logging context\n", __func__);
+
+#ifdef CONFIG_SEC_FACTORY
+	INIT_DELAYED_WORK(&tz_print_work, tz_print);
+	schedule_delayed_work(&tz_print_work, 0);
+#endif
+#endif
 
 	return 0;
 
@@ -1671,7 +1744,9 @@ error:
 
 static void thermal_exit(void)
 {
+/*
 	unregister_pm_notifier(&thermal_pm_nb);
+*/
 	of_thermal_destroy_zones();
 	destroy_workqueue(thermal_passive_wq);
 	genetlink_exit();
