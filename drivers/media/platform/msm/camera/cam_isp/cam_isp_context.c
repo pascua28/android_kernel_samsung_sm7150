@@ -440,13 +440,6 @@ static int __cam_isp_ctx_handle_buf_done_in_activated_state(
 		}
 
 		if (!req_isp->bubble_detected) {
-			CAM_QCLOGMINIMAL(CAM_ISP,
-				"Sync with success: req %lld res 0x%x fd 0x%x, ctx %u",
-				req->request_id,
-				req_isp->fence_map_out[j].resource_handle,
-				req_isp->fence_map_out[j].sync_id,
-				ctx->ctx_id);
-
 			rc = cam_sync_signal(req_isp->fence_map_out[j].sync_id,
 				CAM_SYNC_STATE_SIGNALED_SUCCESS);
 			if (rc)
@@ -548,11 +541,6 @@ static void __cam_isp_ctx_send_sof_boot_timestamp(
 	req_msg.u.frame_msg.timestamp = ctx_isp->boot_timestamp;
 	req_msg.u.frame_msg.link_hdl = ctx_isp->base->link_hdl;
 	req_msg.u.frame_msg.sof_status = sof_event_status;
-
-	CAM_QCLOGMINIMAL(CAM_ISP,
-		"request id:%lld frame number:%lld boot time stamp:0x%llx ctx %d",
-		request_id, ctx_isp->frame_id,
-		ctx_isp->boot_timestamp, ctx->ctx_id);
 
 	if (cam_req_mgr_notify_message(&req_msg,
 		V4L_EVENT_CAM_REQ_MGR_SOF_BOOT_TS,
