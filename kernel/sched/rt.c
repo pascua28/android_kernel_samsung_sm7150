@@ -2215,6 +2215,7 @@ static inline void rto_start_unlock(atomic_t *v)
 	atomic_set_release(v, 0);
 }
 
+#ifdef SCHED_FEAT_RT_PUSH_IPI
 static void tell_cpu_to_push(struct rq *rq)
 {
 	int cpu = -1;
@@ -2247,6 +2248,7 @@ static void tell_cpu_to_push(struct rq *rq)
 		irq_work_queue_on(&rq->rd->rto_push_work, cpu);
 	}
 }
+#endif
 
 /* Called from hardirq context */
 void rto_push_irq_work_func(struct irq_work *work)
@@ -2308,10 +2310,10 @@ static void pull_rt_task(struct rq *this_rq)
 		return;
 
 #ifdef HAVE_RT_PUSH_IPI
-	if (sched_feat(RT_PUSH_IPI)) {
-		tell_cpu_to_push(this_rq);
-		return;
-	}
+#ifdef SCHED_FEAT_RT_PUSH_IPI
+	tell_cpu_to_push(this_rq);
+	return;
+#endif
 #endif
 
 	for_each_cpu(cpu, this_rq->rd->rto_mask) {
