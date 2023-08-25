@@ -2295,10 +2295,10 @@ static void pull_rt_task(struct rq *this_rq)
 		return;
 
 #ifdef HAVE_RT_PUSH_IPI
-	if (sched_feat(RT_PUSH_IPI)) {
-		tell_cpu_to_push(this_rq);
-		return;
-	}
+#ifdef SCHED_FEAT_RT_PUSH_IPI
+	tell_cpu_to_push(this_rq);
+	return;
+#endif
 #endif
 
 	for_each_cpu(cpu, this_rq->rd->rto_mask) {
