@@ -457,9 +457,6 @@ static int cam_vfe_irq_top_half(uint32_t    evt_id,
 
 	handler_priv = th_payload->handler_priv;
 
-	CAM_QCLOGMINIMAL(CAM_ISP, "IRQ status_0 = %x", th_payload->evt_status_arr[0]);
-	CAM_QCLOGMINIMAL(CAM_ISP, "IRQ status_1 = %x", th_payload->evt_status_arr[1]);
-
 	rc  = cam_vfe_get_evt_payload(handler_priv->core_info, &evt_payload);
 	if (rc) {
 		CAM_ERR_RATE_LIMIT(CAM_ISP,

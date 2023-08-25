@@ -4695,14 +4695,11 @@ static int cam_ife_hw_mgr_check_irq_for_dual_vfe(
 		return 0;
 	}
 
-	CAM_QCLOGMINIMAL(CAM_ISP, "event_cnt[core_idx0]  = %u event_cnt[core_idx1]  = %u \n ",
-		          event_cnt[core_idx0],event_cnt[core_idx1]  );
 	if (event_cnt[core_idx0] ==
 			event_cnt[core_idx1]) {
 
 		event_cnt[core_idx0] = 0;
 		event_cnt[core_idx1] = 0;
-		CAM_QCLOGMINIMAL(CAM_ISP, "Count Match \n " );
 		rc = 0;
 		return rc;
 	}
@@ -4981,7 +4978,6 @@ static int cam_ife_hw_mgr_handle_sof(
 		if (ife_src_res->res_type == CAM_IFE_HW_MGR_RES_UNINIT)
 			continue;
 
-		CAM_QCLOGMINIMAL(CAM_ISP, "Enter Res id =  %u \n ",ife_src_res->res_id);
 		switch (ife_src_res->res_id) {
 		case CAM_ISP_HW_VFE_IN_RDI0:
 		case CAM_ISP_HW_VFE_IN_RDI1:
