@@ -2236,7 +2236,8 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	if (sk) {
 		struct dst_entry *dst = skb_dst(skb);
 		int ret;
-		
+
+#ifdef CONFIG_KNOX_NCM
 		/* START_OF_KNOX_NPA */
 		struct nf_conn *ct = NULL;
 		enum ip_conntrack_info ctinfo;
@@ -2244,10 +2245,12 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 		char srcaddr[INET6_ADDRSTRLEN_NAP];
 		char dstaddr[INET6_ADDRSTRLEN_NAP];
 		// KNOX NPA - END
+#endif
 
 		if (unlikely(sk->sk_rx_dst != dst))
 			udp_sk_rx_dst_set(sk, dst);
-		
+
+#ifdef CONFIG_KNOX_NCM
 		/* START_OF_KNOX_NPA */
 		/* function to handle open flows with incoming udp packets */
 		if (check_ncm_flag()) {
@@ -2289,12 +2292,13 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 								memcpy(ct->parent_process_name,sk->dns_process_name,sizeof(ct->parent_process_name)-1);
 							}
 							knox_collect_conntrack_data(ct, NCM_FLOW_TYPE_OPEN, 3);
-						}	
+						}
 					}
 				}
 			}
 		}
 		/* END_OF_KNOX_NPA */
+#endif
 
 		ret = udp_unicast_rcv_skb(sk, skb, uh);
 		sock_put(sk);
