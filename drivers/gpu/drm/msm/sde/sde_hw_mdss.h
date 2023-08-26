@@ -680,9 +680,6 @@ struct sde_hw_autorefresh {
  * @wr_ptr_line_count:	current line within pp fifo (wr ptr)
  */
 struct sde_hw_pp_vsync_info {
-	u32 rd_ptr_init_val;
-	u32 rd_ptr_frame_count;
-	u32 rd_ptr_line_count;
 	u32 wr_ptr_line_count;
 };
 
