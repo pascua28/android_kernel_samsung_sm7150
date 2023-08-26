@@ -683,6 +683,7 @@ struct ist40xx_data {
 	struct mutex aod_lock;
 	struct i2c_client *client;
 	struct input_dev *input_dev;
+	struct input_dev *input_dev_pad;
 	struct input_dev *input_dev_proximity;
 	struct ist40xx_dt_data *dt_data;
 	struct sec_tclm_data *tdata;
