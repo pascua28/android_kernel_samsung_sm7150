@@ -234,5 +234,4 @@ void gmu_core_regrmw(struct kgsl_device *device, unsigned int offsetwords,
 const char *gmu_core_oob_type_str(enum oob_request req);
 bool gmu_core_dev_cx_is_on(struct kgsl_device *device);
 bool gmu_core_is_initialized(struct kgsl_device *device);
-u64 gmu_core_dev_read_ao_counter(struct kgsl_device *device);
 #endif /* __KGSL_GMU_CORE_H */
