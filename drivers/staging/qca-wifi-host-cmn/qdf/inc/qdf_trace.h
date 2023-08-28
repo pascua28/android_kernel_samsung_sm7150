@@ -1179,13 +1179,8 @@ qdf_tso_seg_dbg_zero(struct qdf_tso_seg_elem_t *tsoseg)
  *
  * Return:  None
  */
-#ifdef QDF_ENABLE_TRACING
 void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
 			void *data, int buf_len);
-#else
-static inline void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
-			void *data, int buf_len) {}
-#endif
 
 /**
  * qdf_trace_hex_ascii_dump() - externally called hex and ascii dump function
