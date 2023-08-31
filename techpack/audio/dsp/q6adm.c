@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -5078,7 +5078,7 @@ int adm_get_source_tracking(int port_id, int copp_idx,
 	 */
 	param_hdr.param_size =
 		sizeof(struct adm_param_fluence_sourcetracking_t) +
-		sizeof(struct param_hdr_v3);
+		sizeof(union param_hdrs);
 
 	/*
 	 * Retrieving parameters out of band, so no need to provide a buffer for
@@ -5107,7 +5107,7 @@ int adm_get_source_tracking(int port_id, int copp_idx,
 	source_tracking_params =
 		(struct adm_param_fluence_sourcetracking_t
 			 *) (this_adm.sourceTrackingData.memmap.kvaddr +
-			     sizeof(struct param_hdr_v3));
+			     sizeof(struct param_hdr_v1));
 	for (i = 0; i < MAX_SECTORS; i++) {
 		sourceTrackingData->vad[i] = source_tracking_params->vad[i];
 		pr_debug("%s: vad[%d] = %d\n",

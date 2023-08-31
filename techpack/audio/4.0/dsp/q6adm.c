@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -20,9 +20,6 @@
 #include <dsp/q6common.h>
 #include <ipc/apr.h>
 #include "adsp_err.h"
-#ifdef CONFIG_SEC_SND_ADAPTATION
-#include <dsp/sec_adaptation.h>
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 
 #define TIMEOUT_MS 1000
 
@@ -2995,11 +2992,9 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	int param_size;
 	int num_ec_ref_rx_chans = this_adm.num_ec_ref_rx_chans;
 
-	pr_info("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
+	pr_debug("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
 		 __func__, port_id, path, rate, channel_mode, perf_mode,
 		 topology);
-	pr_info("%s:bit_width:%d app_type:%#x acdb_id:%d\n",
-		__func__, bit_width, app_type, acdb_id);
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
@@ -3063,18 +3058,6 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		    (rate != ADM_CMD_COPP_OPEN_SAMPLE_RATE_32K))
 			rate = 16000;
 	}
-
-#ifdef CONFIG_SEC_SND_ADAPTATION
-	if ((topology == VPM_TX_SM_LVVEFQ_COPP_TOPOLOGY) ||
-		(topology == VPM_TX_DM_LVVEFQ_COPP_TOPOLOGY) ||
-		(topology == VPM_TX_SM_LVSAFQ_COPP_TOPOLOGY) ||
-		(topology == VPM_TX_DM_LVSAFQ_COPP_TOPOLOGY) ||
-		(topology == VOICE_TX_DIAMONDVOICE_FVSAM_SM) ||
-		(topology == VOICE_TX_DIAMONDVOICE_FVSAM_DM) ||
-		(topology == VOICE_TX_DIAMONDVOICE_FVSAM_QM) ||
-		(topology == VOICE_TX_DIAMONDVOICE_FRSAM_DM))
-		rate = 16000;
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 
 	if (topology == FFECNS_TOPOLOGY) {
 		this_adm.ffecns_port_id = port_id;
@@ -3389,7 +3372,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		ret = wait_event_timeout(this_adm.copp.wait[port_idx][copp_idx],
 			atomic_read(&this_adm.copp.stat
 			[port_idx][copp_idx]) >= 0,
-			msecs_to_jiffies(2 * TIMEOUT_MS));
+			msecs_to_jiffies(TIMEOUT_MS));
 		if (!ret) {
 			pr_err("%s: ADM open timedout for port_id: 0x%x for [0x%x]\n",
 						__func__, tmp_port, port_id);
@@ -3815,7 +3798,7 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 	int ret = 0, port_idx;
 	int copp_id = RESET_COPP_ID;
 
-	pr_info("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
+	pr_debug("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
 		 port_id, perf_mode, copp_idx);
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
@@ -4584,49 +4567,6 @@ int adm_set_ffecns_effect(int effect)
 	return rc;
 }
 EXPORT_SYMBOL(adm_set_ffecns_effect);
-
-/**
- * adm_set_ffecns_freeze_event -
- *      command to set event for ffecns module
- *
- * @event: send ffecns freeze event true or false
- *
- * Returns 0 on success or error on failure
- */
-int adm_set_ffecns_freeze_event(bool ffecns_freeze_event)
-{
-	struct ffv_spf_freeze_param_t ffv_param;
-	struct param_hdr_v3 param_hdr;
-	int rc = 0;
-	int copp_idx = 0;
-
-	memset(&param_hdr, 0, sizeof(param_hdr));
-	memset(&ffv_param, 0, sizeof(ffv_param));
-
-	ffv_param.freeze = ffecns_freeze_event ? 1 : 0;
-	ffv_param.source_id = 0; /*default value*/
-
-	copp_idx = adm_get_default_copp_idx(this_adm.ffecns_port_id);
-	if ((copp_idx < 0) || (copp_idx >= MAX_COPPS_PER_PORT)) {
-		pr_err("%s, no active copp to query rms copp_idx:%d\n",
-			__func__, copp_idx);
-		return -EINVAL;
-	}
-
-	param_hdr.module_id = FFECNS_MODULE_ID;
-	param_hdr.instance_id = INSTANCE_ID_0;
-	param_hdr.param_id = PARAM_ID_FFV_SPF_FREEZE;
-	param_hdr.param_size = sizeof(ffv_param);
-
-	rc = adm_pack_and_set_one_pp_param(this_adm.ffecns_port_id, copp_idx,
-					param_hdr, (uint8_t *) &ffv_param);
-	if (rc)
-		pr_err("%s: Failed to set ffecns imc event, err %d\n",
-		       __func__, rc);
-
-	return rc;
-}
-EXPORT_SYMBOL(adm_set_ffecns_freeze_event);
 
 /**
  * adm_param_enable -

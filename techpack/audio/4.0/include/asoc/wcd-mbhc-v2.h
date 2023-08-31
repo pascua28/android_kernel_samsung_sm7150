@@ -136,13 +136,10 @@ do {                                                    \
 #define GND_MIC_SWAP_THRESHOLD 4
 #define GND_MIC_USBC_SWAP_THRESHOLD 2
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
-#define HS_VREF_MIN_VAL 1300
+#define HS_VREF_MIN_VAL 1400
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 #define FAKE_REM_RETRY_ATTEMPTS 3
-#define HPHL_CROSS_CONN_THRESHOLD 100
-#define HPHR_CROSS_CONN_THRESHOLD 100
-#define MAX_IMPED 60000
 
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
@@ -216,8 +213,6 @@ enum wcd_mbhc_register_function {
 	WCD_MBHC_ADC_MODE,
 	WCD_MBHC_DETECTION_DONE,
 	WCD_MBHC_ELECT_ISRC_EN,
-	WCD_MBHC_EN_SURGE_PROTECTION_HPHL,
-	WCD_MBHC_EN_SURGE_PROTECTION_HPHR,
 	WCD_MBHC_REG_FUNC_MAX,
 };
 
@@ -435,7 +430,6 @@ struct wcd_mbhc_config {
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
 	bool moisture_duty_cycle_en;
-	bool mbhc_spl_headset;
 };
 
 struct wcd_mbhc_intr {
@@ -457,8 +451,6 @@ struct wcd_mbhc_register {
 };
 
 struct wcd_mbhc_cb {
-	void (*update_cross_conn_thr)
-		(struct wcd_mbhc *mbhc);
 	void (*bcs_enable)
 		(struct wcd_mbhc *mbhc, bool bcs_enable);
 	int (*enable_mb_source)(struct wcd_mbhc *mbhc, bool turn_on);
@@ -543,8 +535,6 @@ struct wcd_mbhc {
 	u32 moist_vref;
 	u32 moist_iref;
 	u32 moist_rref;
-	u32 hphl_cross_conn_thr;
-	u32 hphr_cross_conn_thr;
 	u8 micbias1_cap_mode; /* track ext cap setting */
 	u8 micbias2_cap_mode; /* track ext cap setting */
 	bool hs_detect_work_stop;
@@ -603,15 +593,6 @@ struct wcd_mbhc {
 	bool force_linein;
 	struct device_node *fsa_np;
 	struct notifier_block fsa_nb;
-
-	bool pullup_enable;
-#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
-	bool slow_insertion;
-#endif
-#ifdef CONFIG_SND_SOC_IMPED_SENSING
-	int default_impedance_offset;
-	int impedance_offset;
-#endif
 };
 
 void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,

@@ -19,11 +19,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
-	ifeq ($(CONFIG_ARCH_SDM660), y)
-		include $(AUDIO_ROOT)/config/sdm660auto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
-	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -122,7 +117,9 @@ ifdef CONFIG_SND_SOC_WSA881X
 	WSA881X_OBJS += wsa881x-tables.o
 	WSA881X_OBJS += wsa881x-regmap.o
 	WSA881X_OBJS += wsa881x-temp-sensor.o
+ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
 	WSA881X_OBJS += bigdata_wsa_sysfs_cb.o
+endif
 endif
 
 ifdef CONFIG_SND_SOC_WSA881X_ANALOG
@@ -250,3 +247,6 @@ mbhc_dlkm-y := $(MBHC_OBJS)
 
 obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += hdmi_dlkm.o
 hdmi_dlkm-y := $(HDMICODEC_OBJS)
+
+# inject some build related information
+DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

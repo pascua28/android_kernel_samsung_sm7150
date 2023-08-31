@@ -545,8 +545,6 @@ static int msm_route_fm_vol_control;
 static int msm_afe_lb_vol_ctrl;
 static int msm_afe_sec_mi2s_lb_vol_ctrl;
 static int msm_afe_tert_mi2s_lb_vol_ctrl;
-static int msm_afe_cdc_tx_3_lb_vol_ctrl;
-static int msm_afe_usb_lb_vol_ctrl;
 static int msm_afe_quat_mi2s_lb_vol_ctrl;
 static int msm_afe_slimbus_7_lb_vol_ctrl;
 static int msm_afe_slimbus_8_lb_vol_ctrl;
@@ -651,38 +649,6 @@ static int msm_qti_pp_set_tert_mi2s_lb_vol_mixer(struct snd_kcontrol *kcontrol,
 	afe_loopback_gain(AFE_PORT_ID_TERTIARY_MI2S_TX,
 			  ucontrol->value.integer.value[0]);
 	msm_afe_tert_mi2s_lb_vol_ctrl = ucontrol->value.integer.value[0];
-	return 0;
-}
-
-static int msm_qti_pp_get_usb_tx_lb_vol_mixer(struct snd_kcontrol *kcontrol,
-				       struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = msm_afe_usb_lb_vol_ctrl;
-	return 0;
-}
-
-static int msm_qti_pp_set_usb_tx_lb_vol_mixer(struct snd_kcontrol *kcontrol,
-			    struct snd_ctl_elem_value *ucontrol)
-{
-	afe_loopback_gain(AFE_PORT_ID_USB_TX,
-			  ucontrol->value.integer.value[0]);
-	msm_afe_usb_lb_vol_ctrl = ucontrol->value.integer.value[0];
-	return 0;
-}
-
-static int msm_qti_pp_get_cdc_tx_3_lb_vol_mixer(struct snd_kcontrol *kcontrol,
-				       struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = msm_afe_cdc_tx_3_lb_vol_ctrl;
-	return 0;
-}
-
-static int msm_qti_pp_set_cdc_tx_3_lb_vol_mixer(struct snd_kcontrol *kcontrol,
-			    struct snd_ctl_elem_value *ucontrol)
-{
-	afe_loopback_gain(AFE_PORT_ID_TX_CODEC_DMA_TX_3,
-			  ucontrol->value.integer.value[0]);
-	msm_afe_cdc_tx_3_lb_vol_ctrl = ucontrol->value.integer.value[0];
 	return 0;
 }
 
@@ -1475,18 +1441,6 @@ static const struct snd_kcontrol_new tert_mi2s_lb_vol_mixer_controls[] = {
 	msm_qti_pp_set_tert_mi2s_lb_vol_mixer, afe_lb_vol_gain),
 };
 
-static const struct snd_kcontrol_new tx_cdc_dma_tx_3_lb_vol_mixer_controls[] = {
-	SOC_SINGLE_EXT_TLV("TX_CDC_DMA_TX_3 LOOPBACK Volume", SND_SOC_NOPM, 0,
-	INT_RX_VOL_GAIN, 0, msm_qti_pp_get_cdc_tx_3_lb_vol_mixer,
-	msm_qti_pp_set_cdc_tx_3_lb_vol_mixer, afe_lb_vol_gain),
-};
-
-static const struct snd_kcontrol_new usb_audio_tx_vol_mixer_controls[] = {
-	SOC_SINGLE_EXT_TLV("USB_AUDIO_TX LOOPBACK Volume", SND_SOC_NOPM, 0,
-	INT_RX_VOL_GAIN, 0, msm_qti_pp_get_usb_tx_lb_vol_mixer,
-	msm_qti_pp_set_usb_tx_lb_vol_mixer, afe_lb_vol_gain),
-};
-
 static const struct snd_kcontrol_new slimbus_7_lb_vol_mixer_controls[] = {
 	SOC_SINGLE_EXT_TLV("SLIMBUS_7 LOOPBACK Volume", SND_SOC_NOPM, 0,
 				INT_RX_VOL_GAIN, 0,
@@ -1706,14 +1660,6 @@ void msm_qti_pp_add_controls(struct snd_soc_platform *platform)
 
 	snd_soc_add_platform_controls(platform, tert_mi2s_lb_vol_mixer_controls,
 			ARRAY_SIZE(tert_mi2s_lb_vol_mixer_controls));
-
-	snd_soc_add_platform_controls(platform,
-			tx_cdc_dma_tx_3_lb_vol_mixer_controls,
-			ARRAY_SIZE(tx_cdc_dma_tx_3_lb_vol_mixer_controls));
-
-	snd_soc_add_platform_controls(platform,
-			usb_audio_tx_vol_mixer_controls,
-			ARRAY_SIZE(usb_audio_tx_vol_mixer_controls));
 
 	snd_soc_add_platform_controls(platform, slimbus_7_lb_vol_mixer_controls,
 			ARRAY_SIZE(slimbus_7_lb_vol_mixer_controls));

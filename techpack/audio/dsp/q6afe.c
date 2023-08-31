@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -38,7 +38,6 @@
 #include <dsp/smart_amp.h>
 #endif /*CONFIG_TAS25XX_ALGO*/
 #define WAKELOCK_TIMEOUT	5000
-#define MAX_LSM_SESSIONS 8
 
 #ifdef CONFIG_TAS25XX_ALGO
 static int32_t smartamp_algo_callback(uint32_t opcode, uint32_t *payload,
@@ -177,7 +176,6 @@ struct afe_ctl {
 	/* FTM spk params */
 	uint32_t initial_cal;
 	uint32_t v_vali_flag;
-	int lsm_afe_ports[MAX_LSM_SESSIONS];
 #ifdef CONFIG_TAS25XX_ALGO
 	struct afe_smartamp_calib_get_resp smart_amp_calib_data;
 #endif /*CONFIG_TAS25XX_ALGO*/
@@ -197,8 +195,6 @@ bool afe_close_done[2] = {true, true};
 
 #define SIZEOF_CFG_CMD(y) \
 		(sizeof(struct apr_hdr) + sizeof(u16) + (sizeof(struct y)))
-
-static bool q6afe_is_afe_lsm_port(int port_id);
 
 static int afe_get_cal_hw_delay(int32_t path,
 				struct audio_cal_hw_delay_entry *entry);
@@ -923,8 +919,6 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 		break;
 	case RT_PROXY_PORT_001_RX:
 	case RT_PROXY_PORT_001_TX:
-	case RT_PROXY_PORT_002_RX:
-	case RT_PROXY_PORT_002_TX:
 		ret_size = SIZEOF_CFG_CMD(afe_param_id_rt_proxy_port_cfg);
 		break;
 	case AFE_PORT_ID_USB_RX:
@@ -2437,7 +2431,7 @@ static int afe_send_port_topology_id(u16 port_id)
 	}
 
 	ret = afe_get_cal_topology_id(port_id, &topology_id, AFE_TOPOLOGY_CAL);
-	if (ret < 0 && q6afe_is_afe_lsm_port(port_id)) {
+	if (ret < 0) {
 		pr_debug("%s: Check for LSM topology\n", __func__);
 		ret = afe_get_cal_topology_id(port_id, &topology_id,
 					      AFE_LSM_TOPOLOGY_CAL);
@@ -2719,7 +2713,7 @@ static int send_afe_cal_type(int cal_index, int port_id)
 				this_afe.cal_data[cal_index]);
 
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_err_ratelimited("%s cal_block not found!!\n", __func__);
+		pr_err("%s cal_block not found!!\n", __func__);
 		ret = -EINVAL;
 		goto unlock;
 	}
@@ -2755,7 +2749,7 @@ void afe_send_cal(u16 port_id)
 	if (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_TX) {
 		afe_send_cal_spkr_prot_tx(port_id);
 		ret = send_afe_cal_type(AFE_COMMON_TX_CAL, port_id);
-		if (ret < 0 && q6afe_is_afe_lsm_port(port_id))
+		if (ret < 0)
 			send_afe_cal_type(AFE_LSM_TX_CAL, port_id);
 	} else if (afe_get_port_type(port_id) == MSM_AFE_PORT_TYPE_RX) {
 		send_afe_cal_type(AFE_COMMON_RX_CAL, port_id);
@@ -4642,8 +4636,6 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		break;
 	case RT_PROXY_PORT_001_RX:
 	case RT_PROXY_PORT_001_TX:
-	case RT_PROXY_PORT_002_RX:
-	case RT_PROXY_PORT_002_TX:
 		cfg_type = AFE_PARAM_ID_RT_PROXY_CONFIG;
 		break;
 	case INT_BT_SCO_RX:
@@ -5153,10 +5145,6 @@ int afe_get_port_index(u16 port_id)
 		return IDX_AFE_PORT_ID_RX_CODEC_DMA_RX_6;
 	case AFE_PORT_ID_RX_CODEC_DMA_RX_7:
 		return IDX_AFE_PORT_ID_RX_CODEC_DMA_RX_7;
-	case RT_PROXY_PORT_002_RX:
-		return IDX_RT_PROXY_PORT_002_RX;
-	case RT_PROXY_PORT_002_TX:
-		return IDX_RT_PROXY_PORT_002_TX;
 	default:
 		pr_err("%s: port 0x%x\n", __func__, port_id);
 		return -EINVAL;
@@ -7395,8 +7383,6 @@ int afe_validate_port(u16 port_id)
 	case AFE_PORT_ID_TX_CODEC_DMA_TX_5:
 	case AFE_PORT_ID_RX_CODEC_DMA_RX_6:
 	case AFE_PORT_ID_RX_CODEC_DMA_RX_7:
-	case RT_PROXY_PORT_002_RX:
-	case RT_PROXY_PORT_002_TX:
 	{
 		ret = 0;
 		break;
@@ -7551,7 +7537,6 @@ int afe_close(int port_id)
 		pr_debug("%s: Not a MAD port\n", __func__);
 	}
 
-	mutex_lock(&this_afe.afe_cmd_lock);
 	port_index = afe_get_port_index(port_id);
 	if ((port_index >= 0) && (port_index < AFE_MAX_PORTS)) {
 		this_afe.afe_sample_rates[port_index] = 0;
@@ -7594,7 +7579,6 @@ int afe_close(int port_id)
 		pr_err("%s: AFE close failed %d\n", __func__, ret);
 
 fail_cmd:
-	mutex_unlock(&this_afe.afe_cmd_lock);
 	return ret;
 }
 EXPORT_SYMBOL(afe_close);
@@ -9237,29 +9221,3 @@ done:
 }
 EXPORT_SYMBOL(afe_unvote_lpass_core_hw);
 
-static bool q6afe_is_afe_lsm_port(int port_id)
-{
-	int i = 0;
-
-	for (i = 0; i < MAX_LSM_SESSIONS; i++) {
-		if (port_id == this_afe.lsm_afe_ports[i])
-			return true;
-	}
-	return false;
-}
-
-/**
- * afe_set_lsm_afe_port_id -
- *            Update LSM AFE port
- * idx: LSM port index
- * lsm_port: LSM port id
-*/
-void afe_set_lsm_afe_port_id(int idx, int lsm_port)
-{
-	if (idx < 0 || idx >= MAX_LSM_SESSIONS) {
-		pr_err("%s: %d Invalid lsm port index\n", __func__, idx);
-		return;
-	}
-	this_afe.lsm_afe_ports[idx] = lsm_port;
-}
-EXPORT_SYMBOL(afe_set_lsm_afe_port_id);

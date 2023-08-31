@@ -19,11 +19,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdm845autoconf.h
 	endif
-	ifeq ($(CONFIG_ARCH_SDM660), y)
-		include $(AUDIO_ROOT)/config/sdm660auto.conf
-		export
-		INCS    +=  -include $(AUDIO_ROOT)/config/sdm660autoconf.h
-	endif
 	ifeq ($(CONFIG_ARCH_SDM670), y)
 		include $(AUDIO_ROOT)/config/sdm670auto.conf
 		export
@@ -219,3 +214,6 @@ q6_pdr_dlkm-y := $(QDSP6_PDR_OBJS)
 
 obj-$(CONFIG_MSM_QDSP6_NOTIFIER) += q6_notifier_dlkm.o
 q6_notifier_dlkm-y := $(QDSP6_NOTIFIER_OBJS)
+
+# inject some build related information
+DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"
