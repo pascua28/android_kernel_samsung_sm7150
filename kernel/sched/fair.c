@@ -5201,6 +5201,10 @@ static inline void hrtick_update(struct rq *rq)
 }
 #endif
 
+bool fits_capacity(int cap, int max, int cpu) {
+    return (cap * capacity_margin) > (max << SCHED_CAPACITY_SHIFT);
+}
+
 #ifdef CONFIG_SMP
 static bool sd_overutilized(struct sched_domain *sd)
 {
@@ -6063,6 +6067,83 @@ static unsigned long cpu_util_without(int cpu, struct task_struct *p)
 	 * the cpu_util call.
 	 */
 	return min_t(unsigned long, util, capacity_orig_of(cpu));
+}
+
+static unsigned long cpu_util_without_raw(int cpu, struct task_struct *p)
+{
+        struct cfs_rq *cfs_rq;
+	unsigned int util;
+
+	/* Task has no contribution or is new */
+	if (cpu != task_cpu(p) || !READ_ONCE(p->se.avg.last_update_time))
+		return cpu_util_cfs(cpu_rq(cpu));
+
+	cfs_rq = &cpu_rq(cpu)->cfs;
+	util = READ_ONCE(cfs_rq->avg.util_avg);
+
+	/* Discount task's util from CPU's util */
+	util -= min_t(unsigned int, util, task_util(p));
+
+	/*
+	 * Covered cases:
+	 *
+	 * a) if *p is the only task sleeping on this CPU, then:
+	 *      cpu_util (== task_util) > util_est (== 0)
+	 *    and thus we return:
+	 *      cpu_util_without = (cpu_util - task_util) = 0
+	 *
+	 * b) if other tasks are SLEEPING on this CPU, which is now exiting
+	 *    IDLE, then:
+	 *      cpu_util >= task_util
+	 *      cpu_util > util_est (== 0)
+	 *    and thus we discount *p's blocked utilization to return:
+	 *      cpu_util_without = (cpu_util - task_util) >= 0
+	 *
+	 * c) if other tasks are RUNNABLE on that CPU and
+	 *      util_est > cpu_util
+	 *    then we use util_est since it returns a more restrictive
+	 *    estimation of the spare capacity on that CPU, by just
+	 *    considering the expected utilization of tasks already
+	 *    runnable on that CPU.
+	 *
+	 * Cases a) and b) are covered by the above code, while case c) is
+	 * covered by the following code when estimated utilization is
+	 * enabled.
+	 */
+	if (sched_feat(UTIL_EST)) {
+		unsigned int estimated =
+			READ_ONCE(cfs_rq->avg.util_est.enqueued);
+
+		/*
+		 * Despite the following checks we still have a small window
+		 * for a possible race, when an execl's select_task_rq_fair()
+		 * races with LB's detach_task():
+		 *
+		 *   detach_task()
+		 *     p->on_rq = TASK_ON_RQ_MIGRATING;
+		 *     ---------------------------------- A
+		 *     deactivate_task()                   \
+		 *       dequeue_task()                     + RaceTime
+		 *         util_est_dequeue()              /
+		 *     ---------------------------------- B
+		 *
+		 * The additional check on "current == p" it's required to
+		 * properly fix the execl regression and it helps in further
+		 * reducing the chances for the above race.
+		 */
+		if (unlikely(task_on_rq_queued(p) || current == p)) {
+			estimated -= min_t(unsigned int, estimated,
+					   (_task_util_est(p) | UTIL_AVG_UNCHANGED));
+		}
+		util = max(util, estimated);
+	}
+
+	/*
+	 * Utilization (estimated) can exceed the CPU capacity, thus let's
+	 * clamp to the maximum CPU capacity to ensure consistency with
+	 * the cpu_util call.
+	 */
+	return util;
 }
 
 static unsigned long group_max_util(struct energy_env *eenv, int cpu_idx)
@@ -8146,156 +8227,190 @@ static inline struct cpumask *find_rtg_target(struct task_struct *p)
 }
 #endif
 
-/*
- * Needs to be called inside rcu_read_lock critical section.
- * sd is a pointer to the sched domain we wish to use for an
- * energy-aware placement option.
- */
-static int find_energy_efficient_cpu(struct sched_domain *sd,
-				     struct task_struct *p,
-				     int cpu, int prev_cpu,
-				     int sync, bool sync_boost)
+static bool cpu_is_better(int cpu, int best_cpu,
+			  const unsigned int exit_lat[NR_CPUS],
+			  unsigned long util, unsigned long l_util)
 {
-	int use_fbt = sched_feat(FIND_BEST_TARGET);
-	int cpu_iter, eas_cpu_idx = EAS_CPU_NXT;
-	int delta = 0;
-	int target_cpu = -1;
-	struct energy_env *eenv;
-	struct cpumask *rtg_target = find_rtg_target(p);
-	struct find_best_target_env fbt_env;
-	bool need_idle = wake_to_idle(p);
-	int placement_boost = task_boost_policy(p);
-	u64 start_t = 0;
-	int next_cpu = -1, backup_cpu = -1;
-	int boosted = (schedtune_task_boost(p) > 0);
-	bool prefer_high_cap = schedtune_prefer_high_cap(p);
-	fbt_env.fastpath = 0;
+	/*
+	 * Find the CPU with the lowest raw utilization ratio. A non-idle CPU or
+	 * CPU with lower exit latency is preferred when utilization is equal.
+	 */
+	return util < l_util || (util == l_util &&
+				 exit_lat[cpu] < exit_lat[best_cpu]);
+}
 
-	if (trace_sched_task_util_enabled())
-		start_t = sched_clock();
+static unsigned long cpu_util_ratio(struct task_struct *p,
+				    const unsigned long cap[NR_CPUS],
+				    const unsigned int exit_lat[NR_CPUS],
+				    int cpu, int prev_cpu, int *best_cpu,
+				    unsigned long *l_util)
+{
+	unsigned long util;
 
-	if (need_idle)
-		sync = 0;
-
-	if (sysctl_sched_sync_hint_enable && sync &&
-				bias_to_waker_cpu(p, cpu, rtg_target)) {
-		target_cpu = cpu;
-		fbt_env.fastpath = SYNC_WAKEUP;
-		goto out;
+	/* Exclude @p from the CPU's utilization if this is the previous CPU */
+	if (cpu == prev_cpu)
+		util = cpu_util_without_raw(cpu, p);
+	else
+		util = cpu_util_cfs(cpu_rq(cpu));
+	util = util * SCHED_CAPACITY_SCALE / cap[cpu];
+	if (cpu_is_better(cpu, *best_cpu, exit_lat, util, *l_util)) {
+		*l_util = util;
+		*best_cpu = cpu;
 	}
 
-	/* prepopulate energy diff environment */
-	eenv = get_eenv(p, prev_cpu);
-	if (eenv->max_cpu_count < 2)
-		goto out;
+	return util;
+}
 
-	if(!use_fbt) {
+static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
+{
+	unsigned long cap[NR_CPUS], cpu_util[NR_CPUS], energy[NR_CPUS] = {};
+	unsigned long l_util = ULONG_MAX, p_util;
+	cpumask_t allowed, candidates = {};
+	struct cpuidle_state *idle_state;
+	unsigned int exit_lat[NR_CPUS];
+	struct perf_domain *pd;
+	int i, best_cpu;
+	struct rq *rq;
+
+	/*
+	 * If there aren't any valid CPUs which are active, then just return the
+	 * first valid CPU since it's possible for certain types of tasks to run
+	 * on !active CPUs.
+	 */
+	if (unlikely(!cpumask_and(&allowed, &p->cpus_allowed, cpu_active_mask)))
+		return cpumask_first(&p->cpus_allowed);
+
+	/* Compute the utilization for this task */
+	p_util = task_util_est(p);
+
+	/*
+	 * Find the best-fitting CPU with the lowest total raw utilization
+	 * ratio; i.e., the least relatively-loaded CPU. Note that although
+	 * idle_get_state() requires an RCU read lock, an RCU read lock isn't
+	 * needed because we're not preemptible and RCU-sched is unified with
+	 * normal RCU. Therefore, non-preemptible contexts are implicitly
+	 * RCU-safe.
+	 *
+	 * Iteration through @allowed is intended to go from the lowest-capacity
+	 * cluster to the highest-capacity cluster in order to pack tasks onto
+	 * lower-capacity clusters. If all cores in a higher-capacity cluster
+	 * can idle, then it may be possible to enter a cluster idle state where
+	 * the whole cluster goes into a deeper C-state, saving more power. This
+	 * is generally moot for the lowest-capacity cluster though, since it
+	 * typically contains the boot CPU and handles housekeeping, plus
+	 * generally has the most cores, so it's less likely for it to enter
+	 * cluster idle.
+	 *
+	 * Packing tasks onto lower-capacity clusters also improves overall
+	 * single-threaded performance by reducing the load on higher-capacity
+	 * CPUs, making them more available to heavy tasks.
+	 */
+        rcu_read_lock();
+	for_each_cpu(i, &allowed) {
 		/*
-		 * using this function outside wakeup balance will not supply
-		 * an sd ptr. Instead, fetch the highest level with energy data.
+		 * Get the current capacity of this CPU adjusted for thermal
+		 * pressure as well as IRQ and RT-task time.
 		 */
-		if (!sd)
-			sd = rcu_dereference(per_cpu(sd_ea, prev_cpu));
+		cap[i] = capacity_of(i);
 
-		for_each_cpu_and(cpu_iter, &p->cpus_allowed, sched_domain_span(sd)) {
-			unsigned long spare;
+		/* Get the idle exit latency for this CPU if it's idle */
+		rq = cpu_rq(i);
+		idle_state = idle_get_state(rq);
+		exit_lat[i] = idle_state ? idle_state->exit_latency : 0;
 
-			/* prev_cpu already in list */
-			if (cpu_iter == prev_cpu)
-				continue;
-
-			/*
-			 * Consider only CPUs where the task is expected to
-			 * fit without making the CPU overutilized.
-			 */
-			spare = capacity_spare_without(cpu_iter, p);
-			if (spare * 1024 < sched_capacity_margin_up[cpu_iter] *
-							task_util_est(p))
-				continue;
-
-			/* Add CPU candidate */
-			eenv->cpu[eas_cpu_idx++].cpu_id = cpu_iter;
-			eenv->max_cpu_count = eas_cpu_idx;
-
-			/* stop adding CPUs if we have no space left */
-			if (eas_cpu_idx >= eenv->eenv_cpu_count)
-				break;
+		/* Calculate the raw utilization ratio if this CPU fits */
+		if (!fits_capacity(p_util, cap[i], i)) {
+			cpu_util[i] = cpu_util_ratio(p, cap, exit_lat, i,
+						     prev_cpu, &best_cpu,
+						     &l_util);
+			__cpumask_set_cpu(i, &candidates);
 		}
-	} else {
-		int prefer_idle;
-
-		/*
-		 * give compiler a hint that if sched_features
-		 * cannot be changed, it is safe to optimise out
-		 * all if(prefer_idle) blocks.
-		 */
-		prefer_idle = sched_feat(EAS_PREFER_IDLE) ?
-				(schedtune_prefer_idle(p) > 0) : 0;
-
-		eenv->max_cpu_count = EAS_CPU_BKP + 1;
-
-		fbt_env.rtg_target = rtg_target;
-		fbt_env.placement_boost = placement_boost;
-		fbt_env.need_idle = need_idle;
-
-		/* Find a cpu with sufficient capacity */
-		target_cpu = find_best_target(p, &eenv->cpu[EAS_CPU_BKP].cpu_id,
-					      boosted, sync_boost, prefer_idle,
-					      &fbt_env, prefer_high_cap);
-		if (target_cpu < 0)
-			goto out;
-
-		/* Immediately return a found idle CPU for a prefer_idle task */
-		if (prefer_idle && idle_cpu(target_cpu))
-			goto out;
-
-#ifdef CONFIG_SCHED_WALT
-		if (!walt_disabled && sysctl_sched_use_walt_cpu_util &&
-		    p->state == TASK_WAKING)
-			delta = task_util(p);
-#endif
-		if (task_placement_boost_enabled(p) || need_idle ||
-		    prefer_high_cap ||
-		    (rtg_target &&
-		     (!cpumask_test_cpu(prev_cpu, rtg_target) ||
-		      cpumask_test_cpu(target_cpu, rtg_target))) ||
-		    __cpu_overutilized(prev_cpu, delta) ||
-		    !task_fits_max(p, prev_cpu) || cpu_isolated(prev_cpu))
-			goto out;
-
-		/* Place target into NEXT slot */
-		eenv->cpu[EAS_CPU_NXT].cpu_id = target_cpu;
-
-		next_cpu = eenv->cpu[EAS_CPU_NXT].cpu_id;
-		backup_cpu = eenv->cpu[EAS_CPU_BKP].cpu_id;
-
-		/* take note if no backup was found */
-		if (eenv->cpu[EAS_CPU_BKP].cpu_id < 0)
-			eenv->max_cpu_count = EAS_CPU_BKP;
+	}
+        rcu_read_unlock();
+	/* If no CPU fits, then place the task on the least utilized CPU */
+	if (l_util == ULONG_MAX) {
+		for_each_cpu(i, &allowed)
+			cpu_util_ratio(p, cap, exit_lat, i, prev_cpu, &best_cpu,
+				       &l_util);
+		goto check_prev;
 	}
 
-	if (eenv->max_cpu_count == EAS_CPU_NXT) {
-		/*
-		 * we did not find any energy-awareness
-		 * candidates beyond prev_cpu, so we will
-		 * fall-back to the regular slow-path.
-		 */
-		goto out;
+	/* Stop now if only one CPU fits */
+	if (cpumask_weight(&candidates) == 1)
+		return best_cpu;
+
+	/*
+	 * Quickly filter out CPUs with significantly higher utilization by
+	 * comparing floor(sqrt(util)) for each candidate. This helps avoid
+	 * CPUs which are quadratically more loaded than the least utilized CPU
+	 * found earlier, and eliminates their heavy energy computations. These
+	 * CPUs are a bad choice from a performance standpoint, so discard them.
+	 */
+	l_util = int_sqrt(l_util);
+	__cpumask_clear_cpu(best_cpu, &candidates);
+	for_each_cpu(i, &candidates) {
+		if (int_sqrt(cpu_util[i]) > l_util)
+			__cpumask_clear_cpu(i, &candidates);
 	}
 
-	/* find most energy-efficient CPU */
-	target_cpu = select_energy_cpu_idx(eenv) < 0 ? prev_cpu :
-					eenv->cpu[eenv->next_idx].cpu_id;
+	/* Stop now if all other CPUs are obviously a bad choice */
+	if (cpumask_empty(&candidates))
+		return best_cpu;
 
-out:
-	if (target_cpu < 0)
-		target_cpu = prev_cpu;
+	pd = rcu_dereference(rq->rd->pd);
+	if (unlikely(!pd))
+		goto check_prev;
 
-	trace_sched_task_util(p, next_cpu, backup_cpu, target_cpu, sync,
-			need_idle, fbt_env.fastpath, placement_boost,
-			rtg_target ? cpumask_first(rtg_target) : -1, start_t,
-			boosted);
-	return target_cpu;
+	/*
+	 * Search for an energy efficient alternative to @best_cpu. This
+	 * intentionally iterates over the candidates in ascending order from
+	 * the lowest-capacity cluster to the highest-capacity cluster; that
+	 * way, CPUs from lower-capacity clusters are preferred when there are
+	 * multiple CPU candidates available that have similar energy and
+	 * performance attributes.
+	 */
+	energy[best_cpu] = int_sqrt(compute_energy(p, best_cpu, pd));
+	for_each_cpu(i, &candidates) {
+		/*
+		 * Compare floor(sqrt(energy)) to ignore small differences in
+		 * energy and prefer performance at the expense of slightly
+		 * higher predicted energy. This also helps avoid bouncing tasks
+		 * between different CPUs over very small energy differences,
+		 * which hurts performance and can worsen energy.
+		 */
+		energy[i] = int_sqrt(compute_energy(p, i, pd));
+		if (energy[i] > energy[best_cpu])
+			continue;
+
+		/*
+		 * Use this CPU if it has either lower energy or equal energy
+		 * with better performance.
+		 */
+		if (energy[i] < energy[best_cpu] ||
+		    cpu_is_better(i, best_cpu, exit_lat, cpu_util[i],
+				  cpu_util[best_cpu]))
+			best_cpu = i;
+	}
+
+check_prev:
+	/*
+	 * If utilization, idle exit latency, and energy are equal between the
+	 * previous CPU and the best CPU, prefer the previous CPU if it's part
+	 * of the same cluster as the best CPU or a lower-capacity cluster. The
+	 * previous CPU isn't preferred if it's part of a higher-capacity
+	 * cluster in order to pack tasks into lower-capacity clusters.
+	 *
+	 * This check is at the end because there's no way to know which cluster
+	 * the best CPU will belong to until the final best CPU is found.
+	 */
+	if (best_cpu != prev_cpu && cpumask_test_cpu(prev_cpu, &allowed) &&
+	    cpu_util[prev_cpu] == cpu_util[best_cpu] &&
+	    exit_lat[prev_cpu] == exit_lat[best_cpu] &&
+	    energy[prev_cpu] == energy[best_cpu] &&
+	    capacity_orig_of(prev_cpu) <= capacity_orig_of(best_cpu))
+		best_cpu = prev_cpu;
+
+	return best_cpu;
 }
 
 static inline bool nohz_kick_needed(struct rq *rq, bool only_update);
@@ -8470,8 +8585,7 @@ pick_cpu:
 			     cpu_rq(cpu)->rd->max_cap_orig_cpu;
 			bool sync_boost = sync && cpu >= high_cap_cpu;
 
-			new_cpu = find_energy_efficient_cpu(energy_sd, p, cpu,
-						    prev_cpu, sync, sync_boost);
+			new_cpu = find_energy_efficient_cpu(p, prev_cpu);
 		}
 
 		/* if we did an energy-aware placement and had no choices available
@@ -13168,8 +13282,7 @@ void check_for_migration(struct rq *rq, struct task_struct *p)
 
 		raw_spin_lock(&migration_lock);
 		rcu_read_lock();
-		new_cpu = find_energy_efficient_cpu(sd, p, cpu, prev_cpu,
-						    0, false);
+		new_cpu = find_energy_efficient_cpu(p, prev_cpu);
 		rcu_read_unlock();
 		if ((new_cpu != -1) &&
 			(capacity_orig_of(new_cpu) > capacity_orig_of(cpu))) {
