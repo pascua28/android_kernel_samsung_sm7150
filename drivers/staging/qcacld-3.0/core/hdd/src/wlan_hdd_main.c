@@ -8321,7 +8321,9 @@ static void hdd_wlan_exit(struct hdd_context *hdd_ctx)
 
 	hdd_enter();
 
+#ifdef CONFIG_WLAN_DEBUGFS
 	hdd_debugfs_mws_coex_info_deinit(hdd_ctx);
+#endif
 	hdd_psoc_idle_timer_stop(hdd_ctx);
 
 	hdd_unregister_notifiers(hdd_ctx);
@@ -13104,7 +13106,9 @@ int hdd_wlan_startup(struct device *dev)
 	if (QDF_GLOBAL_FTM_MODE != hdd_get_conparam())
 		hdd_psoc_idle_timer_start(hdd_ctx);
 
+#ifdef CONFIG_WLAN_DEBUGFS
 	hdd_debugfs_mws_coex_info_init(hdd_ctx);
+#endif
 	goto success;
 
 err_close_adapters:
