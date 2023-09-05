@@ -27,12 +27,6 @@
 #define SCHED_FEAT_LAST_BUDDY 1
 
 /*
- * skip buddy i.e task called yield() is always skipped and the
- * next entity is selected to run irrespective of the vruntime
- */
-#define SCHED_FEAT_STRICT_SKIP_BUDDY 1
-
-/*
  * Consider buddies to be cache hot, decreases the likelyness of a
  * cache buddy being migrated away, increases cache locality.
  */
@@ -84,7 +78,7 @@
 #define SCHED_FEAT_RT_PUSH_IPI 1
 #endif
 
-#define SCHED_FEAT_RT_RUNTIME_SHARE 1
+#define SCHED_FEAT_RT_RUNTIME_SHARE 0
 #define SCHED_FEAT_LB_MIN 0
 #define SCHED_FEAT_ATTACH_AGE_LOAD 1
 

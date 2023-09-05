@@ -420,16 +420,6 @@ config SCHED_WALT
 	used to guide task placement as well as task frequency requirements
 	for cpufreq governors.
 
-config SCHED_SEC_TASK_BOOST
-	bool "Enable Task Priority Boost"
-	depends on SCHED_WALT
-	default n
-	help
-	  This feature will boost task based on priority(=nice) value.
-	  If task has higher priority than "/proc/perf_reserve",
-	  give a chance to migrate to prime cluster more and
-	  advantage of preemption.
-
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
 	depends on MULTIUSER
