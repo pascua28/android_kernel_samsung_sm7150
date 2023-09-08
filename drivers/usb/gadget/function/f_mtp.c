@@ -822,14 +822,14 @@ static void send_file_work(struct work_struct *data)
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
 
-
-
+	
+	
 	if (count < 0) {
 		dev->xfer_result = -EINVAL;
 		return;
 	}
 	mtp_log("(%lld %lld)\n", offset, count);
-
+	
 
 	if (dev->xfer_send_header) {
 		hdr_size = sizeof(struct mtp_data_header);
@@ -943,7 +943,7 @@ static void receive_file_work(struct work_struct *data)
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
 
-
+	
 	mtp_log("(%lld)\n", count);
 	if (count < 0) {
 		dev->xfer_result = -EINVAL;
@@ -1850,10 +1850,10 @@ struct usb_function_instance *alloc_inst_mtp_ptp(bool mtp_config)
 }
 EXPORT_SYMBOL_GPL(alloc_inst_mtp_ptp);
 
-/*static struct usb_function_instance *mtp_alloc_inst(void)
+static struct usb_function_instance *mtp_alloc_inst(void)
 {
 		return alloc_inst_mtp_ptp(true);
-}*/
+}
 
 static int mtp_ctrlreq_configfs(struct usb_function *f,
 				const struct usb_ctrlrequest *ctrl)
@@ -1913,7 +1913,7 @@ struct usb_function *function_alloc_mtp_ptp(struct usb_function_instance *fi,
 }
 EXPORT_SYMBOL_GPL(function_alloc_mtp_ptp);
 
-/*static struct usb_function *mtp_alloc(struct usb_function_instance *fi)
+static struct usb_function *mtp_alloc(struct usb_function_instance *fi)
 {
 	return function_alloc_mtp_ptp(fi, true);
 }
@@ -1938,4 +1938,4 @@ static void __exit mtp_exit(void)
 module_exit(mtp_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("MTP function driver");*/
+MODULE_DESCRIPTION("MTP function driver");
