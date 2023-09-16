@@ -120,7 +120,11 @@ obj-$(CONFIG_HAS_IOMEM) += memremap.o
 $(obj)/configs.o: $(obj)/config_data.h
 
 targets += config_data.gz
+ifdef CONFIG_SEC_A71_PROJECT
 $(obj)/config_data.gz: arch/arm64/configs/a71_stock_defconfig FORCE
+else
+$(obj)/config_data.gz: arch/arm64/configs/m51_stock_defconfig FORCE
+endif
 	$(call if_changed,gzip)
 
       filechk_ikconfiggz = (echo "static const char kernel_config_data[] __used = MAGIC_START"; cat $< | scripts/basic/bin2c; echo "MAGIC_END;")

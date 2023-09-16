@@ -15,4 +15,15 @@ config SEC_A71_EUR_PROJECT
         bool "Samsung A71 EUR OPEN Project"
         help
           Support for Samsung A71 EUR OPEN Project
-		  
+
+config SEC_M51_PROJECT
+        default n
+        bool "Samsung M51 Project"
+        help
+          Support for Samsung M51 Project
+
+config SEC_M51_EUR_PROJECT
+        default n
+        bool "Samsung M51 EUR OPEN Project"
+        help
+          Support for Samsung M51 EUR OPEN Project
