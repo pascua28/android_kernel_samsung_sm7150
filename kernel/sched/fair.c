@@ -7989,7 +7989,7 @@ static unsigned long cpu_util_ratio(struct task_struct *p,
 static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
 {
 	unsigned long cap[NR_CPUS], cpu_util[NR_CPUS], energy[NR_CPUS] = {};
-	unsigned long l_util = ULONG_MAX, p_util;
+	unsigned long l_util = ULONG_MAX, p_util, h_cap = 0, h_cap_cpu;
 	cpumask_t allowed, candidates = {};
 	struct cpuidle_state *idle_state;
 	unsigned int exit_lat[NR_CPUS];
@@ -8037,6 +8037,10 @@ static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
 		 * pressure as well as IRQ and RT-task time.
 		 */
 		cap[i] = capacity_of(i);
+		if (cap[i] > h_cap) {
+			h_cap = cap[i];
+			h_cap_cpu = i;
+		}
 
 		/* Get the idle exit latency for this CPU if it's idle */
 		rq = cpu_rq(i);
@@ -8052,13 +8056,9 @@ static int find_energy_efficient_cpu(struct task_struct *p, int prev_cpu)
 		}
 	}
         rcu_read_unlock();
-	/* If no CPU fits, then place the task on the least utilized CPU */
-	if (l_util == ULONG_MAX) {
-		for_each_cpu(i, &allowed)
-			cpu_util_ratio(p, cap, exit_lat, i, prev_cpu, &best_cpu,
-				       &l_util);
-		goto check_prev;
-	}
+	/* If no CPU fits, then place the task on the highest capacity CPU */
+	if (l_util == ULONG_MAX)
+		return h_cap_cpu;
 
 	/* Stop now if only one CPU fits */
 	if (cpumask_weight(&candidates) == 1)
