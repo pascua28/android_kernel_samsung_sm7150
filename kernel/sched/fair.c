@@ -8218,102 +8218,20 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 	int want_affine = 0;
 	int want_energy = 0;
 	int sync = wake_flags & WF_SYNC;
-
-	rcu_read_lock();
+	int _wake_cap = wake_cap(p, cpu, prev_cpu);
+	int _cpus_allowed = cpumask_test_cpu(cpu, &p->cpus_allowed);
 
 	if (sd_flag & SD_BALANCE_EXEC)
 		return prev_cpu;
 
-	if (sd_flag & SD_BALANCE_WAKE) {
-		int _wake_cap = wake_cap(p, cpu, prev_cpu);
-		int _cpus_allowed = cpumask_test_cpu(cpu, &p->cpus_allowed);
-
-		if (sysctl_sched_sync_hint_enable && sync &&
-				_cpus_allowed && !_wake_cap &&
-				wake_affine_idle(sd, p, cpu, prev_cpu, sync) &&
-				cpu_is_in_target_set(p, cpu)) {
-			rcu_read_unlock();
-			return cpu;
-		}
-
-		record_wakee(p);
-		want_energy = wake_energy(p, prev_cpu, sd_flag, wake_flags);
-		want_affine = !want_energy &&
-			      !wake_wide(p, sibling_count_hint) &&
-			      !_wake_cap &&
-			      _cpus_allowed;
+	if (sysctl_sched_sync_hint_enable && sync &&
+			_cpus_allowed && !_wake_cap &&
+			wake_affine_idle(sd, p, cpu, prev_cpu, sync) &&
+			cpu_is_in_target_set(p, cpu)) {
+		return cpu;
 	}
 
-	for_each_domain(cpu, tmp) {
-		if (!(tmp->flags & SD_LOAD_BALANCE))
-			continue;
-
-		/*
-		 * If both cpu and prev_cpu are part of this domain,
-		 * cpu is a valid SD_WAKE_AFFINE target.
-		 */
-		if (want_affine && (tmp->flags & SD_WAKE_AFFINE) &&
-		    cpumask_test_cpu(prev_cpu, sched_domain_span(tmp))) {
-			affine_sd = tmp;
-			break;
-		}
-
-		/*
-		 * If we are able to try an energy-aware wakeup,
-		 * select the highest non-overutilized sched domain
-		 * which includes this cpu and prev_cpu
-		 *
-		 * maybe want to not test prev_cpu and only consider
-		 * the current one?
-		 */
-		if (want_energy &&
-		    !sd_overutilized(tmp) &&
-		    cpumask_test_cpu(prev_cpu, sched_domain_span(tmp)))
-			energy_sd = tmp;
-
-		if (tmp->flags & sd_flag)
-			sd = tmp;
-		else if (!(want_affine || want_energy))
-			break;
-	}
-
-	if (affine_sd) {
-		sd = NULL; /* Prefer wake_affine over balance flags */
-		if (cpu == prev_cpu)
-			goto pick_cpu;
-
-		if (wake_affine(affine_sd, p, prev_cpu, sync))
-			new_cpu = cpu;
-	}
-
-	if (sd && !(sd_flag & SD_BALANCE_FORK)) {
-		/*
-		 * We're going to need the task's util for capacity_spare_without
-		 * in find_idlest_group. Sync it up to prev_cpu's
-		 * last_update_time.
-		 */
-		sync_entity_load_avg(&p->se);
-	}
-
-	if (!sd) {
-pick_cpu:
-		if (sd_flag & SD_BALANCE_WAKE) /* XXX always ? */
-			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);
-
-	} else {
-		if (energy_sd)
-			new_cpu = find_energy_efficient_cpu(p, prev_cpu);
-
-		/* if we did an energy-aware placement and had no choices available
-		 * then fall back to the default find_idlest_cpu choice
-		 */
-		if (!energy_sd || (energy_sd && new_cpu == -1))
-			new_cpu = find_idlest_cpu(sd, p, cpu, prev_cpu, sd_flag);
-	}
-
-	rcu_read_unlock();
-
-	return new_cpu;
+	return find_energy_efficient_cpu(p, prev_cpu);
 }
 
 static void detach_entity_cfs_rq(struct sched_entity *se);
