@@ -1289,6 +1289,9 @@ static ssize_t kgsl_pwrctrl_min_clock_mhz_store(struct device *dev,
 
 	pwr = &device->pwrctrl;
 
+	if (current->parent->pid == 1)
+		return -EINVAL;
+
 	ret = kgsl_sysfs_store(buf, &freq);
 	if (ret)
 		return ret;
@@ -1327,6 +1330,9 @@ static ssize_t kgsl_pwrctrl_max_clock_mhz_store(struct device *dev,
 
 	if (device == NULL)
 		return 0;
+
+	if (current->parent->pid == 1)
+		return -EINVAL;
 
 	ret = kgsl_sysfs_store(buf, &val);
 	if (ret)
