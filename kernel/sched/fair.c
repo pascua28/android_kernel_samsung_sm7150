@@ -808,7 +808,6 @@ static u64 sched_vslice(struct cfs_rq *cfs_rq, struct sched_entity *se)
 #include "pelt.h"
 #include "sched-pelt.h"
 
-static int select_idle_sibling(struct task_struct *p, int prev_cpu, int cpu);
 static unsigned long task_h_load(struct task_struct *p);
 static unsigned long capacity_of(int cpu);
 
@@ -5722,23 +5721,6 @@ static unsigned long cpu_avg_load_per_task(int cpu)
 	return 0;
 }
 
-static void record_wakee(struct task_struct *p)
-{
-	/*
-	 * Only decay a single time; tasks that have less then 1 wakeup per
-	 * jiffy will not have built up many flips.
-	 */
-	if (time_after(jiffies, current->wakee_flip_decay_ts + HZ)) {
-		current->wakee_flips >>= 1;
-		current->wakee_flip_decay_ts = jiffies;
-	}
-
-	if (current->last_wakee != p) {
-		current->last_wakee = p;
-		current->wakee_flips++;
-	}
-}
-
 /*
  * Returns the current capacity of cpu after applying both
  * cpu and freq scaling.
@@ -6383,39 +6365,6 @@ static void dump_eenv_debug(struct energy_env *eenv)
 #endif /* DEBUG_EENV_DECISIONS */
 
 /*
- * Detect M:N waker/wakee relationships via a switching-frequency heuristic.
- *
- * A waker of many should wake a different task than the one last awakened
- * at a frequency roughly N times higher than one of its wakees.
- *
- * In order to determine whether we should let the load spread vs consolidating
- * to shared cache, we look for a minimum 'flip' frequency of llc_size in one
- * partner, and a factor of lls_size higher frequency in the other.
- *
- * With both conditions met, we can be relatively sure that the relationship is
- * non-monogamous, with partner count exceeding socket size.
- *
- * Waker/wakee being client/server, worker/dispatcher, interrupt source or
- * whatever is irrelevant, spread criteria is apparent partner count exceeds
- * socket size.
- */
-static int wake_wide(struct task_struct *p, int sibling_count_hint)
-{
-	unsigned int master = current->wakee_flips;
-	unsigned int slave = p->wakee_flips;
-	int llc_size = this_cpu_read(sd_llc_size);
-
-	if (sibling_count_hint >= llc_size)
-		return 1;
-
-	if (master < slave)
-		swap(master, slave);
-	if (slave < llc_size || master < slave * llc_size)
-		return 0;
-	return 1;
-}
-
-/*
  * The purpose of wake_affine() is to quickly determine on which CPU we can run
  * soonest. For the purpose of speed we only consider the waking and previous
  * CPU.
@@ -6439,61 +6388,6 @@ wake_affine_idle(struct sched_domain *sd, struct task_struct *p,
 		return true;
 
 	return false;
-}
-
-static bool
-wake_affine_weight(struct sched_domain *sd, struct task_struct *p,
-		   int this_cpu, int prev_cpu, int sync)
-{
-	s64 this_eff_load, prev_eff_load;
-	unsigned long task_load;
-
-	this_eff_load = target_load(this_cpu, sd->wake_idx);
-	prev_eff_load = source_load(prev_cpu, sd->wake_idx);
-
-	if (sync) {
-		unsigned long current_load = task_h_load(current);
-
-		if (current_load > this_eff_load)
-			return true;
-
-		this_eff_load -= current_load;
-	}
-
-	task_load = task_h_load(p);
-
-	this_eff_load += task_load;
-	if (sched_feat(WA_BIAS))
-		this_eff_load *= 100;
-	this_eff_load *= capacity_of(prev_cpu);
-
-	prev_eff_load -= task_load;
-	if (sched_feat(WA_BIAS))
-		prev_eff_load *= 100 + (sd->imbalance_pct - 100) / 2;
-	prev_eff_load *= capacity_of(this_cpu);
-
-	return this_eff_load <= prev_eff_load;
-}
-
-static int wake_affine(struct sched_domain *sd, struct task_struct *p,
-		       int prev_cpu, int sync)
-{
-	int this_cpu = smp_processor_id();
-	bool affine = false;
-
-	if (sched_feat(WA_IDLE) && !affine)
-		affine = wake_affine_idle(sd, p, this_cpu, prev_cpu, sync);
-
-	if (sched_feat(WA_WEIGHT) && !affine)
-		affine = wake_affine_weight(sd, p, this_cpu, prev_cpu, sync);
-
-	schedstat_inc(p->se.statistics.nr_wakeups_affine_attempts);
-	if (affine) {
-		schedstat_inc(sd->ttwu_move_affine);
-		schedstat_inc(p->se.statistics.nr_wakeups_affine);
-	}
-
-	return affine;
 }
 
 #ifdef CONFIG_SCHED_TUNE
@@ -7117,14 +7011,6 @@ static inline int select_idle_sibling_cstate_aware(struct task_struct *p, int pr
 		target = best_idle_cpu;
 
 	return target;
-}
-
-static int select_idle_sibling(struct task_struct *p, int prev, int target)
-{
-	if (!sysctl_sched_cstate_aware)
-		return __select_idle_sibling(p, prev, target);
-
-	return select_idle_sibling_cstate_aware(p, prev, target);
 }
 
 static inline bool task_fits_capacity(struct task_struct *p,
@@ -8211,12 +8097,8 @@ static int
 select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags,
 		    int sibling_count_hint)
 {
-	struct sched_domain *tmp, *affine_sd = NULL;
-	struct sched_domain *sd = NULL, *energy_sd = NULL;
+	struct sched_domain *sd = NULL;
 	int cpu = smp_processor_id();
-	int new_cpu = prev_cpu;
-	int want_affine = 0;
-	int want_energy = 0;
 	int sync = wake_flags & WF_SYNC;
 	int _wake_cap = wake_cap(p, cpu, prev_cpu);
 	int _cpus_allowed = cpumask_test_cpu(cpu, &p->cpus_allowed);
