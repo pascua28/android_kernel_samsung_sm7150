@@ -1136,7 +1136,7 @@ static int rcu_spawn_one_boost_kthread(struct rcu_state *rsp,
 	rnp->boost_kthread_task = t;
 	raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
 	sp.sched_priority = kthread_prio;
-	sched_setscheduler_nocheck(t, SCHED_FIFO, &sp);
+	sched_set_fifo(t);
 	wake_up_process(t); /* get to TASK_INTERRUPTIBLE quickly. */
 	return 0;
 }
