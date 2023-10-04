@@ -6694,18 +6694,15 @@ static inline int select_energy_cpu_idx(struct energy_env *eenv)
  * whatever is irrelevant, spread criteria is apparent partner count exceeds
  * socket size.
  */
-static int wake_wide(struct task_struct *p, int sibling_count_hint)
+static int wake_wide(struct task_struct *p)
 {
 	unsigned int master = current->wakee_flips;
 	unsigned int slave = p->wakee_flips;
-	int llc_size = this_cpu_read(sd_llc_size);
-
-	if (sibling_count_hint >= llc_size)
-		return 1;
+	int factor = this_cpu_read(sd_llc_size);
 
 	if (master < slave)
 		swap(master, slave);
-	if (slave < llc_size || master < slave * llc_size)
+	if (slave < factor || master < slave * factor)
 		return 0;
 	return 1;
 }
@@ -8467,8 +8464,7 @@ static inline int wake_energy(struct task_struct *p, int prev_cpu,
  * preempt must be disabled.
  */
 static int
-select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags,
-		    int sibling_count_hint)
+select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
 {
 	struct sched_domain *tmp, *affine_sd = NULL;
 	struct sched_domain *sd = NULL, *energy_sd = NULL;
@@ -8495,7 +8491,6 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 		record_wakee(p);
 		want_energy = wake_energy(p, prev_cpu, sd_flag, wake_flags);
 		want_affine = !want_energy &&
-			      !wake_wide(p, sibling_count_hint) &&
 			      !_wake_cap &&
 			      _cpus_allowed;
 	}
