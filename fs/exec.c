@@ -1854,7 +1854,6 @@ static void android_service_blacklist(const char *name)
 		const char *path;
 		size_t len;
 	} static const blacklist[] = {
-		FULL("/vendor/bin/hw/vendor.qti.hardware.perf@2.2-service"),
 		FULL("system/bin/lmkd"),
 	};
 #undef FULL
