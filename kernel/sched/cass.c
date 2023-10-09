@@ -40,7 +40,7 @@ unsigned long cass_cpu_util(int cpu, bool sync)
 
 	/* Deduct @current's util from this CPU if this is a sync wake */
 	if (sync && cpu == smp_processor_id())
-		sub_positive(&util, task_util(current));
+		lsub_positive(&util, task_util(current));
 
 	if (sched_feat(UTIL_EST))
 		util = max_t(unsigned long, util,
@@ -101,7 +101,9 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync)
 	int cidx = 0, cpu;
 
 	/* Get the utilization for this task */
-	p_util = task_util_est(p);
+	p_util = clamp(task_util_est(p),
+		       uclamp_eff_value(p, UCLAMP_MIN),
+		       uclamp_eff_value(p, UCLAMP_MAX));
 
 	/*
 	 * Find the best CPU to wake @p on. The RCU read lock is needed for
@@ -117,7 +119,8 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync)
 		 * Check if this CPU is idle. For sync wakes, always treat the
 		 * current CPU as idle.
 		 */
-		if ((sync && cpu == smp_processor_id()) || idle_cpu(cpu)) {
+		if ((sync && cpu == smp_processor_id()) ||
+		    idle_cpu(cpu) || sched_idle_cpu(cpu)) {
 			/* Discard any previous non-idle candidate */
 			if (!has_idle) {
 				best = curr;
