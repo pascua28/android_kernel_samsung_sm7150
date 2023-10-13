@@ -751,6 +751,7 @@ POLLY_FLAGS	+= -mllvm -polly-run-dce
 endif
 OPT_FLAGS	+= $(POLLY_FLAGS)
 KBUILD_LDFLAGS	+= $(POLLY_FLAGS)
+KBUILD_CFLAGS	+= $(POLLY_FLAGS)
 endif
 KBUILD_CFLAGS   += -O2
 endif
