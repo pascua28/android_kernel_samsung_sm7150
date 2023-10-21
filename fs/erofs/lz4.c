@@ -44,8 +44,6 @@
 #include <asm/unaligned.h>
 #include <linux/string.h>	 /* memset, memcpy */
 
-#include "lz4armv8/lz4accel.h"
-
 #define FORCE_INLINE __always_inline
 
 /*-************************************
