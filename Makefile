@@ -382,14 +382,14 @@ endif
 # Make variables (CC, etc...)
 CPP		= $(CC) -E
 ifneq ($(LLVM),)
-CC		= ccache clang
-LD		= ld.lld
-AR		= llvm-ar
-NM		= llvm-nm
-OBJCOPY		= llvm-objcopy
-OBJDUMP		= llvm-objdump
-READELF		= llvm-readelf
-STRIP		= llvm-strip
+CC		= ccache $(CLANG_DIR)clang
+LD		= $(CLANG_DIR)ld.lld
+AR		= $(CLANG_DIR)llvm-ar
+NM		= $(CLANG_DIR)llvm-nm
+OBJCOPY		= $(CLANG_DIR)llvm-objcopy
+OBJDUMP		= $(CLANG_DIR)llvm-objdump
+READELF		= $(CLANG_DIR)llvm-readelf
+STRIP		= $(CLANG_DIR)llvm-strip
 else
 CC		= $(CROSS_COMPILE)gcc
 LD		= $(CROSS_COMPILE)ld
@@ -710,8 +710,8 @@ LDFLAGS		+= -plugin LLVMgold.so
 endif
 # use llvm-ar for building symbol tables from IR files, and llvm-dis instead
 # of objdump for processing symbol versions and exports
-LLVM_AR		:= llvm-ar
-LLVM_NM		:= llvm-nm
+LLVM_AR		:= $(CLANG_DIR)llvm-ar
+LLVM_NM		:= $(CLANG_DIR)llvm-nm
 export LLVM_AR LLVM_NM
 endif
 
