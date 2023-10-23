@@ -66,6 +66,10 @@
 #define QDF_TRACE(arg ...) __qdf_trace_dummy(arg)
 #define QDF_VTRACE(arg ...) __qdf_vtrace_dummy(arg)
 #define QDF_TRACE_HEX_DUMP(arg ...) __qdf_trace_hexdump_dummy(arg)
+static inline void __qdf_bug(void)
+{
+	BUG();
+}
 #endif
 
 #if defined(WLAN_DEBUG) || defined(DEBUG) || defined(QDF_TRACE_PRINT_ENABLE)
@@ -373,11 +377,6 @@ static inline void qdf_vprint(const char *fmt, va_list args)
  * Return: None
  */
 void __qdf_bug(void);
-#else /* CONFIG_SLUB_DEBUG */
-static inline void __qdf_bug(void)
-{
-	BUG();
-}
 #endif /* CONFIG_SLUB_DEBUG */
 
 /**
@@ -434,6 +433,7 @@ static inline void __qdf_bug(void)
 	} while (0)
 
 #endif /* PANIC_ON_BUG */
+
 
 #ifdef KSYM_SYMBOL_LEN
 #define __QDF_SYMBOL_LEN KSYM_SYMBOL_LEN
