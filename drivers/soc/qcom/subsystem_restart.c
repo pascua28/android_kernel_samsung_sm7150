@@ -569,7 +569,9 @@ static void notif_timeout_handler(unsigned long data)
 		SSR_NOTIF_TIMEOUT_WARN(unknown_err_msg);
 	}
 
+#ifdef CONFIG_SEC_DEBUG
 	sec_debug_summary_set_timeout_subsys(timeout_data->source_name, timeout_data->dest_name);
+#endif
 }
 
 static void _setup_timeout(struct subsys_desc *source_ss,
@@ -1187,12 +1189,15 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	track->p_state = SUBSYS_RESTARTING;
 	spin_unlock_irqrestore(&track->s_lock, flags);
 
+#ifdef CONFIG_SEC_DEBUG
 	if (sec_debug_is_enabled()) {
 		/* Collect ram dumps for all subsystems in order here */
 		pr_info("%s: collect ssr ramdump..\n", __func__);
 		for_each_subsys_device(list, count, NULL, subsystem_ramdump);
 		pr_info("%s: ..done\n", __func__);
 	}
+#endif
+
 	for_each_subsys_device(list, count, NULL, subsystem_free_memory);
 
 	notify_each_subsys_device(list, count, SUBSYS_BEFORE_POWERUP, NULL);
@@ -1290,7 +1295,9 @@ void subsys_set_reset_reason(const char *name, int val)
 int subsystem_restart_dev(struct subsys_device *dev)
 {
 	const char *name;
+#ifdef CONFIG_SEC_DEBUG
 	int ssr_enable = 1;
+#endif
 
 	if (!get_device(&dev->dev))
 		return -ENODEV;
@@ -1304,6 +1311,7 @@ int subsystem_restart_dev(struct subsys_device *dev)
     
     send_early_notifications(dev->early_notify);
 
+#ifdef CONFIG_SEC_DEBUG
 	if ((sec_debug_summary_is_modem_separate_debug_ssr() ==
 	    SEC_DEBUG_MODEM_SEPARATE_EN)
 	    && strcmp(name, "slpi")
@@ -1317,6 +1325,7 @@ int subsystem_restart_dev(struct subsys_device *dev)
 		dev->restart_level = RESET_SUBSYS_COUPLED;
 	else
 		dev->restart_level = RESET_SOC;
+#endif
 
 	if (!strncmp(name, "modem", 5)) {
 		if (silent_ssr)  /* qcrtr ioctl force silent ssr */
