@@ -1015,6 +1015,7 @@ static inline QDF_STATUS htt_rx_update_smmu_map(struct htt_pdev_t *pdev, bool ma
 	return QDF_STATUS_SUCCESS;
 }
 #endif
+
 /** htt_tx_enable_ppdu_end
  * @enable_ppdu_end - set it to 1 if WLAN_FEATURE_TSF_PLUS is defined,
  *                    else do nothing

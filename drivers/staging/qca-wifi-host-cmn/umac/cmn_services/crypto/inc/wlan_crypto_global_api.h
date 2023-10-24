@@ -712,16 +712,6 @@ bool wlan_crypto_check_wpa_match(struct wlan_objmgr_psoc *psoc,
 				 peer_crypto_params);
 
 /**
- * wlan_crypto_parse_rsnxe_ie() - parse RSNXE IE
- * @rsnxe_ie: RSNXE IE pointer
- * @cap_len: pointer to hold len of ext capability
- *
- * Return: pointer to RSNXE capability or NULL
- */
-uint8_t *
-wlan_crypto_parse_rsnxe_ie(uint8_t *rsnxe_ie, uint8_t *cap_len);
-
-/**
  * wlan_set_vdev_crypto_prarams_from_ie - Sets vdev crypto params from IE info
  * @vdev: vdev pointer
  * @ie_ptr: pointer to IE
@@ -851,6 +841,16 @@ struct wlan_crypto_key *wlan_crypto_get_key(struct wlan_objmgr_vdev *vdev,
 QDF_STATUS wlan_crypto_set_key_req(struct wlan_objmgr_vdev *vdev,
 				   struct wlan_crypto_key *req,
 				   enum wlan_crypto_key_type key_type);
+
+/**
+ * wlan_crypto_free_vdev_key - Free keys for vdev
+ * @vdev: vdev object
+ *
+ * This function frees keys stored in vdev crypto object.
+ *
+ * Return: None
+ */
+void wlan_crypto_free_vdev_key(struct wlan_objmgr_vdev *vdev);
 #else
 static inline void wlan_crypto_update_set_key_peer(
 						struct wlan_objmgr_vdev *vdev,
@@ -879,6 +879,10 @@ QDF_STATUS wlan_crypto_set_key_req(struct wlan_objmgr_vdev *vdev,
 				   enum wlan_crypto_key_type key_type)
 {
 	return QDF_STATUS_SUCCESS;
+}
+
+static inline void wlan_crypto_free_vdev_key(struct wlan_objmgr_vdev *vdev)
+{
 }
 #endif /* CRYPTO_SET_KEY_CONVERGED */
 

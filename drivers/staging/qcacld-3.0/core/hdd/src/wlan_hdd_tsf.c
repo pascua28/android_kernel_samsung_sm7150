@@ -1163,16 +1163,16 @@ static ssize_t __hdd_wlan_tsf_show(struct device *dev,
 
 	if (adapter->device_mode == QDF_STA_MODE ||
 	    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
-		size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu %pM %llu %llu\n",
+		size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu "QDF_FULL_MAC_FMT" %llu %llu\n",
 				 buf, adapter->last_target_time,
 				 tsf_sync_qtime,
-				 hdd_sta_ctx->conn_info.bssid.bytes,
+				 QDF_FULL_MAC_REF(hdd_sta_ctx->conn_info.bssid.bytes),
 				 qtime, host_time);
 	} else {
-		size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu %pM %llu %llu\n",
+		size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu "QDF_FULL_MAC_FMT" %llu %llu\n",
 				 buf, adapter->last_target_time,
 				 tsf_sync_qtime,
-				 adapter->mac_addr.bytes,
+				 QDF_FULL_MAC_REF(adapter->mac_addr.bytes),
 				 qtime, host_time);
 	}
 
@@ -1317,13 +1317,13 @@ static ssize_t __hdd_wlan_tsf_show(struct device *dev,
 	} else {
 		if (adapter->device_mode == QDF_STA_MODE ||
 		    adapter->device_mode == QDF_P2P_CLIENT_MODE) {
-			size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu %pM\n",
+			size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu "QDF_FULL_MAC_FMT"\n",
 					 buf, target_time, host_time,
-					 hdd_sta_ctx->conn_info.bssid.bytes);
+					 QDF_FULL_MAC_REF(hdd_sta_ctx->conn_info.bssid.bytes));
 		} else {
-			size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu %pM\n",
+			size = scnprintf(buf, PAGE_SIZE, "%s%llu %llu "QDF_FULL_MAC_FMT"\n",
 					 buf, target_time, host_time,
-					 adapter->mac_addr.bytes);
+					 QDF_FULL_MAC_REF(adapter->mac_addr.bytes));
 		}
 	}
 
@@ -2247,7 +2247,10 @@ static int __wlan_hdd_cfg80211_handle_tsf_cmd(struct wiphy *wiphy,
 	tsf_cmd = nla_get_u32(tb_vendor[QCA_WLAN_VENDOR_ATTR_TSF_CMD]);
 
 	if (tsf_cmd == QCA_TSF_CAPTURE || tsf_cmd == QCA_TSF_SYNC_GET) {
-		hdd_capture_tsf(adapter, tsf_op_resp, 1);
+		status = hdd_capture_tsf(adapter, tsf_op_resp, 1);
+		if (status != QDF_STATUS_SUCCESS)
+			goto end;
+
 		switch (tsf_op_resp[0]) {
 		case TSF_RETURN:
 			status = 0;

@@ -1513,11 +1513,11 @@ static void hdd_send_association_event(struct net_device *dev,
 
 		ucfg_p2p_status_connect(adapter->vdev);
 
-		hdd_nofl_info("%s(vdevid-%d): " QDF_MAC_ADDR_STR
+		hdd_nofl_info("%s(vdevid-%d): " QDF_MAC_ADDR_FMT
 			      " connected to "
-			      QDF_MAC_ADDR_STR, dev->name, adapter->vdev_id,
-			      QDF_MAC_ADDR_ARRAY(adapter->mac_addr.bytes),
-			      QDF_MAC_ADDR_ARRAY(wrqu.ap_addr.sa_data));
+			      QDF_MAC_ADDR_FMT, dev->name, adapter->vdev_id,
+			      QDF_MAC_ADDR_REF(adapter->mac_addr.bytes),
+			      QDF_MAC_ADDR_REF(wrqu.ap_addr.sa_data));
 
 		hdd_send_update_beacon_ies_event(adapter, roam_info);
 
@@ -1560,8 +1560,8 @@ static void hdd_send_association_event(struct net_device *dev,
 		ret = hdd_objmgr_set_peer_mlme_state(adapter->vdev,
 						     WLAN_ASSOC_STATE);
 		if (ret)
-			hdd_err("Peer object %pM fail to set associated state",
-					peer_macaddr.bytes);
+			hdd_err("Peer object "QDF_MAC_ADDR_FMT" fail to set associated state",
+				QDF_MAC_ADDR_REF(peer_macaddr.bytes));
 
 		/* send peer status indication to oem app */
 		hdd_send_peer_status_ind_to_app(&peer_macaddr,
@@ -1591,9 +1591,9 @@ static void hdd_send_association_event(struct net_device *dev,
 				adapter->vdev_id);
 		memcpy(wrqu.ap_addr.sa_data, sta_ctx->conn_info.bssid.bytes,
 				ETH_ALEN);
-		hdd_debug("%s(vdevid-%d): new IBSS peer connection to BSSID " QDF_MAC_ADDR_STR,
+		hdd_debug("%s(vdevid-%d): new IBSS peer connection to BSSID " QDF_MAC_ADDR_FMT,
 			  dev->name, adapter->vdev_id,
-			  QDF_MAC_ADDR_ARRAY(sta_ctx->conn_info.bssid.bytes));
+			  QDF_MAC_ADDR_REF(sta_ctx->conn_info.bssid.bytes));
 	} else {                /* Not Associated */
 		hdd_nofl_info("%s(vdevid-%d): disconnected", dev->name,
 			      adapter->vdev_id);
@@ -1791,6 +1791,51 @@ static void hdd_print_bss_info(struct hdd_station_ctx *hdd_sta_ctx)
 }
 
 /**
+ * hdd_cm_set_default_wlm_mode - reset the default wlm mode if
+ *				 wlm_latency_reset_on_disconnect is set.
+ *@adapter: adapter pointer
+ *
+ * return: None.
+ */
+static void hdd_cm_set_default_wlm_mode(struct hdd_adapter *adapter)
+{
+	QDF_STATUS status;
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	bool reset;
+	uint8_t def_level;
+	mac_handle_t mac_handle;
+	uint16_t vdev_id;
+
+	if (!hdd_ctx) {
+		hdd_err("hdd_ctx is NULL");
+		return;
+	}
+
+	status = ucfg_mlme_cfg_get_wlm_reset(hdd_ctx->psoc, &reset);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("could not get wlm reset flag");
+		return;
+	}
+	if (!reset)
+		return;
+
+	status = ucfg_mlme_cfg_get_wlm_level(hdd_ctx->psoc, &def_level);
+	if (QDF_IS_STATUS_ERROR(status))
+		def_level = QCA_WLAN_VENDOR_ATTR_CONFIG_LATENCY_LEVEL_NORMAL;
+
+	mac_handle = hdd_ctx->mac_handle;
+	vdev_id = adapter->vdev_id;
+
+	status = sme_set_wlm_latency_level(mac_handle, vdev_id, def_level);
+	if (QDF_IS_STATUS_SUCCESS(status)) {
+		hdd_debug("reset wlm mode %x on disconnection", def_level);
+		adapter->latency_level = def_level;
+	} else {
+		hdd_err("reset wlm mode failed: %d", status);
+	}
+}
+
+/**
  * hdd_dis_connect_handler() - disconnect event handler
  * @adapter: pointer to adapter
  * @roam_info: pointer to roam info
@@ -1820,6 +1865,7 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 	struct wlan_ies disconnect_ies = {0};
 	bool from_ap = false;
 	uint32_t reason_code = 0;
+	struct wlan_objmgr_vdev *vdev;
 
 	if (!dev) {
 		hdd_err("net_dev is released return");
@@ -1840,6 +1886,7 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 				  WLAN_IPA_STA_DISCONNECT,
 				  sta_ctx->conn_info.bssid.bytes);
 
+	hdd_cm_set_default_wlm_mode(adapter);
 	hdd_periodic_sta_stats_stop(adapter);
 
 #ifdef FEATURE_WLAN_AUTO_SHUTDOWN
@@ -1941,6 +1988,15 @@ static QDF_STATUS hdd_dis_connect_handler(struct hdd_adapter *adapter,
 	mac_handle = hdd_ctx->mac_handle;
 	sme_ft_reset(mac_handle, adapter->vdev_id);
 	sme_reset_key(mac_handle, adapter->vdev_id);
+
+	if (adapter->device_mode == QDF_STA_MODE) {
+		vdev = hdd_objmgr_get_vdev(adapter);
+		if (vdev) {
+			wlan_crypto_free_vdev_key(vdev);
+			hdd_objmgr_put_vdev(vdev);
+		}
+	}
+
 	hdd_remove_beacon_filter(adapter);
 
 	if (sme_is_beacon_report_started(mac_handle, adapter->vdev_id)) {
@@ -2284,11 +2340,10 @@ QDF_STATUS hdd_roam_register_sta(struct hdd_adapter *adapter,
 		hdd_conn_set_authenticated(adapter, true);
 		hdd_objmgr_set_peer_mlme_auth_state(adapter->vdev, true);
 	} else {
-#ifdef WLAN_DEBUG
-		hdd_debug("ULA auth Sta: " QDF_MAC_ADDR_STR
+		hdd_debug("ULA auth Sta: " QDF_MAC_ADDR_FMT
 			  " Changing TL state to CONNECTED at Join time",
-			  QDF_MAC_ADDR_ARRAY(txrx_desc.peer_addr.bytes));
-#endif
+			  QDF_MAC_ADDR_REF(txrx_desc.peer_addr.bytes));
+
 		qdf_status = hdd_conn_change_peer_state(
 						adapter, roam_info,
 						txrx_desc.peer_addr.bytes,
@@ -2620,9 +2675,9 @@ static void hdd_roam_ibss_indication_handler(struct hdd_adapter *adapter,
 			struct ieee80211_channel *chan;
 #endif
 			/* we created the IBSS, notify supplicant */
-			hdd_debug("%s: created ibss " QDF_MAC_ADDR_STR,
+			hdd_debug("%s: created ibss " QDF_MAC_ADDR_FMT,
 				adapter->dev->name,
-				QDF_MAC_ADDR_ARRAY(
+				QDF_MAC_ADDR_REF(
 					roam_info->bss_desc->bssId));
 
 			/* we must first give cfg80211 the BSS information */
@@ -2792,7 +2847,7 @@ static int hdd_change_sta_state_authenticated(struct hdd_adapter *adapter,
 		mac_addr = hddstactx->conn_info.bssid.bytes;
 
 	hdd_debug("Changing Peer state to AUTHENTICATED for Sta = "
-		  QDF_MAC_ADDR_STR, QDF_MAC_ADDR_ARRAY(mac_addr));
+		  QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(mac_addr));
 
 	/* Connections that do not need Upper layer authentication,
 	 * transition TL to 'Authenticated' state after the keys are set
@@ -2922,8 +2977,8 @@ hdd_roam_set_key_complete_handler(struct hdd_adapter *adapter,
 	 * directly into 'authenticated' state.
 	 */
 	hdd_debug("Set Key completion roam_status =%d roam_result=%d "
-		  QDF_MAC_ADDR_STR, roam_status, roam_result,
-		  QDF_MAC_ADDR_ARRAY(roam_info->peerMac.bytes));
+		  QDF_MAC_ADDR_FMT, roam_status, roam_result,
+		  QDF_MAC_ADDR_REF(roam_info->peerMac.bytes));
 
 	connected = hdd_conn_get_connected_cipher_algo(sta_ctx,
 						       &algorithm);
@@ -3455,9 +3510,9 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 									reqRsnLength);
 					else {
 						hdd_debug("sending connect indication to nl80211:for bssid "
-							 QDF_MAC_ADDR_STR
+							 QDF_MAC_ADDR_FMT
 							 " result:%d and Status:%d",
-							 QDF_MAC_ADDR_ARRAY
+							 QDF_MAC_ADDR_REF
 							 (roam_info->bssid.bytes),
 							 roam_result, roam_status);
 
@@ -3530,9 +3585,9 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 							adapter->vdev,
 							false);
 			} else {
-				hdd_debug("sta: " QDF_MAC_ADDR_STR
+				hdd_debug("sta: " QDF_MAC_ADDR_FMT
 					  "Changing TL state to AUTHENTICATED",
-					  QDF_MAC_ADDR_ARRAY(
+					  QDF_MAC_ADDR_REF(
 					  roam_info->bssid.bytes));
 				qdf_status =
 					hdd_change_peer_state(adapter,
@@ -3593,16 +3648,16 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 			qdf_copy_macaddr(&roam_info->bssid,
 					 &sta_ctx->requested_bssid);
 		if (roam_info)
-			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_STR
+			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_FMT
 				 " result: %d and Status: %d", dev->name,
 				 adapter->vdev_id,
-				 QDF_MAC_ADDR_ARRAY(roam_info->bssid.bytes),
+				 QDF_MAC_ADDR_REF(roam_info->bssid.bytes),
 				 roam_result, roam_status);
 		else
-			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_STR
+			hdd_err("%s(vdevid-%d): connection failed with " QDF_MAC_ADDR_FMT
 				 " result: %d and Status: %d", dev->name,
 				 adapter->vdev_id,
-				 QDF_MAC_ADDR_ARRAY(sta_ctx->requested_bssid.bytes),
+				 QDF_MAC_ADDR_REF(sta_ctx->requested_bssid.bytes),
 				 roam_result, roam_status);
 
 		if ((eCSR_ROAM_RESULT_SCAN_FOR_SSID_FAILURE == roam_result) ||
@@ -3665,18 +3720,18 @@ hdd_association_completion_handler(struct hdd_adapter *adapter,
 						  roam_info->nAssocRspLength);
 				}
 				hdd_err("send connect failure to nl80211: for bssid "
-					QDF_MAC_ADDR_STR
+					QDF_MAC_ADDR_FMT
 					" result: %d and Status: %d reasoncode: %d",
-					QDF_MAC_ADDR_ARRAY(roam_info->bssid.bytes),
+					QDF_MAC_ADDR_REF(roam_info->bssid.bytes),
 					roam_result, roam_status,
 					roam_info->reasonCode);
 				sta_ctx->conn_info.assoc_status_code =
 					roam_info->status_code;
 			} else {
 				hdd_err("connect failed: for bssid "
-				       QDF_MAC_ADDR_STR
+				       QDF_MAC_ADDR_FMT
 				       " result: %d and status: %d ",
-				       QDF_MAC_ADDR_ARRAY(sta_ctx->requested_bssid.bytes),
+				       QDF_MAC_ADDR_REF(sta_ctx->requested_bssid.bytes),
 				       roam_result, roam_status);
 			}
 			hdd_debug("Invoking packetdump deregistration API");
@@ -3813,8 +3868,8 @@ bool hdd_save_peer(struct hdd_station_ctx *sta_ctx,
 	for (idx = 0; idx < MAX_PEERS; idx++) {
 		mac_addr = &sta_ctx->conn_info.peer_macaddr[idx];
 		if (qdf_is_macaddr_zero(mac_addr)) {
-			hdd_debug("adding peer: %pM at idx: %d",
-				  peer_mac_addr, idx);
+			hdd_debug("adding peer: "QDF_MAC_ADDR_FMT" at idx: %d",
+				  QDF_MAC_ADDR_REF(peer_mac_addr->bytes), idx);
 			qdf_copy_macaddr(mac_addr, peer_mac_addr);
 			return true;
 		}
@@ -3848,8 +3903,8 @@ bool hdd_any_valid_peer_present(struct hdd_adapter *adapter)
 		mac_addr = &sta_ctx->conn_info.peer_macaddr[i];
 		if (!qdf_is_macaddr_zero(mac_addr) &&
 		    !qdf_is_macaddr_broadcast(mac_addr)) {
-			hdd_debug("peer: index: %u " QDF_MAC_ADDR_STR, i,
-				  QDF_MAC_ADDR_ARRAY(mac_addr->bytes));
+			hdd_debug("peer: index: %u " QDF_MAC_ADDR_FMT, i,
+				  QDF_MAC_ADDR_REF(mac_addr->bytes));
 			return true;
 		}
 	}
@@ -4045,10 +4100,10 @@ roam_roam_connect_status_update_handler(struct hdd_adapter *adapter,
 		eCsrEncryptionType encr_type = sta_ctx->ibss_enc_key.encType;
 
 		hdd_debug("IBSS New Peer indication from SME "
-			 "with peerMac " QDF_MAC_ADDR_STR " BSSID: "
-			 QDF_MAC_ADDR_STR " and stationID= %d",
-			 QDF_MAC_ADDR_ARRAY(roam_info->peerMac.bytes),
-			 QDF_MAC_ADDR_ARRAY(sta_ctx->conn_info.bssid.bytes),
+			 "with peerMac " QDF_MAC_ADDR_FMT " BSSID: "
+			 QDF_MAC_ADDR_FMT " and stationID= %d",
+			 QDF_MAC_ADDR_REF(roam_info->peerMac.bytes),
+			 QDF_MAC_ADDR_REF(sta_ctx->conn_info.bssid.bytes),
 			 roam_info->staId);
 
 		if (!hdd_save_peer
@@ -4127,10 +4182,10 @@ roam_roam_connect_status_update_handler(struct hdd_adapter *adapter,
 			hdd_warn("IBSS peer departed by cannot find peer in our registration table with TL");
 
 		hdd_debug("IBSS Peer Departed from SME "
-			 "with peerMac " QDF_MAC_ADDR_STR " BSSID: "
-			 QDF_MAC_ADDR_STR " and stationID= %d",
-			 QDF_MAC_ADDR_ARRAY(roam_info->peerMac.bytes),
-			 QDF_MAC_ADDR_ARRAY(sta_ctx->conn_info.bssid.bytes),
+			 "with peerMac " QDF_MAC_ADDR_FMT " BSSID: "
+			 QDF_MAC_ADDR_FMT " and stationID= %d",
+			 QDF_MAC_ADDR_REF(roam_info->peerMac.bytes),
+			 QDF_MAC_ADDR_REF(sta_ctx->conn_info.bssid.bytes),
 			 roam_info->staId);
 
 		sta_ctx->ibss_sta_generation++;
@@ -4368,8 +4423,8 @@ hdd_indicate_cckm_pre_auth(struct hdd_adapter *adapter,
 	memset(buf, '\0', sizeof(buf));
 
 	/* Timestamp0 is lower 32 bits and Timestamp1 is upper 32 bits */
-	hdd_debug("CCXPREAUTHNOTIFY=" QDF_MAC_ADDR_STR " %d:%d",
-		 QDF_MAC_ADDR_ARRAY(roam_info->bssid.bytes),
+	hdd_debug("CCXPREAUTHNOTIFY=" QDF_MAC_ADDR_FMT " %d:%d",
+		 QDF_MAC_ADDR_REF(roam_info->bssid.bytes),
 		 roam_info->timestamp[0], roam_info->timestamp[1]);
 
 	nBytes = snprintf(pos, freeBytes, "CCXPREAUTHNOTIFY=");
