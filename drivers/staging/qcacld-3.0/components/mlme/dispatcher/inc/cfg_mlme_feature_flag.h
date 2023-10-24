@@ -191,7 +191,7 @@
 	"gChannelBondingMode24GHz", \
 	0, \
 	10, \
-	0, \
+	1, \
 	CFG_VALUE_OR_DEFAULT, \
 	"Configures Channel Bonding in 24 GHz")
 

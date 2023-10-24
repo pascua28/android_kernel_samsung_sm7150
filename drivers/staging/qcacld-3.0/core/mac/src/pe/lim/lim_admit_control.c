@@ -168,7 +168,7 @@ lim_validate_tspec(struct mac_context *mac,
 		retval = lim_validate_tspec_edca(mac, pTspec, pe_session);
 		if (retval != QDF_STATUS_SUCCESS)
 			pe_warn("EDCA tspec invalid");
-			break;
+		break;
 
 	case SIR_MAC_ACCESSPOLICY_HCCA:
 	case SIR_MAC_ACCESSPOLICY_BOTH:
@@ -331,7 +331,7 @@ static QDF_STATUS lim_admit_policy(struct mac_context *mac,
 							   pe_session);
 		if (retval != QDF_STATUS_SUCCESS)
 			pe_err("rejected by BWFactor policy");
-			break;
+		break;
 
 	case WNI_CFG_ADMIT_POLICY_REJECT_ALL:
 		retval = QDF_STATUS_E_FAILURE;
@@ -605,9 +605,9 @@ lim_validate_access_policy(struct mac_context *mac,
 
 	if (retval != QDF_STATUS_SUCCESS)
 		pe_warn("accPol: %d lle: %d wme: %d wsm: %d sta mac "
-			QDF_MAC_ADDR_STR, accessPolicy, pSta->lleEnabled,
+			QDF_MAC_ADDR_FMT, accessPolicy, pSta->lleEnabled,
 			pSta->wmeEnabled, pSta->wsmEnabled,
-			QDF_MAC_ADDR_ARRAY(pSta->staAddr));
+			QDF_MAC_ADDR_REF(pSta->staAddr));
 
 	return retval;
 }

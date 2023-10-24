@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -325,8 +324,8 @@ ol_txrx_get_vdev_by_peer_addr(struct cdp_pdev *ppdev,
 
 	if (!pdev) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_INFO_HIGH,
-			  "PDEV not found for peer_addr: " QDF_MAC_ADDR_STR,
-			  QDF_MAC_ADDR_ARRAY(peer_addr.bytes));
+			  "PDEV not found for peer_addr: " QDF_MAC_ADDR_FMT,
+			  QDF_MAC_ADDR_REF(peer_addr.bytes));
 		return NULL;
 	}
 
@@ -335,8 +334,8 @@ ol_txrx_get_vdev_by_peer_addr(struct cdp_pdev *ppdev,
 
 	if (!peer) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_INFO_HIGH,
-			  "PDEV not found for peer_addr:" QDF_MAC_ADDR_STR,
-			  QDF_MAC_ADDR_ARRAY(peer_addr.bytes));
+			  "PDEV not found for peer_addr:" QDF_MAC_ADDR_FMT,
+			  QDF_MAC_ADDR_REF(peer_addr.bytes));
 		return NULL;
 	}
 
@@ -440,8 +439,8 @@ static bool ol_txrx_find_peer_exist_on_other_vdev(struct cdp_soc_t *soc_hdl,
 					ol_txrx_vdev_t_to_cdp_vdev(vdev),
 					peer_addr)) {
 			QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_INFO,
-				  "%s: Duplicate peer %pM already exist on vdev %d",
-				  __func__, peer_addr, i);
+				  "%s: Duplicate peer "QDF_MAC_ADDR_FMT" already exist on vdev %d",
+				  __func__, QDF_MAC_ADDR_REF(peer_addr), i);
 			return true;
 		}
 	}
@@ -1440,31 +1439,13 @@ ol_txrx_pdev_post_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id)
 	 */
 	qdf_mem_zero(&pdev->rx_pn[0], sizeof(pdev->rx_pn));
 
-	/* WEP: 24-bit PN */
-	pdev->rx_pn[htt_sec_type_wep40].len =
-		pdev->rx_pn[htt_sec_type_wep104].len =
-			pdev->rx_pn[htt_sec_type_wep128].len = 24;
-
-	pdev->rx_pn[htt_sec_type_wep40].cmp =
-		pdev->rx_pn[htt_sec_type_wep104].cmp =
-			pdev->rx_pn[htt_sec_type_wep128].cmp = ol_rx_pn_cmp24;
-
 	/* TKIP: 48-bit TSC, CCMP: 48-bit PN */
 	pdev->rx_pn[htt_sec_type_tkip].len =
 		pdev->rx_pn[htt_sec_type_tkip_nomic].len =
 			pdev->rx_pn[htt_sec_type_aes_ccmp].len = 48;
-
-	pdev->rx_pn[htt_sec_type_aes_ccmp_256].len =
-		pdev->rx_pn[htt_sec_type_aes_gcmp].len =
-			pdev->rx_pn[htt_sec_type_aes_gcmp_256].len = 48;
-
 	pdev->rx_pn[htt_sec_type_tkip].cmp =
 		pdev->rx_pn[htt_sec_type_tkip_nomic].cmp =
 			pdev->rx_pn[htt_sec_type_aes_ccmp].cmp = ol_rx_pn_cmp48;
-
-	pdev->rx_pn[htt_sec_type_aes_ccmp_256].cmp =
-		pdev->rx_pn[htt_sec_type_aes_gcmp].cmp =
-		    pdev->rx_pn[htt_sec_type_aes_gcmp_256].cmp = ol_rx_pn_cmp48;
 
 	/* WAPI: 128-bit PN */
 	pdev->rx_pn[htt_sec_type_wapi].len = 128;
@@ -2001,9 +1982,9 @@ ol_txrx_vdev_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 	ol_txrx_hl_tdls_flag_reset(soc_hdl, vdev_id, false);
 
 	ol_txrx_dbg(
-		   "Created vdev %pK ("QDF_MAC_ADDR_STR")\n",
+		   "Created vdev %pK ("QDF_MAC_ADDR_FMT")\n",
 		   vdev,
-		   QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
+		   QDF_MAC_ADDR_REF(vdev->mac_addr.raw));
 
 	/*
 	 * We've verified that htt_op_mode == wlan_op_mode,
@@ -2214,9 +2195,9 @@ ol_txrx_vdev_detach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	if (!TAILQ_EMPTY(&vdev->peer_list)) {
 		/* debug print - will be removed later */
 		ol_txrx_dbg(
-			   "not deleting vdev object %pK ("QDF_MAC_ADDR_STR") until deletion finishes for all its peers\n",
+			   "not deleting vdev object %pK ("QDF_MAC_ADDR_FMT") until deletion finishes for all its peers\n",
 			   vdev,
-			   QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
+			   QDF_MAC_ADDR_REF(vdev->mac_addr.raw));
 		/* indicate that the vdev needs to be deleted */
 		vdev->delete.pending = 1;
 		vdev->delete.callback = callback;
@@ -2228,9 +2209,9 @@ ol_txrx_vdev_detach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	qdf_event_destroy(&vdev->wait_delete_comp);
 
 	ol_txrx_dbg(
-		   "deleting vdev obj %pK ("QDF_MAC_ADDR_STR")\n",
+		   "deleting vdev obj %pK ("QDF_MAC_ADDR_FMT")\n",
 		   vdev,
-		   QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
+		   QDF_MAC_ADDR_REF(vdev->mac_addr.raw));
 
 	htt_vdev_detach(pdev->htt_pdev, vdev->vdev_id);
 
@@ -2419,9 +2400,9 @@ ol_txrx_peer_attach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 			(union ol_txrx_align_mac_addr_t *)peer_mac_addr) &&
 			(check_valid == 0 || temp_peer->valid)) {
 			ol_txrx_info_high(
-				"vdev_id %d ("QDF_MAC_ADDR_STR") already exists.\n",
+				"vdev_id %d ("QDF_MAC_ADDR_FMT") already exists.\n",
 				vdev->vdev_id,
-				QDF_MAC_ADDR_ARRAY(peer_mac_addr));
+				QDF_MAC_ADDR_REF(peer_mac_addr));
 			if (qdf_atomic_read(&temp_peer->delete_in_progress)) {
 				vdev->wait_on_peer_id = temp_peer->local_id;
 				qdf_event_reset(&vdev->wait_delete_comp);
@@ -2438,9 +2419,9 @@ ol_txrx_peer_attach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 					(check_valid == 0 ||
 					 temp_peer->valid)) {
 			ol_txrx_info_high(
-				"vdev_id %d ("QDF_MAC_ADDR_STR") old peer exists.\n",
+				"vdev_id %d ("QDF_MAC_ADDR_FMT") old peer exists.\n",
 				vdev->vdev_id,
-				QDF_MAC_ADDR_ARRAY(vdev->last_peer_mac_addr.raw));
+				QDF_MAC_ADDR_REF(vdev->last_peer_mac_addr.raw));
 			if (qdf_atomic_read(&temp_peer->delete_in_progress)) {
 				vdev->wait_on_peer_id = temp_peer->local_id;
 				qdf_event_reset(&vdev->wait_delete_comp);
@@ -2530,9 +2511,9 @@ ol_txrx_peer_attach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 	ol_txrx_peer_find_hash_add(pdev, peer);
 
 	QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_INFO_HIGH,
-		   "vdev %pK created peer %pK ref_cnt %d ("QDF_MAC_ADDR_STR")\n",
+		   "vdev %pK created peer %pK ref_cnt %d ("QDF_MAC_ADDR_FMT")\n",
 		   vdev, peer, qdf_atomic_read(&peer->ref_cnt),
-		   QDF_MAC_ADDR_ARRAY(peer->mac_addr.raw));
+		   QDF_MAC_ADDR_REF(peer->mac_addr.raw));
 	/*
 	 * For every peer MAp message search and set if bss_peer
 	 */
@@ -3323,9 +3304,9 @@ int ol_txrx_peer_release_ref(ol_txrx_peer_handle peer,
 				 */
 				ol_txrx_tx_desc_reset_vdev(vdev);
 				ol_txrx_dbg(
-					"deleting vdev object %pK ("QDF_MAC_ADDR_STR") - its last peer is done",
+					"deleting vdev object %pK ("QDF_MAC_ADDR_FMT") - its last peer is done",
 					vdev,
-					QDF_MAC_ADDR_ARRAY(vdev->mac_addr.raw));
+					QDF_MAC_ADDR_REF(vdev->mac_addr.raw));
 				/* all peers are gone, go ahead and delete it */
 				qdf_mem_free(vdev);
 				if (vdev_delete_cb)
@@ -3430,8 +3411,8 @@ ol_txrx_clear_peer(struct cdp_soc_t *soc_hdl, uint8_t pdev_id,
 	if (!peer)
 		return QDF_STATUS_SUCCESS;
 
-	ol_txrx_dbg("Clear peer rx frames: " QDF_MAC_ADDR_STR,
-		    QDF_MAC_ADDR_ARRAY(peer->mac_addr.raw));
+	ol_txrx_dbg("Clear peer rx frames: " QDF_MAC_ADDR_FMT,
+		    QDF_MAC_ADDR_REF(peer->mac_addr.raw));
 	ol_txrx_clear_peer_internal(peer);
 	status = ol_txrx_peer_release_ref(peer, PEER_DEBUG_ID_OL_INTERNAL);
 
@@ -3453,9 +3434,9 @@ void peer_unmap_timer_handler(void *data)
 
 	ol_txrx_err("all unmap events not received for peer %pK, ref_cnt %d",
 		    peer, qdf_atomic_read(&peer->ref_cnt));
-	ol_txrx_err("peer %pK ("QDF_MAC_ADDR_STR")",
+	ol_txrx_err("peer %pK ("QDF_MAC_ADDR_FMT")",
 		    peer,
-		    QDF_MAC_ADDR_ARRAY(peer->mac_addr.raw));
+		    QDF_MAC_ADDR_REF(peer->mac_addr.raw));
 	ol_register_peer_recovery_notifier(peer);
 
 	cds_trigger_recovery(QDF_PEER_UNMAP_TIMEDOUT);
@@ -3507,9 +3488,9 @@ static QDF_STATUS ol_txrx_peer_detach(struct cdp_soc_t *soc_hdl, uint8_t vdev_id
 	/* htt_rx_reorder_log_print(vdev->pdev->htt_pdev); */
 
 	QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_DEBUG,
-		   "%s:peer %pK ("QDF_MAC_ADDR_STR")",
+		   "%s:peer %pK ("QDF_MAC_ADDR_FMT")",
 		   __func__, peer,
-		   QDF_MAC_ADDR_ARRAY(peer->mac_addr.raw));
+		   QDF_MAC_ADDR_REF(peer->mac_addr.raw));
 
 	qdf_spin_lock_bh(&vdev->pdev->last_real_peer_mutex);
 	if (vdev->last_real_peer == peer)
@@ -3641,36 +3622,6 @@ static void ol_txrx_peer_unmap_sync_cb_set(
 
 	if (!pdev->peer_unmap_sync_cb)
 		pdev->peer_unmap_sync_cb = peer_unmap_sync;
-}
-
-/**
- * ol_txrx_peer_flush_frags() - Flush fragments for a particular peer
- * @soc_hdl - datapath soc handle
- * @vdev_id - virtual device id
- * @peer_mac - peer mac address
- *
- * Return: None
- */
-static void
-ol_txrx_peer_flush_frags(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
-			 uint8_t *peer_mac)
-{
-	struct ol_txrx_peer_t *peer;
-	struct ol_txrx_soc_t *soc = cdp_soc_t_to_ol_txrx_soc_t(soc_hdl);
-	struct ol_txrx_pdev_t *pdev =
-		ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
-
-	if (!pdev)
-		return;
-
-	peer =  ol_txrx_peer_find_hash_find_get_ref(pdev, peer_mac, 0, 1,
-						    PEER_DEBUG_ID_OL_INTERNAL);
-	if (!peer)
-		return;
-
-	ol_rx_reorder_peer_cleanup(peer->vdev, peer);
-
-	ol_txrx_peer_release_ref(peer, PEER_DEBUG_ID_OL_INTERNAL);
 }
 
 /**
@@ -5781,7 +5732,8 @@ static void ol_txrx_wrapper_flush_rx_frames(struct cdp_soc_t *soc_hdl,
 	peer = ol_txrx_peer_find_hash_find_get_ref(pdev, peer_mac, 0, 1,
 						   PEER_DEBUG_ID_OL_INTERNAL);
 	if (!peer) {
-		ol_txrx_err("peer %pM not found", peer_mac);
+		ol_txrx_err("peer "QDF_MAC_ADDR_FMT" not found",
+			    QDF_MAC_ADDR_REF(peer_mac));
 		return;
 	}
 
@@ -5899,12 +5851,6 @@ static uint32_t ol_txrx_get_cfg(struct cdp_soc_t *soc_hdl, enum cdp_dp_cfg cfg)
 	case cfg_dp_gro_enable:
 		value = cfg_ctx->gro_enable;
 		break;
-    case cfg_dp_tc_based_dyn_gro_enable:
-       value = cfg_ctx->tc_based_dyn_gro;
-       break;
-    case cfg_dp_tc_ingress_prio:
-       value = cfg_ctx->tc_ingress_prio;
-       break;
 #ifdef QCA_LL_TX_FLOW_CONTROL_V2
 	case cfg_dp_tx_flow_start_queue_offset:
 		value = cfg_ctx->tx_flow_start_queue_offset;
@@ -6401,7 +6347,6 @@ static struct cdp_peer_ops ol_ops_peer = {
 	.set_peer_as_tdls_peer = ol_txrx_set_peer_as_tdls_peer,
 #endif /* CONFIG_HL_SUPPORT */
 	.peer_detach_force_delete = ol_txrx_peer_detach_force_delete,
-	.peer_flush_frags = ol_txrx_peer_flush_frags,
 };
 
 static struct cdp_tx_delay_ops ol_ops_delay = {

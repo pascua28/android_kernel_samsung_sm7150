@@ -1233,7 +1233,7 @@ static int debug_wmi_log_size_show(struct seq_file *m, void *v)
 			((struct seq_file *)file->private_data)->private;\
 		struct wmi_log_buf_t *wmi_log = &wmi_handle->log_info.	\
 				wmi_##func_base##_buf_info;		\
-		char locbuf[50];					\
+		char locbuf[50] = "0";					\
 									\
 		if ((!buf) || (count > 50))				\
 			return -EFAULT;					\
@@ -1289,7 +1289,7 @@ static ssize_t debug_wmi_enable_write(struct file *file, const char __user *buf,
 	wmi_unified_t wmi_handle =
 		((struct seq_file *)file->private_data)->private;
 	int k, ret;
-	char locbuf[50];
+	char locbuf[50] = "0";
 
 	if ((!buf) || (count > 50))
 		return -EFAULT;
@@ -2310,7 +2310,7 @@ QDF_STATUS wmi_unified_cmd_send_over_qmi(struct wmi_unified *wmi_handle,
 
 	qdf_mem_zero(qdf_nbuf_data(buf), sizeof(WMI_CMD_HDR));
 	WMI_SET_FIELD(qdf_nbuf_data(buf), WMI_CMD_HDR, COMMANDID, cmd_id);
-	wmi_debug("Sending WMI_CMD_ID: %d over qmi", cmd_id);
+	wmi_debug("Sending WMI_CMD_ID: 0x%x over qmi", cmd_id);
 	status = qdf_wmi_send_recv_qmi(qdf_nbuf_data(buf),
 				       buflen + sizeof(WMI_CMD_HDR),
 				       wmi_handle,
@@ -3115,6 +3115,18 @@ bool wmi_is_target_suspended(struct wmi_unified *wmi_handle)
 {
 	return qdf_atomic_read(&wmi_handle->is_target_suspended);
 }
+
+#ifdef WLAN_FEATURE_WMI_SEND_RECV_QMI
+void wmi_set_qmi_stats(wmi_unified_t wmi_handle, bool val)
+{
+	wmi_handle->is_qmi_stats_enabled = val;
+}
+
+bool wmi_is_qmi_stats_enabled(struct wmi_unified *wmi_handle)
+{
+	return wmi_handle->is_qmi_stats_enabled;
+}
+#endif
 
 /**
  * WMI API to set crash injection state

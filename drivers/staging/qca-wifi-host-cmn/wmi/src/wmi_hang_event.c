@@ -32,6 +32,7 @@ struct wmi_hang_data_fixed_param {
 static void wmi_log_history(struct notifier_block *block, void *data,
 			    uint8_t wmi_history)
 {
+#if 0
 	qdf_notif_block *notif_block = qdf_container_of(block, qdf_notif_block,
 							notif_block);
 	struct qdf_notifer_data *wmi_hang_data = data;
@@ -108,6 +109,7 @@ static void wmi_log_history(struct notifier_block *block, void *data,
 			pos--;
 		wmi_hang_data->offset += total_len;
 	}
+#endif
 }
 
 static int wmi_recovery_notifier_call(struct notifier_block *block,

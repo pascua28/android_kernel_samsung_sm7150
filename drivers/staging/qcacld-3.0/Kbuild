@@ -6,6 +6,9 @@ else
 	KERNEL_BUILD := n
 endif
 
+# Force user build
+TARGET_BUILD_VARIANT := user
+
 ifeq ($(KERNEL_BUILD), y)
 	# These are provided in external module based builds
 	# Need to explicitly define for Kernel-based builds
@@ -45,17 +48,7 @@ include $(WLAN_CFG_OVERRIDE_FILE)
 $(warning "Overriding WLAN config with: $(shell cat $(WLAN_CFG_OVERRIDE_FILE))")
 endif
 
-# Force user build
-TARGET_BUILD_VARIANT := user
-
 include $(WLAN_ROOT)/configs/$(patsubst "%",%,$(CONFIG_QCA_CLD_WLAN_PROFILE))_defconfig
-
-ifeq ($(KERNEL_BUILD), n)
-ifneq ($(ANDROID_BUILD_TOP),)
-      override WLAN_ROOT := $(ANDROID_BUILD_TOP)/$(WLAN_ROOT)
-      override WLAN_COMMON_INC := $(ANDROID_BUILD_TOP)/$(WLAN_COMMON_INC)
-endif
-endif
 
 ############ UAPI ############
 UAPI_DIR :=	uapi
@@ -508,7 +501,6 @@ else
 DFS_OBJS +=	$(WLAN_COMMON_ROOT)/target_if/dfs/src/target_if_dfs_partial_offload.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_fcc_bin5.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_bindetects.o \
-		$(DFS_CORE_SRC_DIR)/filtering/dfs_debug.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_init.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_misc.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_phyerr_tlv.o \
@@ -518,6 +510,9 @@ DFS_OBJS +=	$(WLAN_COMMON_ROOT)/target_if/dfs/src/target_if_dfs_partial_offload.
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_radar.o \
 		$(DFS_CORE_SRC_DIR)/filtering/dfs_partial_offload_radar.o \
 		$(DFS_CORE_SRC_DIR)/misc/dfs_filter_init.o
+ifdef DFS_DEBUG
+DFS_OBJS +=	$(DFS_CORE_SRC_DIR)/filtering/dfs_debug.o
+endif
 endif
 
 ############ SME ############
@@ -583,8 +578,10 @@ WLAN_LOGGING_INC_DIR :=	$(WLAN_LOGGING_DIR)/inc
 WLAN_LOGGING_SRC_DIR :=	$(WLAN_LOGGING_DIR)/src
 
 WLAN_LOGGING_INC     := -I$(WLAN_ROOT)/$(WLAN_LOGGING_INC_DIR)
+ifeq ($(BUILD_DEBUG_VERSION), 1)
 WLAN_LOGGING_OBJS    := $(WLAN_LOGGING_SRC_DIR)/wlan_logging_sock_svc.o \
 		$(WLAN_LOGGING_SRC_DIR)/wlan_roam_debug.o
+endif
 
 ############ SYS ############
 SYS_DIR :=	core/mac/src/sys
@@ -2167,7 +2164,9 @@ endif
 
 ifeq ($(CONFIG_LITHIUM), y)
 OBJS += 	$(HAL_OBJS)
+ifeq ($(CONFIG_WDI_EVENT_ENABLE), y)
 OBJS += 	$(TXRX_DIR)/ol_txrx_event.o
+endif
 endif
 
 ifeq ($(CONFIG_FEATURE_FW_LOG_PARSING), y)
@@ -2192,8 +2191,8 @@ OBJS +=		$(TDLS_OBJS)
 OBJS +=		$(PMO_OBJS)
 OBJS +=		$(P2P_OBJS)
 OBJS +=		$(POLICY_MGR_OBJS)
-ifeq ($(BUILD_DEBUG_VERSION), 1)
-OBJS +=		$(WLAN_LOGGING_OBJS) $(FWLOG_OBJS)
+ifeq ($(BUILD_DEBUG_VERSION), y)
+OBJS +=		$(WLAN_LOGGING_OBJS)
 endif
 OBJS +=		$(NLINK_OBJS)
 OBJS +=		$(PTT_OBJS)
@@ -2407,7 +2406,6 @@ cppflags-$(CONFIG_WLAN_TX_FLOW_CONTROL_LEGACY) += -DQCA_LL_LEGACY_TX_FLOW_CONTRO
 cppflags-$(CONFIG_WLAN_PDEV_TX_FLOW_CONTROL) += -DQCA_LL_PDEV_TX_FLOW_CONTROL
 
 ifeq ($(BUILD_DEBUG_VERSION), y)
-cppflags-y +=	-DWLAN_DEBUG
 ifeq ($(CONFIG_TRACE_RECORD_FEATURE), y)
 cppflags-y +=	-DTRACE_RECORD \
 		-DLIM_TRACE_RECORD \
@@ -2832,6 +2830,7 @@ cppflags-$(CONFIG_AR900B) += -DAR900B
 cppflags-$(CONFIG_HTT_PADDR64) += -DHTT_PADDR64
 cppflags-$(CONFIG_OL_RX_INDICATION_RECORD) += -DOL_RX_INDICATION_RECORD
 cppflags-$(CONFIG_TSOSEG_DEBUG) += -DTSOSEG_DEBUG
+cppflags-$(CONFIG_ALLOW_PKT_DROPPING) += -DFEATURE_ALLOW_PKT_DROPPING
 
 cppflags-$(CONFIG_ENABLE_DEBUG_ADDRESS_MARKING) += -DENABLE_DEBUG_ADDRESS_MARKING
 cppflags-$(CONFIG_FEATURE_TSO) += -DFEATURE_TSO
@@ -2909,6 +2908,7 @@ cppflags-y += -DENABLE_HAL_SOC_STATS
 cppflags-y += -DENABLE_HAL_REG_WR_HISTORY
 cppflags-y += -DDP_RX_DESC_COOKIE_INVALIDATE
 cppflags-y += -DPCI_LINK_STATUS_SANITY
+cppflags-y += -DDISABLE_EAPOL_INTRABSS_FWD
 endif
 
 cppflags-$(CONFIG_WLAN_CLD_PM_QOS) += -DCLD_PM_QOS
@@ -3268,6 +3268,8 @@ cppflags-$(CONFIG_HANDLE_BC_EAP_TX_FRM) += -DHANDLE_BROADCAST_EAPOL_TX_FRAME
 
 cppflags-$(CONFIG_MORE_TX_DESC) += -DTX_TO_NPEERS_INC_TX_DESCS
 
+cppflags-$(CONFIG_FIX_TXDMA_ALIGNMENT) += -DFIX_TXDMA_LIMITATION
+
 ccflags-$(CONFIG_HASTINGS_BT_WAR) += -DHASTINGS_BT_WAR
 
 cppflags-$(CONFIG_SLUB_DEBUG_ON) += -DHIF_CONFIG_SLUB_DEBUG_ON
@@ -3303,22 +3305,8 @@ EXTRA_CFLAGS += -DSEC_WRITE_VERSION_IN_SYSFS
 EXTRA_CFLAGS += -DSEC_WRITE_SOFTAP_INFO_IN_SYSFS
 #EXTRA_CFLAGS += -DSEC_WRITE_ANT_GPIO_INFO_IN_SYSFS
 
-ifeq ($(shell secgetspf SEC_PRODUCT_FEATURE_WLAN_SUPPORT_MIMO), TRUE)
-EXTRA_CFLAGS += -DSEC_CONFIG_SUPPORT_MIMO
 endif
 
-endif
-
-# Currently, for versions of gcc which support it, the kernel Makefile
-# is disabling the maybe-uninitialized warning.  Re-enable it for the
-# WLAN driver.  Note that we must use ccflags-y here so that it
-# will override the kernel settings.
-ifeq ($(call cc-option-yn, -Wmaybe-uninitialized), y)
-ccflags-y += -Wmaybe-uninitialized
-ifneq (y,$(CONFIG_ARCH_MSM))
-ccflags-y += -Wframe-larger-than=4096
-endif
-endif
 ccflags-y += -Wmissing-prototypes
 
 ifeq ($(call cc-option-yn, -Wheader-guard), y)

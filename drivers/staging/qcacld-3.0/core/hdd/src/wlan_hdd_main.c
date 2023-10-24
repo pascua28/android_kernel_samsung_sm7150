@@ -150,6 +150,7 @@
 #include "enet.h"
 #include <cdp_txrx_cmn_struct.h>
 #include <dp_txrx.h>
+#include <dp_rx_thread.h>
 #include "wlan_hdd_sysfs.h"
 #include "wlan_disa_ucfg_api.h"
 #include "wlan_disa_obj_mgmt_api.h"
@@ -192,11 +193,6 @@
 #include <wlan_hdd_hang_event.h>
 #include <cdp_txrx_ctrl.h>
 #include "wlan_global_lmac_if_api.h"
-
-#ifdef WLAN_FEATURE_DYNAMIC_RX_AGGREGATION
-#include <net/pkt_cls.h>
-#endif
-
 
 #ifdef MODULE
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
@@ -246,6 +242,33 @@ static uint16_t sec_max_station = 0;
 #ifdef SEC_CONFIG_POWER_BACKOFF
 extern int cur_sec_sar_index;
 #endif /* SEC_CONFIG_POWER_BACKOFF */
+
+#ifndef MODULE
+static struct gwlan_loader *wlan_loader;
+static ssize_t wlan_boot_cb(struct kobject *kobj,
+			    struct kobj_attribute *attr,
+			    const char *buf, size_t count);
+struct gwlan_loader {
+	bool loaded_state;
+	struct kobject *boot_wlan_obj;
+	struct attribute_group *attr_group;
+};
+
+static struct kobj_attribute wlan_boot_attribute =
+	__ATTR(boot_wlan, 0220, NULL, wlan_boot_cb);
+
+static struct attribute *attrs[] = {
+	&wlan_boot_attribute.attr,
+	NULL,
+};
+#define MODULE_INITIALIZED 1
+
+#ifdef MULTI_IF_NAME
+#define WLAN_LOADER_NAME "boot_" MULTI_IF_NAME
+#else
+#define WLAN_LOADER_NAME "boot_wlan"
+#endif
+#endif
 
 /* the Android framework expects this param even though we don't use it */
 #define BUF_LEN 20
@@ -1472,8 +1495,8 @@ void hdd_update_macaddr(struct hdd_context *hdd_ctx,
 			     hw_macaddr.bytes, QDF_MAC_ADDR_SIZE);
 		hdd_ctx->num_provisioned_addr++;
 		hdd_debug("hdd_ctx->provisioned_mac_addr[0]: "
-			 QDF_MAC_ADDR_STR,
-			 QDF_MAC_ADDR_ARRAY(hdd_ctx->
+			 QDF_MAC_ADDR_FMT,
+			 QDF_MAC_ADDR_REF(hdd_ctx->
 					provisioned_mac_addr[0].bytes));
 	} else {
 		qdf_mem_copy(hdd_ctx->derived_mac_addr[0].bytes,
@@ -1481,8 +1504,8 @@ void hdd_update_macaddr(struct hdd_context *hdd_ctx,
 			     QDF_MAC_ADDR_SIZE);
 		hdd_ctx->num_derived_addr++;
 		hdd_debug("hdd_ctx->derived_mac_addr[0]: "
-			 QDF_MAC_ADDR_STR,
-			 QDF_MAC_ADDR_ARRAY(hdd_ctx->derived_mac_addr[0].bytes));
+			 QDF_MAC_ADDR_FMT,
+			 QDF_MAC_ADDR_REF(hdd_ctx->derived_mac_addr[0].bytes));
 	}
 	for (i = hdd_ctx->num_derived_addr; i < (QDF_MAX_CONCURRENCY_PERSONA -
 						hdd_ctx->num_provisioned_addr);
@@ -1504,8 +1527,8 @@ void hdd_update_macaddr(struct hdd_context *hdd_ctx,
 		hdd_ctx->derived_mac_addr[i].bytes[0] |= 0x02;
 		hdd_ctx->derived_mac_addr[i].bytes[3] = macaddr_b3;
 		hdd_debug("hdd_ctx->derived_mac_addr[%d]: "
-			QDF_MAC_ADDR_STR, i,
-			QDF_MAC_ADDR_ARRAY(hdd_ctx->derived_mac_addr[i].bytes));
+			QDF_MAC_ADDR_FMT, i,
+			QDF_MAC_ADDR_REF(hdd_ctx->derived_mac_addr[i].bytes));
 		hdd_ctx->num_derived_addr++;
 	}
 }
@@ -2195,6 +2218,29 @@ static void hdd_component_cfg_chan_to_freq(struct wlan_objmgr_pdev *pdev)
 	ucfg_mlme_cfg_chan_to_freq(pdev);
 }
 
+static uint32_t hdd_update_band_cap_from_dot11mode(
+		struct hdd_context *hdd_ctx, uint32_t band_capability)
+{
+	if (hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_AUTO)
+		return band_capability;
+
+	if (hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_11b ||
+	    hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_11g ||
+	    hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_11g_ONLY ||
+	    hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_11b_ONLY)
+		band_capability = (band_capability & (~BIT(REG_BAND_5G)));
+
+	if (hdd_ctx->config->dot11Mode == eHDD_DOT11_MODE_11a)
+		band_capability = (band_capability & (~BIT(REG_BAND_2G)));
+
+	if (hdd_ctx->config->dot11Mode != eHDD_DOT11_MODE_11ax_ONLY &&
+	    hdd_ctx->config->dot11Mode != eHDD_DOT11_MODE_11ax)
+		band_capability = (band_capability & (~BIT(REG_BAND_6G)));
+
+	qdf_debug("Update band capability %x", band_capability);
+	return band_capability;
+}
+
 int hdd_update_tgt_cfg(hdd_handle_t hdd_handle, struct wma_tgt_cfg *cfg)
 {
 	int ret;
@@ -2279,6 +2325,9 @@ int hdd_update_tgt_cfg(hdd_handle_t hdd_handle, struct wma_tgt_cfg *cfg)
 		ret = qdf_status_to_os_return(status);
 		goto pdev_close;
 	}
+
+	band_capability =
+		hdd_update_band_cap_from_dot11mode(hdd_ctx, band_capability);
 
 	/* first store the INI band capability */
 	temp_band_cap = band_capability;
@@ -2767,7 +2816,7 @@ wlan_hdd_update_dbs_scan_and_fw_mode_config(void)
 	cfg.set_dual_mac_cb = policy_mgr_soc_set_dual_mac_cfg_cb;
 	if (policy_mgr_is_hw_dbs_capable(hdd_ctx->psoc)) {
 #ifdef SEC_WRITE_SOFTAP_INFO_IN_SYSFS
-        sec_hw_dbs_capable = 1;
+                sec_hw_dbs_capable = 1;
 #endif //SEC_WRITE_SOFTAP_INFO_IN_SYSFS
 		status =
 		ucfg_policy_mgr_get_chnl_select_plcy(hdd_ctx->psoc,
@@ -3688,6 +3737,21 @@ void hdd_sysfs_update_driver_status(int32_t status)
 	}
 }
 #endif /* SEC_READ_MACADDR_SYSFS || SEC_WRITE_VERSION_IN_SYSFS || SEC_WRITE_SOFTAP_INFO_IN_SYSFS || SEC_CONFIG_PSM_SYSFS */
+
+#ifdef WLAN_FEATURE_WMI_SEND_RECV_QMI
+static inline
+void hdd_set_qmi_stats_enabled(struct hdd_context *hdd_ctx)
+{
+	wmi_set_qmi_stats(get_wmi_unified_hdl_from_psoc(hdd_ctx->psoc),
+			  hdd_ctx->config->is_qmi_stats_enabled);
+}
+#else
+static inline
+void hdd_set_qmi_stats_enabled(struct hdd_context *hdd_ctx)
+{
+}
+#endif
+
 int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 {
 	int ret = 0;
@@ -3809,6 +3873,8 @@ int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 			goto psoc_close;
 		}
 
+		hdd_set_qmi_stats_enabled(hdd_ctx);
+
 		hdd_ctx->mac_handle = cds_get_context(QDF_MODULE_ID_SME);
 
 		if (hdd_ctx->config->rx_thread_affinity_mask)
@@ -3834,6 +3900,8 @@ int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 			ret = qdf_status_to_os_return(status);
 			goto close;
 		}
+		/* Set IRQ affinity for WLAN DP and CE IRQS */
+		hif_config_irq_set_perf_affinity_hint(hif_ctx);
 
 		ret = hdd_register_cb(hdd_ctx);
 		if (ret) {
@@ -3891,7 +3959,7 @@ int hdd_wlan_start_modules(struct hdd_context *hdd_ctx, bool reinit)
 		hdd_enable_power_management();
 
 		hdd_skip_acs_scan_timer_init(hdd_ctx);
-		
+
 #ifdef SEC_CONFIG_WLAN_BEACON_CHECK
 		qdf_mc_timer_init(&hdd_ctx->skip_bmiss_set_timer,
 			QDF_TIMER_TYPE_SW,
@@ -4417,9 +4485,9 @@ static int __hdd_set_mac_address(struct net_device *dev, void *addr)
 	if (adapter_temp) {
 		if (!qdf_str_cmp(adapter_temp->dev->name, dev->name))
 			return 0;
-		hdd_err("%s adapter exist with same address " QDF_MAC_ADDR_STR,
+		hdd_err("%s adapter exist with same address " QDF_MAC_ADDR_FMT,
 			adapter_temp->dev->name,
-			QDF_MAC_ADDR_ARRAY(mac_addr.bytes));
+			QDF_MAC_ADDR_REF(mac_addr.bytes));
 		return -EINVAL;
 	}
 
@@ -4428,8 +4496,8 @@ static int __hdd_set_mac_address(struct net_device *dev, void *addr)
 		return -EINVAL;
 
 	hdd_nofl_debug("Changing MAC to "
-		       QDF_MAC_ADDR_STR " of the interface %s ",
-		       QDF_MAC_ADDR_ARRAY(mac_addr.bytes), dev->name);
+		       QDF_MAC_ADDR_FMT " of the interface %s ",
+		       QDF_MAC_ADDR_REF(mac_addr.bytes), dev->name);
 
 	hdd_update_dynamic_mac(hdd_ctx, &adapter->mac_addr, &mac_addr);
 	memcpy(&adapter->mac_addr, psta_mac_addr->sa_data, ETH_ALEN);
@@ -4474,8 +4542,8 @@ static uint8_t *wlan_hdd_get_derived_intf_addr(struct hdd_context *hdd_ctx)
 	if (i < 0 || i >= hdd_ctx->num_derived_addr)
 		return NULL;
 	qdf_atomic_set_bit(i, &hdd_ctx->derived_intf_addr_mask);
-	hdd_nofl_debug("Assigning MAC from derived list" QDF_MAC_ADDR_STR,
-		       QDF_MAC_ADDR_ARRAY(hdd_ctx->derived_mac_addr[i].bytes));
+	hdd_nofl_debug("Assigning MAC from derived list" QDF_MAC_ADDR_FMT,
+		       QDF_MAC_ADDR_REF(hdd_ctx->derived_mac_addr[i].bytes));
 
 	/* Copy the mac in dynamic mac list at first free position */
 	for (j = 0; j < QDF_MAX_CONCURRENCY_PERSONA; j++) {
@@ -4505,8 +4573,8 @@ static uint8_t *wlan_hdd_get_provisioned_intf_addr(struct hdd_context *hdd_ctx)
 	if (i < 0 || i >= hdd_ctx->num_provisioned_addr)
 		return NULL;
 	qdf_atomic_set_bit(i, &hdd_ctx->provisioned_intf_addr_mask);
-	hdd_debug("Assigning MAC from provisioned list" QDF_MAC_ADDR_STR,
-		  QDF_MAC_ADDR_ARRAY(hdd_ctx->provisioned_mac_addr[i].bytes));
+	hdd_debug("Assigning MAC from provisioned list" QDF_MAC_ADDR_FMT,
+		  QDF_MAC_ADDR_REF(hdd_ctx->provisioned_mac_addr[i].bytes));
 
 	/* Copy the mac in dynamic mac list at first free position */
 	for (j = 0; j < QDF_MAX_CONCURRENCY_PERSONA; j++) {
@@ -4567,15 +4635,15 @@ void wlan_hdd_release_intf_addr(struct hdd_context *hdd_ctx,
 						   provisioned_intf_addr_mask);
 				hdd_debug("Releasing MAC from provisioned list");
 				hdd_debug(
-					  QDF_MAC_ADDR_STR,
-					  QDF_MAC_ADDR_ARRAY(releaseAddr));
+					  QDF_MAC_ADDR_FMT,
+					  QDF_MAC_ADDR_REF(releaseAddr));
 			} else {
 				qdf_atomic_clear_bit(
 						mac_pos_in_mask, &hdd_ctx->
 						derived_intf_addr_mask);
 				hdd_debug("Releasing MAC from derived list");
-				hdd_debug(QDF_MAC_ADDR_STR,
-					  QDF_MAC_ADDR_ARRAY(releaseAddr));
+				hdd_debug(QDF_MAC_ADDR_FMT,
+					  QDF_MAC_ADDR_REF(releaseAddr));
 			}
 			qdf_zero_macaddr(&hdd_ctx->
 					    dynamic_mac_list[i].dynamic_mac);
@@ -4587,8 +4655,8 @@ void wlan_hdd_release_intf_addr(struct hdd_context *hdd_ctx,
 
 	}
 	if (i == QDF_MAX_CONCURRENCY_PERSONA)
-		hdd_err("Releasing non existing MAC" QDF_MAC_ADDR_STR,
-			QDF_MAC_ADDR_ARRAY(releaseAddr));
+		hdd_err("Releasing non existing MAC" QDF_MAC_ADDR_FMT,
+			QDF_MAC_ADDR_REF(releaseAddr));
 }
 
 /**
@@ -4662,8 +4730,8 @@ static void __hdd_set_multicast_list(struct net_device *dev)
 				0, ETH_ALEN);
 			memcpy(&(mc_list_request->mc_addr[i].bytes),
 				ha->addr, ETH_ALEN);
-			hdd_debug("mlist[%d] = %pM", i,
-				  mc_list_request->mc_addr[i].bytes);
+			hdd_debug("mlist[%d] = "QDF_MAC_ADDR_FMT, i,
+				  QDF_MAC_ADDR_REF(mc_list_request->mc_addr[i].bytes));
 			i++;
 		}
 	}
@@ -4827,8 +4895,16 @@ static int hdd_set_features(struct net_device *net_dev,
 	struct osif_vdev_sync *vdev_sync;
 
 	errno = osif_vdev_sync_op_start(net_dev, &vdev_sync);
-	if (errno)
-		return errno;
+	if (errno) {
+		/*
+		 * Only invoke from netdev_feature_update_work expected,
+		 * which is from CLD inside.
+		 * Ignore others from upper stack during loading phase,
+		 * and return success to avoid failure print from kernel.
+		 */
+		hdd_debug("VDEV in transition, ignore set_features");
+		return 0;
+	}
 
 	errno = __hdd_set_features(net_dev, features);
 
@@ -4973,6 +5049,7 @@ hdd_alloc_station_adapter(struct hdd_context *hdd_ctx, tSirMacAddr mac_addr,
 	struct hdd_adapter *adapter;
 	struct hdd_station_ctx *sta_ctx;
 	QDF_STATUS qdf_status;
+	uint8_t latency_level;
 
 	/* cfg80211 initialization and registration */
 	dev = alloc_netdev_mq(sizeof(*adapter), name,
@@ -5041,6 +5118,13 @@ hdd_alloc_station_adapter(struct hdd_context *hdd_ctx, tSirMacAddr mac_addr,
 	dev->tx_queue_len = HDD_NETDEV_TX_QUEUE_LEN;
 	adapter->wdev.wiphy = hdd_ctx->wiphy;
 	adapter->wdev.netdev = dev;
+	qdf_status = ucfg_mlme_cfg_get_wlm_level(hdd_ctx->psoc, &latency_level);
+	if (QDF_IS_STATUS_ERROR(qdf_status)) {
+		hdd_debug("Can't get latency level");
+		latency_level =
+			QCA_WLAN_VENDOR_ATTR_CONFIG_LATENCY_LEVEL_NORMAL;
+	}
+	adapter->latency_level = latency_level;
 
 	/* set dev's parent to underlying device */
 	SET_NETDEV_DEV(dev, hdd_ctx->parent_dev);
@@ -5204,6 +5288,7 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 	ucfg_pmo_del_wow_pattern(vdev);
 	status = ucfg_reg_11d_vdev_delete_update(vdev);
 	ucfg_scan_vdev_set_disable(vdev, REASON_VDEV_DOWN);
+	wlan_hdd_scan_abort(adapter);
 	hdd_objmgr_put_vdev(vdev);
 
 	/* Disable serialization for vdev before sending vdev delete */
@@ -5249,18 +5334,21 @@ hdd_store_nss_chains_cfg_in_vdev(struct hdd_adapter *adapter)
 {
 	struct wlan_mlme_nss_chains vdev_ini_cfg;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+	struct wlan_objmgr_vdev *vdev;
 
 	/* Populate the nss chain params from ini for this vdev type */
 	sme_populate_nss_chain_params(hdd_ctx->mac_handle, &vdev_ini_cfg,
 				      adapter->device_mode,
 				      hdd_ctx->num_rf_chains);
 
+	vdev = hdd_objmgr_get_vdev(adapter);
 	/* Store the nss chain config into the vdev */
-	if (adapter->vdev)
+	if (vdev) {
 		sme_store_nss_chains_cfg_in_vdev(adapter->vdev, &vdev_ini_cfg);
-	else
+		hdd_objmgr_put_vdev(vdev);
+	} else {
 		hdd_err("Vdev is NULL");
-
+	}
 }
 
 bool hdd_is_vdev_in_conn_state(struct hdd_adapter *adapter)
@@ -5765,11 +5853,6 @@ static int hdd_send_coex_config_params(struct hdd_context *hdd_ctx,
 	struct wlan_objmgr_psoc *psoc = hdd_ctx->psoc;
 	QDF_STATUS status;
 
-	if (!hdd_ctx) {
-		hdd_err("hdd_ctx is invalid");
-		goto err;
-	}
-
 	if (!adapter) {
 		hdd_err("adapter is invalid");
 		goto err;
@@ -6112,7 +6195,7 @@ static void hdd_reset_locally_admin_bit(struct hdd_context *hdd_ctx,
 	 */
 	WLAN_HDD_RESET_LOCALLY_ADMINISTERED_BIT(mac_addr);
 	hdd_debug("locally administered bit reset in sta mode: "
-		 QDF_MAC_ADDR_STR, QDF_MAC_ADDR_ARRAY(mac_addr));
+		 QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(mac_addr));
 }
 
 static void wlan_hdd_cfg80211_scan_block_cb(struct work_struct *work)
@@ -6186,9 +6269,9 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 
 	status = hdd_check_for_existing_macaddr(hdd_ctx, mac_addr);
 	if (QDF_STATUS_E_FAILURE == status) {
-		hdd_err("Duplicate MAC addr: " QDF_MAC_ADDR_STR
+		hdd_err("Duplicate MAC addr: " QDF_MAC_ADDR_FMT
 				" already exists",
-				QDF_MAC_ADDR_ARRAY(mac_addr));
+				QDF_MAC_ADDR_REF(mac_addr));
 		return NULL;
 	}
 
@@ -6204,9 +6287,9 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 			status = hdd_check_for_existing_macaddr(hdd_ctx,
 								mac_addr);
 			if (QDF_STATUS_E_FAILURE == status) {
-				hdd_err("Duplicate MAC addr: " QDF_MAC_ADDR_STR
+				hdd_err("Duplicate MAC addr: " QDF_MAC_ADDR_FMT
 					" already exists",
-					QDF_MAC_ADDR_ARRAY(mac_addr));
+					QDF_MAC_ADDR_REF(mac_addr));
 				return NULL;
 			}
 		}
@@ -6385,9 +6468,8 @@ struct hdd_adapter *hdd_open_adapter(struct hdd_context *hdd_ctx, uint8_t sessio
 	qdf_event_create(&adapter->peer_cleanup_done);
 	hdd_sta_info_init(&adapter->sta_info_list);
 	hdd_sta_info_init(&adapter->cache_sta_info_list);
-    qdf_atomic_init(&adapter->gro_disallowed);
-	
-    if (QDF_STATUS_SUCCESS == status) {
+
+	if (QDF_STATUS_SUCCESS == status) {
 		/* Add it to the hdd's session list. */
 		status = hdd_add_adapter_back(hdd_ctx, adapter);
 	}
@@ -6950,10 +7032,15 @@ void hdd_set_netdev_flags(struct hdd_adapter *adapter)
 		hdd_err("invalid input!");
 		return;
 	}
+	device_mode = adapter->device_mode;
 
 	hdd_ctx = adapter->hdd_ctx;
-	device_mode = adapter->device_mode;
 	soc = cds_get_context(QDF_MODULE_ID_SOC);
+
+	if (!soc || !hdd_ctx) {
+		hdd_err("invalid SOC or HDD context!");
+		return;
+	}
 
 	/* Determine device_mode specific configuration */
 
@@ -8468,6 +8555,32 @@ out:
 }
 
 /**
+ * hdd_rx_wake_lock_destroy() - Destroy RX wakelock
+ * @hdd_ctx:	HDD context.
+ *
+ * Destroy RX wakelock.
+ *
+ * Return: None.
+ */
+static void hdd_rx_wake_lock_destroy(struct hdd_context *hdd_ctx)
+{
+	qdf_wake_lock_destroy(&hdd_ctx->rx_wake_lock);
+}
+
+/**
+ * hdd_rx_wake_lock_create() - Create RX wakelock
+ * @hdd_ctx:	HDD context.
+ *
+ * Create RX wakelock.
+ *
+ * Return: None.
+ */
+static void hdd_rx_wake_lock_create(struct hdd_context *hdd_ctx)
+{
+	qdf_wake_lock_create(&hdd_ctx->rx_wake_lock, "qcom_rx_wakelock");
+}
+
+/**
  * hdd_context_deinit() - Deinitialize HDD context
  * @hdd_ctx:    HDD context.
  *
@@ -8484,6 +8597,8 @@ static int hdd_context_deinit(struct hdd_context *hdd_ctx)
 	wlan_hdd_cfg80211_deinit(hdd_ctx->wiphy);
 
 	hdd_sap_context_destroy(hdd_ctx);
+
+	hdd_rx_wake_lock_destroy(hdd_ctx);
 
 	hdd_scan_context_destroy(hdd_ctx);
 
@@ -9010,21 +9125,6 @@ static inline void hdd_pm_qos_update_cpu_mask(cpumask_t *mask,
  *
  * Return: none
  */
-#ifdef FEATURE_RUNTIME_PM
-static inline void hdd_pm_qos_update_request(struct hdd_context *hdd_ctx,
-					     cpumask_t *pm_qos_cpu_mask)
-{
-	COPY_CPU_MASK(&hdd_ctx->pm_qos_req.cpus_affine, pm_qos_cpu_mask);
-
-	/* Latency value to be read from INI */
-	if (cpumask_empty(pm_qos_cpu_mask) &&
-	    hdd_ctx->config->runtime_pm == hdd_runtime_pm_dynamic)
-		pm_qos_update_request(&hdd_ctx->pm_qos_req,
-				      PM_QOS_DEFAULT_VALUE);
-	else
-		pm_qos_update_request(&hdd_ctx->pm_qos_req, 1);
-}
-#else
 static inline void hdd_pm_qos_update_request(struct hdd_context *hdd_ctx,
 					     cpumask_t *pm_qos_cpu_mask)
 {
@@ -9037,7 +9137,6 @@ static inline void hdd_pm_qos_update_request(struct hdd_context *hdd_ctx,
 	else
 		pm_qos_update_request(&hdd_ctx->pm_qos_req, 1);
 }
-#endif
 
 #if defined(CONFIG_SMP) && defined(MSM_PLATFORM)
 /**
@@ -9130,6 +9229,8 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 	cpumask_t pm_qos_cpu_mask;
 	bool is_rx_pm_qos_high = false;
 	bool is_tx_pm_qos_high = false;
+	ol_txrx_soc_handle soc = cds_get_context(QDF_MODULE_ID_SOC);
+	int i;
 
 	cpumask_clear(&pm_qos_cpu_mask);
 
@@ -9151,6 +9252,14 @@ static void hdd_pld_request_bus_bandwidth(struct hdd_context *hdd_ctx,
 		if (++hdd_ctx->bus_low_vote_cnt >= bus_low_cnt_threshold)
 			qdf_atomic_set(&hdd_ctx->low_tput_gro_enable, 1);
 	} else {
+		if (qdf_atomic_read(&hdd_ctx->low_tput_gro_enable) &&
+			    hdd_ctx->enable_dp_rx_threads) {
+			/* flush pending rx pkts when LOW->IDLE */
+			hdd_debug("flush queued GRO pkts");
+			for (i = 0; i < cdp_get_num_rx_contexts(soc); i++) {
+				dp_rx_gro_flush_ind(soc, i);
+			}
+		}
 		hdd_ctx->bus_low_vote_cnt = 0;
 		qdf_atomic_set(&hdd_ctx->low_tput_gro_enable, 0);
 	}
@@ -9452,133 +9561,6 @@ void hdd_set_vdev_bundle_require_flag(uint16_t vdev_id,
 #endif
 
 #define HDD_BW_GET_DIFF(_x, _y) (unsigned long)((ULONG_MAX - (_y)) + (_x) + 1)
-
-
-#ifdef WLAN_FEATURE_DYNAMIC_RX_AGGREGATION
-static enum qdisc_filter_status
-__hdd_check_for_prio_filter_in_clsact_qdisc(struct tcf_block *block,
-                       uint32_t prio)
-{
-   struct tcf_chain *chain;
-   struct tcf_proto *tp;
-   enum qdisc_filter_status ret = QDISC_FILTER_PRIO_MISMATCH;
-
-   if (!rtnl_trylock())
-       return QDISC_FILTER_RTNL_LOCK_FAIL;
-
-   list_for_each_entry(chain, &block->chain_list, list) {
-       for (tp = rtnl_dereference(chain->filter_chain); tp;
-            tp = rtnl_dereference(tp->next)) {
-           if (tp->prio == (prio << 16))
-               ret = QDISC_FILTER_PRIO_MATCH;
-       }
-   }
-   rtnl_unlock();
-
-   return ret;
-}
-
-/**
- * hdd_check_for_prio_filter_in_clsact_qdisc() - Check if priority 3 filter
- *  is configured in the ingress clsact qdisc
- * @qdisc: pointer to clsact qdisc
- *
- * Return: true if priority 3 filter is present else false
- */
-static enum qdisc_filter_status
-hdd_check_for_prio_filter_in_clsact_qdisc(struct Qdisc *qdisc, uint32_t prio)
-{
-   const struct Qdisc_class_ops *cops;
-   struct tcf_block *ingress_block;
-
-   cops = qdisc->ops->cl_ops;
-   if (qdf_unlikely(!cops || !cops->tcf_block))
-       return QDISC_FILTER_PRIO_MISMATCH;
-
-   ingress_block = cops->tcf_block(qdisc, TC_H_MIN_INGRESS);
-   if (qdf_unlikely(!ingress_block))
-       return QDISC_FILTER_PRIO_MISMATCH;
-
-   return __hdd_check_for_prio_filter_in_clsact_qdisc(ingress_block, prio);
-}
-
-/**
- * hdd_rx_check_qdisc_for_adapter() - Check if any ingress qdisc is configured
- *  for given adapter
- * @adapter: pointer to HDD adapter context
- * @rx_ctx_id: Rx context id
- *
- * The function checks if ingress qdisc is registered for a given
- * net device.
- *
- * Return: None
- */
-static void
-hdd_rx_check_qdisc_for_adapter(struct hdd_adapter *adapter)
-{
-   struct hdd_context *hdd_ctx = adapter->hdd_ctx;
-   struct netdev_queue *ingress_q;
-   struct Qdisc *ingress_qdisc;
-   bool disable_gro = false;
-   enum qdisc_filter_status ret;
-
-   if (!adapter->dev->ingress_queue)
-       goto reset_wl;
-
-   rcu_read_lock();
-
-   ingress_q = rcu_dereference(adapter->dev->ingress_queue);
-   if (qdf_unlikely(!ingress_q))
-       goto reset;
-
-   ingress_qdisc = rcu_dereference(ingress_q->qdisc);
-   if (qdf_unlikely(!ingress_qdisc))
-       goto reset;
-
-   if (qdf_str_eq(ingress_qdisc->ops->id, "ingress")) {
-       disable_gro = true;
-   } else if (qdf_str_eq(ingress_qdisc->ops->id, "clsact")) {
-       ret = hdd_check_for_prio_filter_in_clsact_qdisc(ingress_qdisc,
-                    hdd_ctx->dp_agg_param.tc_ingress_prio);
-
-       if (ret == QDISC_FILTER_RTNL_LOCK_FAIL) {
-           rcu_read_unlock();
-           return;
-       } else if (ret == QDISC_FILTER_PRIO_MISMATCH) {
-           goto reset;
-       }
-
-       disable_gro = true;
-   }
-
-   if (disable_gro) {
-       rcu_read_unlock();
-
-       if (qdf_likely(qdf_atomic_read(&adapter->gro_disallowed)))
-           return;
-
-       hdd_debug("ingress qdisc/filter configured disable GRO");
-       qdf_atomic_set(&adapter->gro_disallowed, 1);
-
-       return;
-   }
-
-reset:
-   rcu_read_unlock();
-
-reset_wl:
-   if (qdf_unlikely(qdf_atomic_read(&adapter->gro_disallowed))) {
-       hdd_debug("ingress qdisc/filter removed enable GRO");
-       qdf_atomic_set(&adapter->gro_disallowed, 0);
-   }
-}
-#else
-static inline void
-hdd_rx_check_qdisc_for_adapter(struct hdd_adapter *adapter)
-{
-}
-#endif
-
 static void __hdd_bus_bw_work_handler(struct hdd_context *hdd_ctx)
 {
 	struct hdd_adapter *adapter = NULL, *con_sap_adapter = NULL;
@@ -9619,11 +9601,6 @@ static void __hdd_bus_bw_work_handler(struct hdd_context *hdd_ctx)
 
 			continue;
 		}
-
-        if (hdd_ctx->dp_agg_param.tc_based_dyn_gro ||
-                hdd_ctx->ol_enable == CFG_DYNAMIC_GRO_ENABLED)
-            hdd_rx_check_qdisc_for_adapter(adapter);
-
 
 		tx_packets += HDD_BW_GET_DIFF(adapter->stats.tx_packets,
 					      adapter->prev_tx_packets);
@@ -9759,21 +9736,29 @@ void hdd_bus_bandwidth_deinit(struct hdd_context *hdd_ctx)
  *				       netdev feature update.
  * @adapter: pointer to adapter structure
  *
+ * This function assumes that the adapter pointer is always valid.
+ * So the caller shoudl always validate adapter pointer before calling
+ * this function
+ *
  * Returns: None
  */
 static inline void
 __hdd_adapter_param_update_work(struct hdd_adapter *adapter)
 {
-	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
-
-	if (hdd_validate_adapter(adapter)) {
-		hdd_adapter_ops_record_event(hdd_ctx, WLAN_HDD_ADAPTER_OPS_WORK_SCHED,
-					     WLAN_INVALID_VDEV_ID);
-		hdd_err("netdev features update request for invalid adapter");
+	/**
+	 * This check is needed in case the work got scheduled after the
+	 * interface got disconnected. During disconnection, the network queues
+	 * are paused and hence should not be, mistakenly, restarted here.
+	 * There are two approaches to handle this case
+	 * 1) Flush the work during disconnection
+	 * 2) Check for connected state in work
+	 *
+	 * Since the flushing of work during disconnection will need to be
+	 * done at multiple places or entry points, instead its preferred to
+	 * check the connection state and skip the operation here.
+	 */
+	if (!hdd_adapter_is_connected_sta(adapter))
 		return;
-	}
-	hdd_adapter_ops_record_event(hdd_ctx, WLAN_HDD_ADAPTER_OPS_WORK_SCHED,
-				     adapter->vdev_id);
 
 	hdd_netdev_update_features(adapter);
 
@@ -9791,9 +9776,24 @@ __hdd_adapter_param_update_work(struct hdd_adapter *adapter)
  */
 static void hdd_adapter_param_update_work(void *arg)
 {
+	struct hdd_context *hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 	struct hdd_adapter *adapter = arg;
 	struct osif_vdev_sync *vdev_sync;
 	int errno;
+
+	if (!hdd_ctx) {
+		hdd_err("Invalid hdd context");
+		return;
+	}
+
+	hdd_adapter_ops_record_event(hdd_ctx,
+				     WLAN_HDD_ADAPTER_OPS_WORK_SCHED,
+				     WLAN_INVALID_VDEV_ID);
+
+	if (hdd_validate_adapter(adapter)) {
+		hdd_err("netdev features update request for invalid adapter");
+		return;
+	}
 
 	errno = osif_vdev_sync_op_start(adapter->dev, &vdev_sync);
 	if (errno)
@@ -9868,7 +9868,6 @@ static uint8_t *convert_level_to_string(uint32_t level)
 		return "INVAL";
 	}
 }
-
 
 /**
  * wlan_hdd_display_tx_rx_histogram() - display tx rx histogram
@@ -11016,6 +11015,8 @@ static int hdd_context_init(struct hdd_context *hdd_ctx)
 	if (ret)
 		goto list_destroy;
 
+	hdd_rx_wake_lock_create(hdd_ctx);
+
 	ret = hdd_sap_context_init(hdd_ctx);
 	if (ret)
 		goto scan_destroy;
@@ -11039,6 +11040,7 @@ sap_destroy:
 
 scan_destroy:
 	hdd_scan_context_destroy(hdd_ctx);
+	hdd_rx_wake_lock_destroy(hdd_ctx);
 list_destroy:
 	qdf_list_destroy(&hdd_ctx->hdd_adapters);
 
@@ -11090,6 +11092,7 @@ static int __hdd_psoc_idle_shutdown(struct hdd_context *hdd_ctx)
 	errno = osif_psoc_sync_trans_start(hdd_ctx->parent_dev, &psoc_sync);
 	if (errno) {
 		hdd_info("psoc busy, abort idle shutdown; errno:%d", errno);
+		errno = -EAGAIN;
 		goto exit;
 	}
 
@@ -11291,6 +11294,20 @@ static void hdd_init_runtime_pm(struct hdd_config *config,
 }
 #endif
 
+#ifdef WLAN_FEATURE_WMI_SEND_RECV_QMI
+static void hdd_init_qmi_stats(struct hdd_config *config,
+			       struct wlan_objmgr_psoc *psoc)
+{
+	config->is_qmi_stats_enabled = cfg_get(psoc, CFG_ENABLE_QMI_STATS);
+}
+#else
+static void hdd_init_qmi_stats(struct hdd_config *config,
+			       struct wlan_objmgr_psoc *psoc)
+
+{
+}
+#endif
+
 #ifdef FEATURE_WLAN_DYNAMIC_CVM
 static void hdd_init_vc_mode_cfg_bitmap(struct hdd_config *config,
 					struct wlan_objmgr_psoc *psoc)
@@ -11460,6 +11477,7 @@ static void hdd_cfg_params_init(struct hdd_context *hdd_ctx)
 	hdd_init_dhcp_server_ip(hdd_ctx);
 	hdd_dp_cfg_update(psoc, hdd_ctx);
 	hdd_sar_cfg_update(config, psoc);
+	hdd_init_qmi_stats(config, psoc);
 }
 
 struct hdd_context *hdd_context_create(struct device *dev)
@@ -11583,6 +11601,7 @@ int hdd_start_station_adapter(struct hdd_adapter *adapter)
 	QDF_STATUS status;
 	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
 	int ret;
+	bool reset;
 
 	hdd_enter_dev(adapter->dev);
 	if (test_bit(SME_SESSION_OPENED, &adapter->event_flags)) {
@@ -11611,11 +11630,21 @@ int hdd_start_station_adapter(struct hdd_adapter *adapter)
 	hdd_register_hl_netdev_fc_timer(adapter,
 					hdd_tx_resume_timer_expired_handler);
 
-	status = sme_set_wlm_latency_level(hdd_ctx->mac_handle,
-					   adapter->vdev_id,
-					   adapter->latency_level);
-	if (QDF_IS_STATUS_ERROR(status))
-		hdd_warn("set latency level failed, %u", status);
+	status = ucfg_mlme_cfg_get_wlm_reset(hdd_ctx->psoc, &reset);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		hdd_err("could not get the wlm reset flag");
+		reset = false;
+	}
+
+	if (!reset) {
+		status = sme_set_wlm_latency_level(hdd_ctx->mac_handle,
+						   adapter->vdev_id,
+						   adapter->latency_level);
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_warn("set wlm mode failed, %u", status);
+		else
+			hdd_debug("set wlm mode %d", adapter->latency_level);
+	}
 
 	hdd_exit();
 
@@ -12191,7 +12220,7 @@ void hdd_populate_random_mac_addr(struct hdd_context *hdd_ctx, uint32_t num)
 		macaddr_b3 ^= (1 << INTF_MACADDR_MASK);
 		buf[0] |= 0x02;
 		buf[3] = macaddr_b3;
-		hdd_debug(QDF_MAC_ADDR_STR, QDF_MAC_ADDR_ARRAY(buf));
+		hdd_debug(QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(buf));
 		hdd_ctx->num_derived_addr++;
 	}
 }
@@ -12231,8 +12260,8 @@ static int hdd_platform_wlan_mac(struct hdd_context *hdd_ctx)
 	for (iter = 0; iter < no_of_mac_addr; ++iter, addr += mac_addr_size) {
 		buf = hdd_ctx->provisioned_mac_addr[iter].bytes;
 		qdf_mem_copy(buf, addr, QDF_MAC_ADDR_SIZE);
-		hdd_info("provisioned MAC Addr [%d]" QDF_MAC_ADDR_STR, iter,
-			 QDF_MAC_ADDR_ARRAY(buf));
+		hdd_info("provisioned MAC Addr [%d]" QDF_MAC_ADDR_FMT, iter,
+			 QDF_MAC_ADDR_REF(buf));
 	}
 
 
@@ -12253,8 +12282,8 @@ static int hdd_platform_wlan_mac(struct hdd_context *hdd_ctx)
 		     addr += mac_addr_size) {
 			buf = hdd_ctx->derived_mac_addr[iter].bytes;
 			qdf_mem_copy(buf, addr, QDF_MAC_ADDR_SIZE);
-			hdd_debug("derived MAC Addr [%d]" QDF_MAC_ADDR_STR, iter,
-				  QDF_MAC_ADDR_ARRAY(buf));
+			hdd_debug("derived MAC Addr [%d]" QDF_MAC_ADDR_FMT, iter,
+				  QDF_MAC_ADDR_REF(buf));
 		}
 		hdd_ctx->num_derived_addr = no_of_mac_addr;
 	}
@@ -13191,12 +13220,12 @@ int hdd_configure_cds(struct hdd_context *hdd_ctx)
 		goto cds_disable;
 
 	/* Donot disable rx offload on concurrency for lithium based targets */
-    if (!(hdd_ctx->target_type == TARGET_TYPE_QCA6290 ||
-         hdd_ctx->target_type == TARGET_TYPE_QCA6390 ||
-         hdd_ctx->target_type == TARGET_TYPE_QCA6490))
-        if (hdd_ctx->ol_enable)
-           dp_cbs.hdd_disable_rx_ol_in_concurrency =
-                   hdd_disable_rx_ol_in_concurrency;
+	if (!(hdd_ctx->target_type == TARGET_TYPE_QCA6290 ||
+	      hdd_ctx->target_type == TARGET_TYPE_QCA6390 ||
+	      hdd_ctx->target_type == TARGET_TYPE_QCA6490))
+		if (hdd_ctx->ol_enable)
+			dp_cbs.hdd_disable_rx_ol_in_concurrency =
+					hdd_disable_rx_ol_in_concurrency;
 	dp_cbs.hdd_set_rx_mode_rps_cb = hdd_set_rx_mode_rps;
 	dp_cbs.hdd_ipa_set_mcc_mode_cb = hdd_ipa_set_mcc_mode;
 	dp_cbs.hdd_v2_flow_pool_map = hdd_v2_flow_pool_map;
@@ -14801,6 +14830,7 @@ static void __hdd_bus_bw_compute_timer_stop(struct hdd_context *hdd_ctx)
 
 	ucfg_ipa_set_perf_level(hdd_ctx->pdev, 0, 0);
 	hdd_reset_tcp_delack(hdd_ctx);
+	hdd_reset_tcp_adv_win_scale(hdd_ctx);
 	cdp_pdev_reset_driver_del_ack(cds_get_context(QDF_MODULE_ID_SOC),
 				      OL_TXRX_PDEV_ID);
 	cdp_pdev_reset_bundle_require_flag(cds_get_context(QDF_MODULE_ID_SOC),
@@ -15119,6 +15149,31 @@ void hdd_deinit(void)
 #define HDD_WLAN_START_WAIT_TIME (CDS_WMA_TIMEOUT + 5000)
 #endif
 
+static void hdd_set_adapter_wlm_def_level(struct hdd_context *hdd_ctx)
+{
+	struct hdd_adapter *adapter = NULL;
+	int ret;
+	QDF_STATUS qdf_status;
+	uint8_t latency_level;
+
+	if (QDF_GLOBAL_FTM_MODE == hdd_get_conparam())
+		return;
+
+	ret = wlan_hdd_validate_context(hdd_ctx);
+	if (ret != 0)
+		return;
+
+	hdd_for_each_adapter_dev_held(hdd_ctx, adapter) {
+		qdf_status = ucfg_mlme_cfg_get_wlm_level(hdd_ctx->psoc,
+							 &latency_level);
+		if (QDF_IS_STATUS_ERROR(qdf_status))
+			adapter->latency_level =
+			       QCA_WLAN_VENDOR_ATTR_CONFIG_LATENCY_LEVEL_NORMAL;
+		else
+			adapter->latency_level = latency_level;
+	}
+}
+
 static int wlan_hdd_state_ctrl_param_open(struct inode *inode,
 					  struct file *file)
 {
@@ -15154,6 +15209,7 @@ static void hdd_inform_wifi_off(void)
 	if (ret)
 		return;
 
+	hdd_set_adapter_wlm_def_level(hdd_ctx);
 	__hdd_inform_wifi_off();
 
 	osif_psoc_sync_op_stop(psoc_sync);
@@ -16213,6 +16269,133 @@ int wlan_hdd_sec_get_psm(void)
 }
 #endif /* SEC_CONFIG_PSM_SYSFS */
 
+#ifndef MODULE
+/**
+ * wlan_boot_cb() - Wlan boot callback
+ * @kobj:      object whose directory we're creating the link in.
+ * @attr:      attribute the user is interacting with
+ * @buff:      the buffer containing the user data
+ * @count:     number of bytes in the buffer
+ *
+ * This callback is invoked when the fs is ready to start the
+ * wlan driver initialization.
+ *
+ * Return: 'count' on success or a negative error code in case of failure
+ */
+static ssize_t wlan_boot_cb(struct kobject *kobj,
+			    struct kobj_attribute *attr,
+			    const char *buf,
+			    size_t count)
+{
+
+	if (wlan_loader->loaded_state) {
+		hdd_err("wlan driver already initialized");
+		return -EALREADY;
+	}
+
+	if (hdd_driver_load())
+		return -EIO;
+
+	wlan_loader->loaded_state = MODULE_INITIALIZED;
+
+	return count;
+}
+
+/**
+ * hdd_sysfs_cleanup() - cleanup sysfs
+ *
+ * Return: None
+ *
+ */
+static void hdd_sysfs_cleanup(void)
+{
+	/* remove from group */
+	if (wlan_loader->boot_wlan_obj && wlan_loader->attr_group)
+		sysfs_remove_group(wlan_loader->boot_wlan_obj,
+				   wlan_loader->attr_group);
+
+	/* unlink the object from parent */
+	kobject_del(wlan_loader->boot_wlan_obj);
+
+	/* free the object */
+	kobject_put(wlan_loader->boot_wlan_obj);
+
+	kfree(wlan_loader->attr_group);
+	kfree(wlan_loader);
+
+	wlan_loader = NULL;
+}
+
+/**
+ * wlan_init_sysfs() - Creates the sysfs to be invoked when the fs is
+ * ready
+ *
+ * This is creates the syfs entry boot_wlan. Which shall be invoked
+ * when the filesystem is ready.
+ *
+ * QDF API cannot be used here since this function is called even before
+ * initializing WLAN driver.
+ *
+ * Return: 0 for success, errno on failure
+ */
+static int wlan_init_sysfs(void)
+{
+	int ret = -ENOMEM;
+
+	wlan_loader = kzalloc(sizeof(*wlan_loader), GFP_KERNEL);
+	if (!wlan_loader)
+		return -ENOMEM;
+
+	wlan_loader->boot_wlan_obj = NULL;
+	wlan_loader->attr_group = kzalloc(sizeof(*(wlan_loader->attr_group)),
+					  GFP_KERNEL);
+	if (!wlan_loader->attr_group)
+		goto error_return;
+
+	wlan_loader->loaded_state = 0;
+	wlan_loader->attr_group->attrs = attrs;
+
+	wlan_loader->boot_wlan_obj = kobject_create_and_add(WLAN_LOADER_NAME,
+							    kernel_kobj);
+	if (!wlan_loader->boot_wlan_obj) {
+		hdd_err("sysfs create and add failed");
+		goto error_return;
+	}
+
+	ret = sysfs_create_group(wlan_loader->boot_wlan_obj,
+				 wlan_loader->attr_group);
+	if (ret) {
+		hdd_err("sysfs create group failed; errno:%d", ret);
+		goto error_return;
+	}
+
+	return 0;
+
+error_return:
+	hdd_sysfs_cleanup();
+
+	return ret;
+}
+
+/**
+ * wlan_deinit_sysfs() - Removes the sysfs created to initialize the wlan
+ *
+ * Return: 0 on success or errno on failure
+ */
+static int wlan_deinit_sysfs(void)
+{
+	if (!wlan_loader) {
+		hdd_err("wlan_loader is null");
+		return -EINVAL;
+	}
+
+	hdd_sysfs_cleanup();
+	return 0;
+}
+
+#endif /* MODULE */
+
+#ifdef MODULE
 /**
  * hdd_module_init() - Module init helper
  *
@@ -16220,14 +16403,28 @@ int wlan_hdd_sec_get_psm(void)
  *
  * Return: 0 for success, errno on failure
  */
-static int __init hdd_module_init(void)
+static int hdd_module_init(void)
 {
 	if (hdd_driver_load())
 		return -EINVAL;
 
 	return 0;
 }
+#else
+static int __init hdd_module_init(void)
+{
+	int ret = -EINVAL;
 
+	ret = wlan_init_sysfs();
+	if (ret)
+		hdd_err("Failed to create sysfs entry");
+
+	return ret;
+}
+#endif
+
+
+#ifdef MODULE
 /**
  * hdd_module_exit() - Exit function
  *
@@ -16239,6 +16436,13 @@ static void __exit hdd_module_exit(void)
 {
 	hdd_driver_unload();
 }
+#else
+static void __exit hdd_module_exit(void)
+{
+	hdd_driver_unload();
+	wlan_deinit_sysfs();
+}
+#endif
 
 static int fwpath_changed_handler(const char *kmessage,
 				  const struct kernel_param *kp)
@@ -16981,9 +17185,9 @@ static QDF_STATUS hdd_is_connection_in_progress_iterator(
 		    && sme_is_sta_key_exchange_in_progress(
 		    mac_handle, adapter->vdev_id)) {
 			sta_mac = (uint8_t *)&(adapter->mac_addr.bytes[0]);
-			hdd_debug("client " QDF_MAC_ADDR_STR
+			hdd_debug("client " QDF_MAC_ADDR_FMT
 				  " is in middle of WPS/EAPOL exchange.",
-				  QDF_MAC_ADDR_ARRAY(sta_mac));
+				  QDF_MAC_ADDR_REF(sta_mac));
 
 			context->out_vdev_id = adapter->vdev_id;
 			context->out_reason = EAPOL_IN_PROGRESS;
@@ -17004,9 +17208,9 @@ static QDF_STATUS hdd_is_connection_in_progress_iterator(
 			}
 
 			sta_mac = sta_info->sta_mac.bytes;
-			hdd_debug("client " QDF_MAC_ADDR_STR
+			hdd_debug("client " QDF_MAC_ADDR_FMT
 				  " of SAP/GO is in middle of WPS/EAPOL exchange",
-				  QDF_MAC_ADDR_ARRAY(sta_mac));
+				  QDF_MAC_ADDR_REF(sta_mac));
 
 			context->out_vdev_id = adapter->vdev_id;
 			context->out_reason = SAP_EAPOL_IN_PROGRESS;

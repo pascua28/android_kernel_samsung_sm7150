@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -78,7 +78,7 @@ static void __qdf_periodic_work_handler(struct work_struct *work)
 	/* this is intentionally racy; see qdf_periodic_work_stop_sync() */
 	msec = pwork->msec;
 	if (msec)
-		schedule_delayed_work(&pwork->dwork, msecs_to_jiffies(msec));
+		queue_delayed_work(system_power_efficient_wq, &pwork->dwork, msecs_to_jiffies(msec));
 }
 
 QDF_STATUS __qdf_periodic_work_create(struct qdf_periodic_work *pwork,
@@ -97,7 +97,7 @@ QDF_STATUS __qdf_periodic_work_create(struct qdf_periodic_work *pwork,
 	if (QDF_IS_STATUS_ERROR(status))
 		return status;
 
-	INIT_DELAYED_WORK(&pwork->dwork, __qdf_periodic_work_handler);
+	INIT_DEFERRABLE_WORK(&pwork->dwork, __qdf_periodic_work_handler);
 	pwork->callback = callback;
 	pwork->context = context;
 	pwork->msec = 0;
@@ -120,7 +120,7 @@ bool qdf_periodic_work_start(struct qdf_periodic_work *pwork, uint32_t msec)
 
 	pwork->msec = msec;
 
-	return schedule_delayed_work(&pwork->dwork, msecs_to_jiffies(msec));
+	return queue_delayed_work(system_power_efficient_wq, &pwork->dwork, msecs_to_jiffies(msec));
 }
 
 bool qdf_periodic_work_stop_async(struct qdf_periodic_work *pwork)

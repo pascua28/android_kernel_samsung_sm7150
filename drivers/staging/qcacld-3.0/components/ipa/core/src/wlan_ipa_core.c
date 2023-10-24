@@ -972,6 +972,7 @@ static void __wlan_ipa_w2i_cb(void *priv, qdf_ipa_dp_evt_type_t evt,
 	struct wlan_ipa_iface_context *iface_context;
 	bool is_eapol_wapi = false;
 	struct qdf_mac_addr peer_mac_addr = QDF_MAC_ADDR_ZERO_INIT;
+	bool fwd_allowed = true;
 
 	ipa_ctx = (struct wlan_ipa_priv *)priv;
 	if (!ipa_ctx) {
@@ -1027,16 +1028,10 @@ static void __wlan_ipa_w2i_cb(void *priv, qdf_ipa_dp_evt_type_t evt,
 
 		if (qdf_nbuf_is_ipv4_eapol_pkt(skb)) {
 			is_eapol_wapi = true;
-			if (iface_context->device_mode == QDF_SAP_MODE &&
-			    !wlan_ipa_eapol_intrabss_fwd_check(ipa_ctx,
-					      iface_context->session_id, skb)) {
-				ipa_err_rl("EAPOL intrabss fwd drop DA:"QDF_MAC_ADDR_FMT,
-					   QDF_MAC_ADDR_REF(qdf_nbuf_data(skb) +
-					   QDF_NBUF_DEST_MAC_OFFSET));
-				ipa_ctx->ipa_rx_internal_drop_count++;
-				dev_kfree_skb_any(skb);
-				return;
-			}
+			if (iface_context->device_mode == QDF_SAP_MODE)
+				fwd_allowed =
+				      wlan_ipa_eapol_intrabss_fwd_check(ipa_ctx,
+						iface_context->session_id, skb);
 		} else if (qdf_nbuf_is_ipv4_wapi_pkt(skb)) {
 			is_eapol_wapi = true;
 		}
@@ -1060,7 +1055,7 @@ static void __wlan_ipa_w2i_cb(void *priv, qdf_ipa_dp_evt_type_t evt,
 		/* Disable to forward Intra-BSS Rx packets when
 		 * ap_isolate=1 in hostapd.conf
 		 */
-		if (!ipa_ctx->ap_intrabss_fwd) {
+		if (!ipa_ctx->ap_intrabss_fwd && fwd_allowed) {
 			/*
 			 * When INTRA_BSS_FWD_OFFLOAD is enabled, FW will send
 			 * all Rx packets to IPA uC, which need to be forwarded
@@ -1398,8 +1393,8 @@ static bool wlan_ipa_uc_find_add_assoc_sta(struct wlan_ipa_priv *ipa_ctx,
 		}
 	}
 	if (sta_add && sta_found) {
-		ipa_err("STA already exist, cannot add: " QDF_MAC_ADDR_STR,
-			QDF_MAC_ADDR_ARRAY(mac_addr));
+		ipa_err("STA already exist, cannot add: " QDF_MAC_ADDR_FMT,
+			QDF_MAC_ADDR_REF(mac_addr));
 		return sta_found;
 	}
 	if (sta_add) {
@@ -1415,7 +1410,7 @@ static bool wlan_ipa_uc_find_add_assoc_sta(struct wlan_ipa_priv *ipa_ctx,
 	}
 	if (!sta_add && !sta_found) {
 		ipa_info("STA does not exist, cannot delete: "
-			 QDF_MAC_ADDR_STR, QDF_MAC_ADDR_ARRAY(mac_addr));
+			 QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(mac_addr));
 		return sta_found;
 	}
 	if (!sta_add) {
@@ -2070,8 +2065,8 @@ static QDF_STATUS __wlan_ipa_wlan_evt(qdf_netdev_t net_dev, uint8_t device_mode,
 	struct wlan_objmgr_psoc *psoc;
 	struct wlan_objmgr_vdev *vdev;
 
-	ipa_debug("%s: EVT: %d, MAC: %pM, session_id: %u",
-		  net_dev->name, type, mac_addr, session_id);
+	ipa_debug("%s: EVT: %d, MAC: "QDF_MAC_ADDR_FMT", session_id: %u",
+		  net_dev->name, type, QDF_MAC_ADDR_REF(mac_addr), session_id);
 
 	if (type >= QDF_IPA_WLAN_EVENT_MAX)
 		return QDF_STATUS_E_INVAL;
@@ -2473,9 +2468,9 @@ static QDF_STATUS __wlan_ipa_wlan_evt(qdf_netdev_t net_dev, uint8_t device_mode,
 		if (wlan_ipa_uc_find_add_assoc_sta(ipa_ctx, true,
 						   mac_addr)) {
 			qdf_mutex_release(&ipa_ctx->event_lock);
-			ipa_err("%s: STA found, addr: " QDF_MAC_ADDR_STR,
+			ipa_err("%s: STA found, addr: " QDF_MAC_ADDR_FMT,
 				net_dev->name,
-				QDF_MAC_ADDR_ARRAY(mac_addr));
+				QDF_MAC_ADDR_REF(mac_addr));
 			return QDF_STATUS_SUCCESS;
 		}
 
@@ -2587,8 +2582,8 @@ static QDF_STATUS __wlan_ipa_wlan_evt(qdf_netdev_t net_dev, uint8_t device_mode,
 						    mac_addr)) {
 			qdf_mutex_release(&ipa_ctx->event_lock);
 			ipa_debug("%s: STA NOT found, not valid: "
-				QDF_MAC_ADDR_STR,
-				msg_ex->name, QDF_MAC_ADDR_ARRAY(mac_addr));
+				QDF_MAC_ADDR_FMT,
+				msg_ex->name, QDF_MAC_ADDR_REF(mac_addr));
 
 			return QDF_STATUS_SUCCESS;
 		}

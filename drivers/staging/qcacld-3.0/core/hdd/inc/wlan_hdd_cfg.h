@@ -199,6 +199,7 @@ struct hdd_config {
 	uint32_t rx_thread_affinity_mask;
 	uint8_t cpu_map_list[CFG_DP_RPS_RX_QUEUE_CPU_MAP_LIST_LEN];
 	bool multicast_replay_filter;
+	uint32_t rx_wakelock_timeout;
 	uint8_t num_dp_rx_threads;
 #ifdef CONFIG_DP_TRACE
 	bool enable_dp_trace;
@@ -211,6 +212,9 @@ struct hdd_config {
 	uint8_t dbs_scan_selection[CFG_DBS_SCAN_PARAM_LENGTH];
 #ifdef FEATURE_RUNTIME_PM
 	uint8_t runtime_pm;
+#endif
+#ifdef WLAN_FEATURE_WMI_SEND_RECV_QMI
+	bool is_qmi_stats_enabled;
 #endif
 	uint8_t inform_bss_rssi_raw;
 
