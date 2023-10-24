@@ -6651,15 +6651,15 @@ uint32_t dot11f_get_packed_ie_QOSCapsStation(
 typedef struct sDot11fIEQosMapSet {
 	uint8_t             present;
 	uint8_t             num_dscp_exceptions;
-	uint8_t             dscp_exceptions[60];
+	uint8_t             dscp_exceptions[58];
 } tDot11fIEQosMapSet;
 
 #define DOT11F_EID_QOSMAPSET (110)
 
 /* N.B. These #defines do *not* include the EID & length */
-#define DOT11F_IE_QOSMAPSET_MIN_LEN (0)
+#define DOT11F_IE_QOSMAPSET_MIN_LEN (16)
 
-#define DOT11F_IE_QOSMAPSET_MAX_LEN (60)
+#define DOT11F_IE_QOSMAPSET_MAX_LEN (58)
 
 #ifdef __cplusplus
 extern "C" {

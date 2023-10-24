@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1065,20 +1064,6 @@ struct rcpi_info {
 
 struct hdd_context;
 
-#ifdef WLAN_FEATURE_DYNAMIC_RX_AGGREGATION
-/**
- * enum qdisc_filter_status - QDISC filter status
- * @QDISC_FILTER_RTNL_LOCK_FAIL: rtnl lock acquire failed
- * @QDISC_FILTER_PRIO_MATCH: qdisc filter with priority match
- * @QDISC_FILTER_PRIO_MISMATCH: no filter match with configured priority
- */
-enum qdisc_filter_status {
-	QDISC_FILTER_RTNL_LOCK_FAIL,
-	QDISC_FILTER_PRIO_MATCH,
-	QDISC_FILTER_PRIO_MISMATCH,
-};
-#endif
-
 /**
  * struct hdd_adapter - hdd vdev/net_device context
  * @vdev: object manager vdev context
@@ -1399,7 +1384,7 @@ struct hdd_adapter {
 	bool handle_feature_update;
 
 	qdf_work_t netdev_features_update_work;
-	qdf_atomic_t gro_disallowed;
+	uint8_t gro_disallowed[DP_MAX_RX_THREADS];
 	uint8_t gro_flushed[DP_MAX_RX_THREADS];
 };
 
@@ -1582,12 +1567,10 @@ enum hdd_sta_smps_param {
  * enum RX_OFFLOAD - Receive offload modes
  * @CFG_LRO_ENABLED: Large Rx offload
  * @CFG_GRO_ENABLED: Generic Rx Offload
- * @CFG_DYNAMIC_GRO_ENABLED: Dynamic GRO enabled
  */
 enum RX_OFFLOAD {
 	CFG_LRO_ENABLED = 1,
 	CFG_GRO_ENABLED,
-    CFG_DYNAMIC_GRO_ENABLED,
 };
 
 /* One per STA: 1 for BCMC_STA_ID, 1 for each SAP_SELF_STA_ID,
@@ -1660,7 +1643,14 @@ struct hdd_fw_ver_info {
 	uint32_t crmid;
 };
 
+/**
+ * The logic for get current index of history is dependent on this
+ * value being power of 2.
+ */
 #define WLAN_HDD_ADAPTER_OPS_HISTORY_MAX 4
+QDF_COMPILE_TIME_ASSERT(adapter_ops_history_size,
+			(WLAN_HDD_ADAPTER_OPS_HISTORY_MAX &
+			 (WLAN_HDD_ADAPTER_OPS_HISTORY_MAX - 1)) == 0);
 
 /**
  * enum hdd_adapter_ops_event - events for adapter ops history
@@ -1708,9 +1698,7 @@ struct hdd_adapter_ops_history {
  * @sar_cmd_params: SAR command params to be configured to the FW
  * @rx_aggregation: rx aggregation enable or disable state
  * @gro_force_flush: gro force flushed indication flag
- * @force_gro_enable: force GRO enable or disable flag
  * @adapter_ops_wq: High priority workqueue for handling adapter operations
- * @rx_skip_qdisc_chk_conc: flag to skip ingress qdisc check in concurrency 
  */
 struct hdd_context {
 	struct wlan_objmgr_psoc *psoc;
@@ -1786,6 +1774,7 @@ struct hdd_context {
 	/** P2P Device MAC Address for the adapter  */
 	struct qdf_mac_addr p2p_device_address;
 
+	qdf_wake_lock_t rx_wake_lock;
 	qdf_wake_lock_t sap_wake_lock;
 
 	/* Flag keeps track of wiphy suspend/resume */
@@ -2037,8 +2026,6 @@ struct hdd_context {
 	struct {
 		qdf_atomic_t rx_aggregation;
 		uint8_t gro_force_flush[DP_MAX_RX_THREADS];
-		bool tc_based_dyn_gro;
-		uint32_t tc_ingress_prio;
 	} dp_agg_param;
 #ifdef FW_THERMAL_THROTTLE_SUPPORT
 	uint8_t dutycycle_off_percent;
@@ -2046,7 +2033,6 @@ struct hdd_context {
 
 	qdf_workqueue_t *adapter_ops_wq;
 	struct hdd_adapter_ops_history adapter_ops_history;
-    qdf_atomic_t rx_skip_qdisc_chk_conc;
 #ifdef SEC_CONFIG_WLAN_BEACON_CHECK
 	qdf_mc_timer_t skip_bmiss_set_timer;
 	bool bmiss_set_last;
@@ -2818,6 +2804,23 @@ hdd_get_current_throughput_level(struct hdd_context *hdd_ctx)
 {
 	return hdd_ctx->cur_vote_level;
 }
+
+#ifdef DP_MEM_PRE_ALLOC
+static inline
+void *hdd_get_prealloc_dma_mem_unaligned(size_t size,
+					 qdf_dma_addr_t *paddr,
+					 uint32_t ring_type)
+{
+	return dp_prealloc_get_consistent_mem_unaligned(size, paddr,
+							ring_type);
+}
+
+static inline
+void hdd_put_prealloc_dma_mem_unaligned(void *vaddr)
+{
+	dp_prealloc_put_consistent_mem_unaligned(vaddr);
+}
+#endif
 
 /**
  * hdd_set_current_throughput_level() - update the current vote
@@ -3854,6 +3857,8 @@ static inline void hdd_send_peer_status_ind_to_app(
 		return;
 	}
 
+	/* chan_id is obsoleted by mhz */
+	ch_info.chan_id = 0;
 	ch_info.mhz = chan_info->mhz;
 	ch_info.band_center_freq1 = chan_info->band_center_freq1;
 	ch_info.band_center_freq2 = chan_info->band_center_freq2;

@@ -804,13 +804,13 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 
 	if (htc_can_suspend_link(pmo_core_psoc_get_htc_handle(psoc))) {
 		if (qdf_is_drv_connected()) {
-			pmo_info("drv wow is enabled");
+			pmo_debug("drv wow is enabled");
 			param.flags |= WMI_WOW_FLAG_ENABLE_DRV_PCIE_L1SS_SLEEP;
 		} else {
-			pmo_info("non-drv wow is enabled");
+			pmo_debug("non-drv wow is enabled");
 		}
 	} else {
-		pmo_info("Prevent link down, non-drv wow is enabled");
+		pmo_debug("Prevent link down, non-drv wow is enabled");
 	}
 
 	if (type == QDF_SYSTEM_SUSPEND) {
@@ -977,6 +977,7 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 	int ret;
 	struct pmo_wow_enable_params wow_params = {0};
 	qdf_time_t begin, end;
+	int pending;
 
 	pmo_enter();
 
@@ -1040,6 +1041,13 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 	if (ret) {
 		status = qdf_status_from_os_return(ret);
 		goto pmo_bus_resume;
+	}
+
+	pending = cdp_rx_get_pending(cds_get_context(QDF_MODULE_ID_SOC));
+	if (pending) {
+		pmo_debug("Prevent suspend, RX frame pending %d", pending);
+		status = QDF_STATUS_E_BUSY;
+		goto resume_hif;
 	}
 
 	if (pld_cb) {
@@ -1208,7 +1216,7 @@ QDF_STATUS pmo_core_psoc_send_host_wakeup_ind_to_fw(
 		status = QDF_STATUS_E_FAILURE;
 		goto out;
 	}
-	pmo_debug("Host wakeup indication sent to fw");
+	pmo_info("Host wakeup indication sent to fw");
 
 	status = qdf_wait_for_event_completion(&psoc_ctx->wow.target_resume,
 					PMO_RESUME_TIMEOUT);

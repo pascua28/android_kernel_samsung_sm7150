@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -106,6 +105,14 @@
 #define WLAN_CFG_INT_TIMER_THRESHOLD_RX 8
 #define WLAN_CFG_INT_TIMER_THRESHOLD_OTHER 8
 #endif
+
+#define WLAN_CFG_RX_PENDING_HL_THRESHOLD 0x60000
+#define WLAN_CFG_RX_PENDING_HL_THRESHOLD_MIN 0
+#define WLAN_CFG_RX_PENDING_HL_THRESHOLD_MAX 0x80000
+
+#define WLAN_CFG_RX_PENDING_LO_THRESHOLD 0x60000
+#define WLAN_CFG_RX_PENDING_LO_THRESHOLD_MIN 100
+#define WLAN_CFG_RX_PENDING_LO_THRESHOLD_MAX 0x80000
 
 #define WLAN_CFG_INT_TIMER_THRESHOLD_WBM_RELEASE_RING 256
 #define WLAN_CFG_INT_TIMER_THRESHOLD_REO_RING 512
@@ -247,7 +254,7 @@
 #define WLAN_CFG_REO_CMD_RING_SIZE_MIN 64
 #define WLAN_CFG_REO_CMD_RING_SIZE_MAX 128
 
-#define WLAN_CFG_REO_STATUS_RING_SIZE 256
+#define WLAN_CFG_REO_STATUS_RING_SIZE 128
 #define WLAN_CFG_REO_STATUS_RING_SIZE_MIN 128
 #define WLAN_CFG_REO_STATUS_RING_SIZE_MAX 2048
 
@@ -510,6 +517,49 @@
 		WLAN_CFG_PER_PDEV_LMAC_RING_MAX, \
 		WLAN_CFG_PER_PDEV_LMAC_RING, \
 		CFG_VALUE_OR_DEFAULT, "DP pdev LMAC ring")
+/*
+ * <ini>
+ * dp_rx_pending_hl_threshold - High threshold of frame number to start
+ * frame dropping scheme
+ * @Min: 0
+ * @Max: 524288
+ * @Default: 393216
+ *
+ * This ini entry is used to set a high limit threshold to start frame
+ * dropping scheme
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_DP_RX_PENDING_HL_THRESHOLD \
+		CFG_INI_UINT("dp_rx_pending_hl_threshold", \
+		WLAN_CFG_RX_PENDING_HL_THRESHOLD_MIN, \
+		WLAN_CFG_RX_PENDING_HL_THRESHOLD_MAX, \
+		WLAN_CFG_RX_PENDING_HL_THRESHOLD, \
+		CFG_VALUE_OR_DEFAULT, "DP rx pending hl threshold")
+
+/*
+ * <ini>
+ * dp_rx_pending_lo_threshold - Low threshold of frame number to stop
+ * frame dropping scheme
+ * @Min: 100
+ * @Max: 524288
+ * @Default: 393216
+ *
+ * This ini entry is used to set a low limit threshold to stop frame
+ * dropping scheme
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_DP_RX_PENDING_LO_THRESHOLD \
+		CFG_INI_UINT("dp_rx_pending_lo_threshold", \
+		WLAN_CFG_RX_PENDING_LO_THRESHOLD_MIN, \
+		WLAN_CFG_RX_PENDING_LO_THRESHOLD_MAX, \
+		WLAN_CFG_RX_PENDING_LO_THRESHOLD, \
+		CFG_VALUE_OR_DEFAULT, "DP rx pending lo threshold")
 
 #define CFG_DP_BASE_HW_MAC_ID \
 		CFG_INI_UINT("dp_base_hw_macid", \
@@ -532,46 +582,9 @@
 	CFG_INI_BOOL("dp_sg_support", false, \
 	"DP SG Enable")
 
-#define WLAN_CFG_GRO_ENABLE_MIN 0
-#define WLAN_CFG_GRO_ENABLE_MAX 3
-#define WLAN_CFG_GRO_ENABLE_DEFAULT 0
-#define DP_GRO_ENABLE_BIT_SET     BIT(0)
-#define DP_TC_BASED_DYNAMIC_GRO   BIT(1)
-
-/*
- * <ini>
- * CFG_DP_GRO - Enable the GRO feature standalonely
- * @Min: 0
- * @Max: 3
- * @Default: 0
- *
- * This ini entry is used to enable/disable GRO feature standalonely.
- * Value 0: Disable GRO feature
- * Value 1: Enable GRO feature always
- * Value 3: Enable GRO dynamic feature where TC rule can control GRO
- *          behavior
- *
- * Usage: External
- *
- * </ini>
- */
 #define CFG_DP_GRO \
-		CFG_INI_UINT("GROEnable", \
-		WLAN_CFG_GRO_ENABLE_MIN, \
-		WLAN_CFG_GRO_ENABLE_MAX, \
-		WLAN_CFG_GRO_ENABLE_DEFAULT, \
-		CFG_VALUE_OR_DEFAULT, "DP GRO Enable")
-
-#define WLAN_CFG_TC_INGRESS_PRIO_MIN 0
-#define WLAN_CFG_TC_INGRESS_PRIO_MAX 0xFFFF
-#define WLAN_CFG_TC_INGRESS_PRIO_DEFAULT 0
-
-#define CFG_DP_TC_INGRESS_PRIO \
-		CFG_INI_UINT("tc_ingress_prio", \
-		WLAN_CFG_TC_INGRESS_PRIO_MIN, \
-		WLAN_CFG_TC_INGRESS_PRIO_MAX, \
-		WLAN_CFG_TC_INGRESS_PRIO_DEFAULT, \
-		CFG_VALUE_OR_DEFAULT, "DP tc ingress prio")
+	CFG_INI_BOOL("GROEnable", false, \
+	"DP GRO Enable")
 
 #define CFG_DP_OL_TX_CSUM \
 	CFG_INI_BOOL("dp_offload_tx_csum_support", false, \
@@ -942,7 +955,6 @@
 		CFG(CFG_DP_LRO) \
 		CFG(CFG_DP_SG) \
 		CFG(CFG_DP_GRO) \
-		CFG(CFG_DP_TC_INGRESS_PRIO) \
 		CFG(CFG_DP_OL_TX_CSUM) \
 		CFG(CFG_DP_OL_RX_CSUM) \
 		CFG(CFG_DP_RAWMODE) \
@@ -989,5 +1001,8 @@
 		CFG(CFG_DP_RXDMA_MONITOR_RX_DROP_THRESHOLD) \
 		CFG(CFG_DP_PKTLOG_BUFFER_SIZE) \
 		CFG(CFG_DP_RX_FISA_ENABLE) \
-		CFG(CFG_DP_LEGACY_MODE_CSUM_DISABLE)
+		CFG(CFG_DP_LEGACY_MODE_CSUM_DISABLE) \
+		CFG(CFG_DP_RX_PENDING_HL_THRESHOLD) \
+		CFG(CFG_DP_RX_PENDING_LO_THRESHOLD)
+
 #endif /* _CFG_DP_H_ */

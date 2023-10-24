@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -91,11 +90,14 @@ static struct __qdf_device g_qdf_ctx;
 
 static uint8_t cds_multicast_logging;
 
+#define DRIVER_VER_LEN (11)
+#define HANG_EVENT_VER_LEN (1)
+
 struct cds_hang_event_fixed_param {
 	uint16_t tlv_header;
 	uint8_t recovery_reason;
-	char driver_version[11];
-	char hang_event_version;
+	char driver_version[DRIVER_VER_LEN];
+	char hang_event_version[HANG_EVENT_VER_LEN];
 } qdf_packed;
 
 #ifdef QCA_WIFI_QCA8074
@@ -117,6 +119,13 @@ static struct ol_if_ops  dp_ol_if_ops = {
 	.is_roam_inprogress = wma_is_roam_in_progress,
 	.get_con_mode = cds_get_conparam,
 	.send_delba = cds_send_delba,
+#ifdef DP_MEM_PRE_ALLOC
+	.dp_prealloc_get_consistent = dp_prealloc_get_coherent,
+	.dp_prealloc_put_consistent = dp_prealloc_put_coherent,
+	.dp_get_multi_pages = dp_prealloc_get_multi_pages,
+	.dp_put_multi_pages = dp_prealloc_put_multi_pages,
+#endif
+	.dp_rx_get_pending = dp_rx_tm_get_pending,
     /* TODO: Add any other control path calls required to OL_IF/WMA layer */
 };
 #else
@@ -405,7 +414,6 @@ static void cds_cdp_cfg_attach(struct wlan_objmgr_psoc *psoc)
 	struct txrx_pdev_cfg_param_t cdp_cfg = {0};
 	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	struct hdd_context *hdd_ctx = gp_cds_context->hdd_context;
-	uint32_t gro_bit_set;
 
 	cdp_cfg.is_full_reorder_offload =
 		cfg_get(psoc, CFG_DP_REORDER_OFFLOAD_SUPPORT);
@@ -432,13 +440,7 @@ static void cds_cdp_cfg_attach(struct wlan_objmgr_psoc *psoc)
 	cdp_cfg.lro_enable = cfg_get(psoc, CFG_DP_LRO);
 	cdp_cfg.enable_data_stall_detection =
 		cfg_get(psoc, CFG_DP_ENABLE_DATA_STALL_DETECTION);
-	gro_bit_set = cfg_get(psoc, CFG_DP_GRO);
-	if (gro_bit_set & DP_GRO_ENABLE_BIT_SET) {
-		cdp_cfg.gro_enable = true;
-           if (gro_bit_set & DP_TC_BASED_DYNAMIC_GRO)
-           cdp_cfg.tc_based_dyn_gro = true;
-    }
-    cdp_cfg.tc_ingress_prio = cfg_get(psoc, CFG_DP_TC_INGRESS_PRIO);
+	cdp_cfg.gro_enable = cfg_get(psoc, CFG_DP_GRO);
 	cdp_cfg.enable_flow_steering =
 		cfg_get(psoc, CFG_DP_FLOW_STEERING_ENABLED);
 	cdp_cfg.disable_intra_bss_fwd =
@@ -584,10 +586,10 @@ static int cds_hang_event_notifier_call(struct notifier_block *block,
 	cmd->recovery_reason = gp_cds_context->recovery_reason;
 
 	qdf_mem_copy(&cmd->driver_version, QWLAN_VERSIONSTR,
-		     sizeof(QWLAN_VERSIONSTR));
+		     DRIVER_VER_LEN);
 
 	qdf_mem_copy(&cmd->hang_event_version, QDF_HANG_EVENT_VERSION,
-		     sizeof(QDF_HANG_EVENT_VERSION));
+		     HANG_EVENT_VER_LEN);
 
 	cds_hang_data->offset += total_len;
 	return NOTIFY_OK;
@@ -875,13 +877,6 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 {
 	QDF_STATUS qdf_status;
 	struct dp_txrx_config dp_config;
-	struct hdd_context *hdd_ctx;
-
-	hdd_ctx = gp_cds_context->hdd_context;
-	if (!hdd_ctx) {
-		cds_err("HDD context is null");
-		return QDF_STATUS_E_FAILURE;
-	}
 
 	qdf_status = cdp_pdev_attach(cds_get_context(QDF_MODULE_ID_SOC),
 				     gp_cds_context->htc_ctx,
@@ -914,14 +909,6 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 	ucfg_ocb_set_txrx_pdev_id(psoc, OL_TXRX_PDEV_ID);
 
 	cds_debug("CDS successfully Opened");
-
-	if (cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_based_dyn_gro_enable))
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = true;
-	else
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = false;
-
-	hdd_ctx->dp_agg_param.tc_ingress_prio =
-		    cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_ingress_prio);
 
 	return 0;
 
@@ -1930,8 +1917,6 @@ static void cds_trigger_recovery_work(void *context)
 void __cds_trigger_recovery(enum qdf_hang_reason reason, const char *func,
 			    const uint32_t line)
 {
-	bool is_work_queue_needed = false;
-
 	if (!gp_cds_context) {
 		cds_err("gp_cds_context is null");
 		return;
@@ -1939,19 +1924,10 @@ void __cds_trigger_recovery(enum qdf_hang_reason reason, const char *func,
 
 	gp_cds_context->recovery_reason = reason;
 
-	if (in_atomic() ||
-	    (QDF_RESUME_TIMEOUT == reason || QDF_SUSPEND_TIMEOUT == reason))
-		is_work_queue_needed = true;
-
-	if (is_work_queue_needed) {
-		__cds_recovery_caller.func = func;
-		__cds_recovery_caller.line = line;
-		qdf_queue_work(0, gp_cds_context->cds_recovery_wq,
-			       &gp_cds_context->cds_recovery_work);
-		return;
-	}
-
-	cds_trigger_recovery_handler(func, line);
+	__cds_recovery_caller.func = func;
+	__cds_recovery_caller.line = line;
+	qdf_queue_work(0, gp_cds_context->cds_recovery_wq,
+		       &gp_cds_context->cds_recovery_work);
 }
 
 void cds_trigger_recovery_psoc(void *psoc, enum qdf_hang_reason reason,
