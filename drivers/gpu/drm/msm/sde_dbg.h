@@ -109,6 +109,7 @@ struct sde_dbg_evtlog {
 	struct list_head filter_list;
 };
 
+#ifdef CONFIG_DEBUG_FS
 extern struct sde_dbg_evtlog *sde_dbg_base_evtlog;
 
 /**
@@ -174,6 +175,15 @@ extern struct sde_dbg_evtlog *sde_dbg_base_evtlog;
  */
 #define SDE_DBG_CTRL(...) sde_dbg_ctrl(__func__, ##__VA_ARGS__, \
 		SDE_DBG_DUMP_DATA_LIMITER)
+#else
+#define SDE_EVT32(...) ((void)0)
+#define SDE_EVT32_VERBOSE(...) ((void)0)
+#define SDE_EVT32_IRQ(...) ((void)0)
+#define SDE_DBG_DUMP(...) ((void)0)
+#define SDE_DBG_DUMP_WQ(...) ((void)0)
+#define SDE_DBG_DUMP_CLK_EN(...) ((void)0)
+#define SDE_DBG_CTRL(...) ((void)0)
+#endif
 
 /**
  * sde_evtlog_init - allocate a new event log object
@@ -230,6 +240,7 @@ ssize_t sde_evtlog_dump_to_buffer(struct sde_dbg_evtlog *evtlog,
 		char *evtlog_buf, ssize_t evtlog_buf_size,
 		bool update_last_entry, bool full_dump);
 
+#ifdef CONFIG_DEBUG_FS
 /**
  * sde_dbg_init_dbg_buses - initialize debug bus dumping support for the chipset
  * @hwversion:		Chipset revision
@@ -333,6 +344,24 @@ void sde_dbg_reg_register_dump_range(const char *base_name,
  * @blk_off: offset from mdss base of the top block
  */
 void sde_dbg_set_sde_top_offset(u32 blk_off);
+#else
+static inline void sde_dbg_init_dbg_buses(u32 hwversion) {}
+static inline int sde_dbg_init(struct device *dev, struct sde_dbg_power_ctrl *power_ctrl) { return 0; }
+static inline int sde_dbg_debugfs_register(struct device *dev) { return 0; }
+static inline void sde_dbg_destroy(void) {}
+static inline void sde_dbg_dump(enum sde_dbg_dump_context mode, const char *name, ...) {}
+static inline void sde_dbg_ctrl(const char *name, ...) {}
+static inline int sde_dbg_reg_register_base(const char *name, void __iomem *base,
+		size_t max_offset) { return 0; }
+
+static inline int sde_dbg_reg_register_cb(const char *name, void (*cb)(void *), void *ptr) { return 0; }
+
+static inline int sde_dbg_reg_unregister_cb(const char *name, void (*cb)(void *), void *ptr) { return 0; }
+static inline void sde_dbg_reg_register_dump_range(const char *base_name,
+		const char *range_name, u32 offset_start, u32 offset_end,
+		uint32_t xin_id) {}
+static inline void sde_dbg_set_sde_top_offset(u32 blk_off) {}
+#endif
 
 /**
  * sde_evtlog_set_filter - update evtlog filtering
@@ -353,9 +382,15 @@ int sde_evtlog_get_filter(struct sde_dbg_evtlog *evtlog, int index,
 		char *buf, size_t bufsz);
 
 #if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#ifdef CONFIG_DEBUG_FS
 void ss_sde_dbg_debugfs_open(void);
 ssize_t ss_sde_evtlog_dump_read(struct file *file, char __user *buff,
 		size_t count, loff_t *ppos);
+#else
+static inline void ss_sde_dbg_debugfs_open(void) {}
+static inline ssize_t ss_sde_evtlog_dump_read(struct file *file, char __user *buff,
+		size_t count, loff_t *ppos) { return 0; }
+#endif
 #endif
 
 #ifndef CONFIG_DRM_SDE_RSC
