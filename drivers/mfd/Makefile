@@ -244,7 +244,7 @@ obj-$(CONFIG_MFD_SUN4I_GPADC)	+= sun4i-gpadc.o
 obj-$(CONFIG_MFD_STM32_LPTIMER)	+= stm32-lptimer.o
 obj-$(CONFIG_MFD_STM32_TIMERS) 	+= stm32-timers.o
 obj-$(CONFIG_MFD_MXS_LRADC)     += mxs-lradc.o
-obj-$(CONFIG_SEC_PM)	+= sec_ap_pmic.o
+obj-$(CONFIG_SEC_DEBUG)	+= sec_ap_pmic.o
 
 obj-$(CONFIG_MFD_S2MU107)	+= s2mu107_core.o s2mu107_irq.o
 obj-$(CONFIG_MFD_S2MU106)	+= s2mu106_core.o s2mu106_irq.o
