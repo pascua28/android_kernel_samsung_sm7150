@@ -1747,10 +1747,12 @@ static int lpm_suspend_prepare(void)
 
 #ifdef CONFIG_SEC_PM
 	regulator_showall_enabled();
+#ifdef CONFIG_SEC_PM_DEBUG
 	sec_clock_debug_print_enabled();
 #ifdef CONFIG_QTI_RPM_STATS_LOG
 	debug_masterstats_show("entry");
 	debug_rpmstats_show("entry");
+#endif
 #endif
 #endif
 
@@ -1772,10 +1774,12 @@ static void lpm_suspend_wake(void)
 	lpm_stats_suspend_exit();
 
 #ifdef CONFIG_SEC_PM
+#ifdef CONFIG_SEC_PM_DEBUG
 	sec_debug_print_sleep_time();
 #ifdef CONFIG_QTI_RPM_STATS_LOG
 	debug_rpmstats_show("exit");
 	debug_masterstats_show("exit");
+#endif
 #endif
 #endif
 }

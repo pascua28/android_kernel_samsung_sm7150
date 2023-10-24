@@ -1741,9 +1741,9 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 	if (fatal_asf && (fsr & FSR_ASF)) {
 		dev_err(smmu->dev,
 			"Took an address size fault.  Refusing to recover.\n");
-
+#ifdef CONFIG_SEC_DEBUG
 		sec_debug_save_smmu_info_asf_fatal();
-
+#endif
 		BUG();
 	}
 
@@ -1807,7 +1807,9 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 			dev_err(smmu->dev,
 				"Unhandled arm-smmu context fault!\n");
 
+#ifdef CONFIG_SEC_DEBUG
 			sec_debug_save_smmu_info_fatal();
+#endif
 			// BUG();
 			panic("%s SMMU Fault - SID=0x%x", arm_smmu_get_devname(smmu_domain, frsynra), frsynra);
 		}

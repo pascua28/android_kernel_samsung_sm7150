@@ -4,7 +4,7 @@ obj-$(CONFIG_DRV_SAMSUNG)	+= sec_class.o sec_kcompat.o
 obj-$(CONFIG_SEC_PARAM)		+= sec_param.o
 obj-$(CONFIG_SEC_MPARAM)	+= sec_mparam.o
 obj-$(CONFIG_SEC_SYSUP)		+= sec_sysup.o
-obj-$(CONFIG_SEC_DEBUG)		+= debug/
+obj-y				+= debug/
 obj-$(CONFIG_SEC_MISC)		+= misc/
 obj-$(CONFIG_SEC_QUEST)		+= quest/
 
