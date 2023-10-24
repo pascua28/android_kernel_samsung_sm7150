@@ -318,8 +318,10 @@ void die(const char *str, struct pt_regs *regs, int err)
 
 	oops_enter();
 
+#ifdef CONFIG_SEC_DEBUG
 	sec_debug_sched_msg("!!die!!");
 	sec_debug_summary_save_die_info(str, regs);
+#endif
 
 	console_verbose();
 	bust_spinlocks(1);

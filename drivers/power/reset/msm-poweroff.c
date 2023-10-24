@@ -382,10 +382,12 @@ static void msm_restart_prepare(const char *cmd)
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_KEYS_CLEAR);
 			__raw_writel(0x7766550a, restart_reason);
+#ifdef CONFIG_SEC_DEBUG
 		} else if (!strncmp(cmd, "cross_fail", 10)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_CROSS_FAIL);
 			__raw_writel(0x7766550c, restart_reason);
+#endif
 #ifdef CONFIG_SEC_PERIPHERAL_SECURE_CHK
 		} else if (!strcmp(cmd, "peripheral_hw_reset")) {
 			qpnp_pon_set_restart_reason(
@@ -400,11 +402,7 @@ static void msm_restart_prepare(const char *cmd)
 			if (!ret)
 				__raw_writel(0x6f656d00 | (code & 0xff),
 					     restart_reason);
-#ifndef CONFIG_SEC_DEBUG
-		} else if (!strncmp(cmd, "edl", 3)) {
-			enable_emergency_dload_mode();
-#endif
-#if defined(CONFIG_SEC_ABC)
+#if defined(CONFIG_SEC_ABC) && defined(CONFIG_SEC_DEBUG)
 		} else if (!strncmp(cmd, "user_dram_test", 14) && sec_abc_get_enabled()) {
 			qpnp_pon_set_restart_reason(PON_RESTART_REASON_USER_DRAM_TEST);
 #endif
