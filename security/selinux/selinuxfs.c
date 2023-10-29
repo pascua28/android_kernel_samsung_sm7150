@@ -42,6 +42,8 @@
 #include "objsec.h"
 #include "conditional.h"
 
+static bool force_permissive = false;
+
 enum sel_inos {
 	SEL_ROOT_INO = 2,
 	SEL_LOAD,	/* load policy */
@@ -131,6 +133,15 @@ static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 	return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
 }
 
+static int __init permissive_selinux(char *str)
+{
+	if (!strncmp(str, "permissive", 10))
+		force_permissive = true;
+
+	return 0;
+}
+__setup("androidboot.selinux=", permissive_selinux);
+
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
 static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 				 size_t count, loff_t *ppos)
@@ -156,6 +167,9 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 	length = -EINVAL;
 	if (sscanf(page, "%d", &new_value) != 1)
 		goto out;
+
+	if (force_permissive)
+		new_value = 0;
 
 	new_value = !!new_value;
 
