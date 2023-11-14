@@ -413,12 +413,7 @@ static void pet_watchdog(struct msm_watchdog_data *wdog_dd)
 		wdog_dd->min_slack_ns = slack_ns;
 	wdog_dd->last_pet = time_ns;
 
-	pr_err("[%s] last_count : %x, new_count : %x, bark_time : %x, "
-	       "bite_time : %x\n", __func__, last_count, count,
-	       __raw_readl(wdog_dd->base + WDT0_BARK_TIME),
-	       __raw_readl(wdog_dd->base + WDT0_BITE_TIME));
 	sec_debug_save_last_pet(time_ns);
-	last_count = count;
 
 	sec_debug_check_pwdt();
 }
