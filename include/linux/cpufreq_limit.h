@@ -17,7 +17,6 @@ struct cpufreq_limit_handle;
 struct cpufreq_limit_handle *cpufreq_limit_get(unsigned long min_freq,
 		unsigned long max_freq, char *label);
 int cpufreq_limit_put(struct cpufreq_limit_handle *handle);
-void cpufreq_limit_corectl(int val);
 
 static inline
 struct cpufreq_limit_handle *cpufreq_limit_min_freq(unsigned long min_freq,

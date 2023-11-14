@@ -808,9 +808,6 @@ static ssize_t cpufreq_max_limit_store(struct kobject *kobj,
 		cpufreq_max_hd = NULL;
 	}
 
-	/* big core hotplut in/out regarding max limit clock */
-	cpufreq_limit_corectl(val);
-
 	if (val != -1) {
 		cpufreq_max_hd = cpufreq_limit_max_freq(val, "user lock(max)");
 		if (IS_ERR(cpufreq_max_hd)) {

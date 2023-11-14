@@ -128,7 +128,6 @@ struct cpufreq_limit_hmp {
 	unsigned long 		little_max_freq;
 	unsigned long 		little_min_lock;
 	unsigned int		little_divider;
-	bool			use_hotplug_out;
 	unsigned int		hmp_boost_type;
 	unsigned int		hmp_boost_active;
 	int			hmp_prev_boost_type;
@@ -148,7 +147,6 @@ struct cpufreq_limit_hmp hmp_param = {
 	.little_min_lock	= 1209600 / 2, /* SVS_L1 */
 
 	.little_divider 	= 2,
-	.use_hotplug_out	= false,
 /* SM7125 */
 #elif defined (CONFIG_ARCH_ATOLL)
 	.little_cpu_start 	= 0,
@@ -162,7 +160,6 @@ struct cpufreq_limit_hmp hmp_param = {
 	.little_min_lock	= 1267200 / 2, /* SVS_L1 */
 
 	.little_divider 	= 2,
-	.use_hotplug_out	= false,
 /* SM6150 */
 #else
 	.little_cpu_start 	= 0,
@@ -176,40 +173,11 @@ struct cpufreq_limit_hmp hmp_param = {
 	.little_min_lock	= 1209600 / 2, /* SVS_L1 */
 
 	.little_divider 	= 2,
-	.use_hotplug_out	= false,
 #endif
 	.hmp_boost_type		= CONSERVATIVE_BOOST,
 	.hmp_boost_active	= 0,
 	.hmp_prev_boost_type	= 0,
 };
-
-void cpufreq_limit_corectl(int freq)
-{
-	unsigned int cpu;
-	bool bigout = false;
-
-	/* if div is 1, do not core control */
-	if (hmp_param.little_divider == 1)
-		return;
-
-	if (!hmp_param.use_hotplug_out)
-		return;
-
-	if ((freq > -1) && (freq < hmp_param.big_min_freq))
-		bigout = true;
-
-	for_each_possible_cpu(cpu) {
-		if ((cpu >= hmp_param.big_cpu_start) &&
-			(cpu <= hmp_param.big_cpu_end)) {
-
-			if (bigout)
-				cpu_down(cpu);
-			else
-				cpu_up(cpu);
-		}
-	}
-}
-
 
 /**
  * cpufreq_limit_set_table - cpufreq table from dt via qcom-cpufreq
@@ -401,7 +369,6 @@ static int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
 	return 0;
 }
 #else
-void cpufreq_limit_corectl(int freq) { }
 static inline int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
 		unsigned long *min, unsigned long *max) { return 0; }
 static inline int cpufreq_limit_hmp_boost(int enable) { return 0; }
