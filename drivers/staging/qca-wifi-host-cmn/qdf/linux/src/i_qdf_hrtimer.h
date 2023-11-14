@@ -105,8 +105,6 @@ int __qdf_hrtimer_cancel(__qdf_hrtimer_data_t *timer)
 {
 	if (timer->ctx == QDF_CONTEXT_HARDWARE)
 		return hrtimer_cancel(&timer->u.hrtimer);
-	else if (timer->ctx == QDF_CONTEXT_TASKLET)
-		return hrtimer_cancel(&timer->u.tasklet_hrtimer.timer);
 
 	return 0;
 }
