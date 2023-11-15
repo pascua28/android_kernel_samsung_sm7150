@@ -156,24 +156,6 @@ int audio_register_jack_state_cb(int (*jack_state) (void))
 }
 EXPORT_SYMBOL_GPL(audio_register_jack_state_cb);
 
-static ssize_t audio_jack_state_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	int report = 0;
-
-	if (audio_data->get_jack_state)
-		report = audio_data->get_jack_state();
-	else {
-		dev_info(dev, "%s: No callback registered\n", __func__);
-		panic("sound card is not registered");
-	}
-
-	return snprintf(buf, 4, "%d\n", report);
-}
-
-static DEVICE_ATTR(state, S_IRUGO | S_IWUSR | S_IWGRP,
-			audio_jack_state_show, NULL);
-
 int audio_register_key_state_cb(int (*key_state) (void))
 {
 	if (audio_data->get_key_state) {
@@ -301,7 +283,6 @@ static DEVICE_ATTR(antenna_state, S_IRUGO | S_IWUSR | S_IWGRP,
 
 static struct attribute *sec_audio_jack_attr[] = {
 	&dev_attr_select_jack.attr,
-	&dev_attr_state.attr,
 	&dev_attr_key_state.attr,
 	&dev_attr_mic_adc.attr,
 	&dev_attr_force_enable_antenna.attr,
