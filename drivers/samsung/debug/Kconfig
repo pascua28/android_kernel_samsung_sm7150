@@ -38,17 +38,31 @@ config SEC_LOG_BUF_CONSOLE
 endchoice
 endif
 
+config SEC_LOG_LAST_KMSG
+	bool "Enable /proc/last_kmsg support: if EMBEDDED"
+	default n
+	depends on SEC_LOG_BUF
+	help
+	  This option enables /proc/last_kmsg support.
+
+config SEC_LOG_STORE_LAST_KMSG
+	bool "store sec log when power off or reboot"
+	default n
+	depends on SEC_LOG_LAST_KMSG
+	help
+	  store sec log when power off or reboot.
+
 config SEC_LOG_STORE_LPM_KMSG
 	bool "store sec log when LPM Mode boot"
 	default n
-	depends on SEC_DEBUG
+	depends on SEC_LOG_LAST_KMSG
 	help
 	  store sec log when LPM Mode boot
 
 config SEC_STORE_POWER_ONOFF_HISTORY
 	bool "store power onoff history"
 	default n
-	depends on SEC_DEBUG
+	depends on SEC_LOG_LAST_KMSG
 	help
 	  store power onoff history
 

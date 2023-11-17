@@ -67,6 +67,7 @@ static int check_lpm_mode(char *str)
 early_param("androidboot.mode", check_lpm_mode);
 #endif
 
+#ifdef CONFIG_SEC_LOG_LAST_KMSG
 static char *last_log_buf;
 static size_t last_log_buf_size;
 
@@ -170,6 +171,11 @@ static inline int __sec_last_kmsg_init(void)
 
 	return 0;
 }
+#else /* CONFIG_SEC_LOG_LAST_KMSG */
+static inline int __sec_last_kmsg_init(void)
+{}
+#endif
+
 
 #if IS_ENABLED(CONFIG_SEC_LOG_STORE_LPM_KMSG)
 static void lpm_klog_store(void)
@@ -280,6 +286,7 @@ static void sec_power_onoff_history_store(time64_t local_time, time64_t rtc_offs
 }
 #endif
 
+#ifdef CONFIG_SEC_LOG_STORE_LAST_KMSG
 static int sec_log_store(struct notifier_block *nb,
 		unsigned long action, void *data)
 {
@@ -340,6 +347,7 @@ static struct notifier_block sec_log_notifier = {
 	.notifier_call = sec_log_store,
 	.priority = -2,
 };
+#endif
 
 static __always_inline void __sec_log_buf_write(const char *s, unsigned int count)
 {
@@ -417,7 +425,9 @@ static int __init sec_log_buf_init(void)
 	if (err)
 		return err;
 
+#ifdef CONFIG_SEC_LOG_STORE_LAST_KMSG
 	register_reboot_notifier(&sec_log_notifier);
+#endif
 
 #if IS_ENABLED(CONFIG_SEC_LOG_STORE_LPM_KMSG)
 	dbg_partition_notifier_register(&sec_log_store_lpm_kmsg_notifier);
