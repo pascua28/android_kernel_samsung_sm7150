@@ -1893,17 +1893,12 @@ ssize_t sec_bat_store_attrs(
 				sec_bat_set_current_event(battery,
 						SEC_BAT_CURRENT_EVENT_SLATE,
 						SEC_BAT_CURRENT_EVENT_SLATE);
-				sec_vote(battery->chgen_vote, VOTER_SLATE,
-						true,
-						SEC_BAT_CHG_MODE_BUCK_OFF);
 				dev_info(battery->dev,
 					"%s: enable slate mode : %d\n",
 					__func__, x);
 			} else if (x == 0) {
 				sec_bat_set_current_event(battery, 0,
 						SEC_BAT_CURRENT_EVENT_SLATE);
-				sec_vote(battery->chgen_vote, VOTER_SLATE,
-					false, 0);
 				dev_info(battery->dev,
 					"%s: disable slate mode : %d\n",
 					__func__, x);
