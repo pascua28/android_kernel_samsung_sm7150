@@ -48,6 +48,38 @@
 #define DEFAULT_PANEL_PREFILL_LINES	25
 #define TICKS_IN_MICRO_SECOND		1000000
 
+struct bda {
+    u32 brightness;
+    u32 dim_alpha;
+};
+
+struct bda fod_dim_lut[] = {
+	{0, 0xFF},
+	{1, 0xEC},
+	{2, 0xE6},
+	{3, 0xE0},
+	{4, 0xDC},
+	{6, 0xD5},
+	{10, 0xCA},
+	{20, 0xB7},
+	{21, 0xB5},
+	{30, 0xA8},
+	{42, 0x9A},
+	{63, 0x85},
+	{84, 0x74},
+	{105, 0x65},
+	{126, 0x58},
+	{147, 0x4C},
+	{168, 0x40},
+	{189, 0x36},
+	{210, 0x2C},
+	{231, 0x23},
+	{252, 0x1A},
+	{273, 0x11},
+	{294, 0x9},
+	{315, 0x1},
+};
+
 enum dsi_dsc_ratio_type {
 	DSC_8BPC_8BPP,
 	DSC_10BPC_8BPP,
@@ -1065,6 +1097,32 @@ error:
 static u32 dsi_panel_get_backlight(struct dsi_panel *panel)
 {
 	return panel->bl_config.bl_level;
+}
+
+static u32 interpolate(uint32_t x, uint32_t xa, uint32_t xb, uint32_t ya, uint32_t yb)
+{
+	return ya - (ya - yb) * (x - xa) / (xb - xa);
+}
+
+u32 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
+{
+	u32 brightness = dsi_panel_get_backlight(panel);
+	int len = ARRAY_SIZE(fod_dim_lut);
+	int i;
+
+	for (i = 0; i < len; i++)
+		if (fod_dim_lut[i].brightness >= brightness)
+			break;
+
+	if (i == 0)
+		return fod_dim_lut[i].dim_alpha;
+
+	if (i == len)
+		return fod_dim_lut[i - 1].dim_alpha;
+
+	return interpolate(brightness,
+			fod_dim_lut[i].brightness, fod_dim_lut[i - 1].brightness,
+			fod_dim_lut[i].dim_alpha, fod_dim_lut[i - 1].dim_alpha);
 }
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
