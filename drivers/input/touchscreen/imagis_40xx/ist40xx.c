@@ -1000,9 +1000,9 @@ irqreturn_t ist40xx_irq_thread(int irq, void *ptr)
 	if (PARSE_HOVER_NOTI(*msg)) {
 		if (data->hover != PARSE_HOVER_VAL(*msg))
 			data->hover = PARSE_HOVER_VAL(*msg);
-		input_report_abs(data->input_dev_proximity, ABS_MT_CUSTOM, data->hover);
+		input_report_abs(data->input_dev_proximity, ABS_MT_CUSTOM, !data->hover);
 		input_sync(data->input_dev_proximity);
-		input_info(true, &data->client->dev, "Hover Level %d\n", data->hover);
+		input_info(true, &data->client->dev, "Hover Level %d\n", !data->hover);
 
 		if (read_cnt <= 0)
 			goto irq_event;
