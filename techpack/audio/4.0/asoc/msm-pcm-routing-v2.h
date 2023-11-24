@@ -1,13 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 #ifndef _MSM_PCM_ROUTING_H
 #define _MSM_PCM_ROUTING_H
 #include <dsp/apr_audio-v2.h>
 #include <dsp/q6adm-v2.h>
-#ifdef CONFIG_SEC_SND_ADAPTATION
-#include <dsp/sec_adaptation.h>
-#endif
 
 /*
  * These names are used by HAL to specify the BE. If any changes are
@@ -45,8 +42,6 @@
 #define LPASS_BE_VOICE2_PLAYBACK_TX "VOICE2_PLAYBACK_TX"
 #define LPASS_BE_INCALL_RECORD_RX "INCALL_RECORD_RX"
 #define LPASS_BE_INCALL_RECORD_TX "INCALL_RECORD_TX"
-#define LPASS_BE_PROXY_RX "PROXY_RX"
-#define LPASS_BE_PROXY_TX "PROXY_TX"
 #define LPASS_BE_SEC_I2S_RX "SECONDARY_I2S_RX"
 #define LPASS_BE_PRI_SPDIF_RX "PRI_SPDIF_RX"
 #define LPASS_BE_PRI_SPDIF_TX "PRI_SPDIF_TX"
@@ -265,7 +260,6 @@ enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA20,
 	MSM_FRONTEND_DAI_MULTIMEDIA21,
 	MSM_FRONTEND_DAI_MULTIMEDIA22,
-	MSM_FRONTEND_DAI_MULTIMEDIA23,
 	MSM_FRONTEND_DAI_MULTIMEDIA26,
 	MSM_FRONTEND_DAI_MULTIMEDIA27,
 	MSM_FRONTEND_DAI_MULTIMEDIA28,
@@ -505,8 +499,6 @@ enum {
 	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_BACKEND_DAI_PRI_META_MI2S_RX,
 	MSM_BACKEND_DAI_SEC_META_MI2S_RX,
-	MSM_BACKEND_DAI_PROXY_RX,
-	MSM_BACKEND_DAI_PROXY_TX,
 	MSM_BACKEND_DAI_MAX,
 };
 
@@ -652,8 +644,4 @@ int msm_pcm_routing_set_channel_mixer_runtime(
 	int be_id, int session_id,
 	int session_type,
 	struct msm_pcm_channel_mixer *params);
-#ifdef CONFIG_SEC_SND_ADAPTATION
-int q6audio_get_copp_idx_from_port_id(int port_id, enum sb_type func_type,
-	int *copp_idx);
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 #endif /*_MSM_PCM_H*/

@@ -87,7 +87,7 @@ static int get_wsa_amp_excursion_max(enum amp_id id)
 {
 	struct snd_soc_component *component = wsa_component;
 	int value = 0;
-	int32_t ex_q27 = 0;
+	int32_t ex_q27 =0;
 
 	if (!component || !wsa_bd) {
 		pr_err("%s: component NULL\n", __func__);

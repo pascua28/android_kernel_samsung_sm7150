@@ -756,8 +756,4 @@ int q6asm_adjust_session_clock(struct audio_client *ac,
 /* Provide default asm channel mapping for given channel count */
 int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
 		bool use_back_flavor);
-
-#ifdef CONFIG_SEC_SND_ADAPTATION
-struct audio_session *q6asm_get_audio_session(void);
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 #endif /* __Q6_ASM_H__ */

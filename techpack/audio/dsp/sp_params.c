@@ -31,7 +31,7 @@
 
 struct afe_spk_ctl this_afe_spk;
 
-#ifdef CONFIG_SND_SOC_WSA881X
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
 struct afe_spk_ctl *get_wsa_sysfs_ptr(void)
 {
 	return &this_afe_spk;
