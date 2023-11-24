@@ -456,14 +456,6 @@ void ist40xx_special_cmd(struct ist40xx_data *data, int cmd)
 					input_info(true, &data->client->dev,
 						"FOD out\n");
 				}
-				input_report_key(data->input_dev,
-						 KEY_BLACK_UI_GESTURE,
-						 true);
-				input_sync(data->input_dev);
-				input_report_key(data->input_dev,
-						 KEY_BLACK_UI_GESTURE,
-						 false);
-				input_sync(data->input_dev);
 				break;
 			default:
 				input_err(true, &data->client->dev,
