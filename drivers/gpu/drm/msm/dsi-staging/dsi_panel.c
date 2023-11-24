@@ -54,27 +54,30 @@ struct bda {
 };
 
 struct bda fod_dim_lut[] = {
-	{0,	0xFF},
-	{4,	0xEB},
-	{8,	0xEA},
-	{12,	0xE9},
-	{13,	0xE8},
-	{20,	0xE5},
-	{24,	0xE3},
-	{30,	0xE0},
-	{68,	0xD0},
-	{133,	0xC0},
-	{218,	0xB0},
-	{328,	0xA0},
-	{486,	0x90},
-	{642,	0x80},
-	{832,	0x70},
-	{1043,	0x60},
-	{1267,	0x50},
-	{1500,	0x40},
-	{1770,	0x30},
-	{2000,	0x24},
-	{2047,	0x21},
+	{0, 0xFF},
+	{1, 0xEC},
+	{2, 0xE6},
+	{3, 0xE0},
+	{4, 0xDC},
+	{6, 0xD5},
+	{10, 0xCA},
+	{20, 0xB7},
+	{21, 0xB5},
+	{30, 0xA8},
+	{42, 0x9A},
+	{63, 0x85},
+	{84, 0x74},
+	{105, 0x65},
+	{126, 0x58},
+	{147, 0x4C},
+	{168, 0x40},
+	{189, 0x36},
+	{210, 0x2C},
+	{231, 0x23},
+	{252, 0x1A},
+	{273, 0x11},
+	{294, 0x9},
+	{315, 0x1},
 };
 
 enum dsi_dsc_ratio_type {
@@ -1118,8 +1121,10 @@ u32 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
 		return fod_dim_lut[i - 1].dim_alpha;
 
 	return interpolate(brightness,
-			fod_dim_lut[i].brightness, fod_dim_lut[i - 1].brightness,
-			fod_dim_lut[i].dim_alpha, fod_dim_lut[i - 1].dim_alpha);
+			   fod_dim_lut[i - 1].brightness,
+			   fod_dim_lut[i].brightness,
+			   fod_dim_lut[i - 1].dim_alpha,
+			   fod_dim_lut[i].dim_alpha);
 }
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
