@@ -5894,6 +5894,14 @@ static ssize_t ist40xx_secure_touch_show(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "%u", val);
 }
 
+static ssize_t ist40xx_fod_pressed_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct ist40xx_data *data = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", data->fod_pressed);
+}
+
 static void ist40xx_secure_touch_init(struct ist40xx_data *data)
 {
 	init_completion(&data->st_powerdown);
@@ -5938,6 +5946,9 @@ static struct device_attribute secure_attrs[] = {
 			ist40xx_secure_touch_enable_store),
 	__ATTR(secure_touch, (0444),
 			ist40xx_secure_touch_show,
+			NULL),
+	__ATTR(fod_pressed, (0444),
+			ist40xx_fod_pressed_show,
 			NULL),
 };
 #endif
