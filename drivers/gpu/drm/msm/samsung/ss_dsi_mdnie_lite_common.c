@@ -387,6 +387,11 @@ static int fake_id(int app_id)
 	return ret_id;
 }
 
+static ssize_t mode_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", MAX_MODE);
+}
 
 static ssize_t scenario_store(struct device *dev,
 					  struct device_attribute *attr,
@@ -1524,6 +1529,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 }
 
 static DEVICE_ATTR(mode, 0664, mode_show, mode_store);
+static DEVICE_ATTR(mode_max, 0444, mode_max_show, NULL);
 static DEVICE_ATTR(scenario, 0664, scenario_show, scenario_store);
 static DEVICE_ATTR(outdoor, 0664, outdoor_show, outdoor_store);
 static DEVICE_ATTR(bypass, 0664, bypass_show, bypass_store);
@@ -1682,6 +1688,10 @@ void create_tcon_mdnie_node(struct samsung_display_driver_data *vdd)
 	/* MODE */
 	if (device_create_file(tune_mdnie_dev, &dev_attr_mode) < 0)
 		DPRINT("Failed to create device file(%s)!\n", dev_attr_mode.attr.name);
+
+	/* MODE MAX */
+	if (device_create_file(tune_mdnie_dev, &dev_attr_mode_max) < 0)
+		DPRINT("Failed to create device file(%s)!\n", dev_attr_mode_max.attr.name);
 
 	/* OUTDOOR */
 	if (device_create_file(tune_mdnie_dev, &dev_attr_outdoor) < 0)
