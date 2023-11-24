@@ -805,6 +805,7 @@ struct ist40xx_data {
 	unsigned int scrub_y;
 	char node_buf[MAX_BUF_SIZE];
 	int node_cnt;
+	int fod_pressed;
 #if defined(CONFIG_INPUT_SEC_SECURE_TOUCH)
 	atomic_t st_enabled;
 	atomic_t st_pending_irqs;
