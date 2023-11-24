@@ -2,7 +2,6 @@
 /*
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  */
-#define DEBUG
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -31,7 +30,7 @@
 /* Z floating defined in ohms */
 #define WCD938X_ZDET_FLOATING_IMPEDANCE 0x0FFFFFFE
 
-#define WCD938X_ZDET_NUM_MEASUREMENTS   250
+#define WCD938X_ZDET_NUM_MEASUREMENTS   900
 #define WCD938X_MBHC_GET_C1(c)          ((c & 0xC000) >> 14)
 #define WCD938X_MBHC_GET_X1(x)          (x & 0x3FFF)
 /* Z value compared in milliOhm */
@@ -138,10 +137,6 @@ static struct wcd_mbhc_register
 			  WCD938X_MBHC_NEW_CTL_1, 0x04, 2, 0),
 	WCD_MBHC_REGISTER("WCD_MBHC_ELECT_ISRC_EN",
 			  WCD938X_ANA_MBHC_ZDET, 0x02, 1, 0),
-	WCD_MBHC_REGISTER("WCD_MBHC_EN_SURGE_PROTECTION_HPHL",
-			  WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0x80, 7, 0),
-	WCD_MBHC_REGISTER("WCD_MBHC_EN_SURGE_PROTECTION_HPHR",
-			  WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0x40, 6, 0),
 };
 
 static const struct wcd_mbhc_intr intr_ids = {
@@ -510,10 +505,6 @@ static void wcd938x_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 {
 	struct snd_soc_codec *codec = mbhc->codec;
 	struct wcd938x_priv *wcd938x = dev_get_drvdata(codec->dev);
-#ifdef CONFIG_SND_SOC_IMPED_SENSING
-	struct wcd938x_pdata *pdata = dev_get_platdata(wcd938x->dev);
-	int i;
-#endif
 	s16 reg0, reg1, reg2, reg3, reg4;
 	int32_t z1L, z1R, z1Ls;
 	int zMono, z_diff1, z_diff2;
@@ -556,6 +547,14 @@ static void wcd938x_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 	regmap_update_bits(wcd938x->regmap,
 			   WCD938X_ANA_MBHC_MECH, 0x01, 0x00);
 
+	/* Disable surge protection before impedance detection.
+	 * This is done to give correct value for high impedance.
+	 */
+	regmap_update_bits(wcd938x->regmap,
+                          WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0xC0, 0x00);
+	/* 1ms delay needed after disable surge protection */
+	usleep_range(1000, 1010);
+
 	/* First get impedance on Left */
 	d1 = d1_a[1];
 	zdet_param_ptr = &zdet_param[1];
@@ -590,24 +589,6 @@ left_ch_impedance:
 	}
 	dev_dbg(codec->dev, "%s: impedance on HPH_L = %d(ohms)\n",
 		__func__, *zl);
-
-#ifdef CONFIG_SND_SOC_IMPED_SENSING
-	/* Samsung impedance detection and additional digital gain */
-	for (i = 0; i < ARRAY_SIZE(pdata->imp_table); i++) {
-		if (*zl >= pdata->imp_table[i].min &&
-			*zl <= pdata->imp_table[i].max) {
-			mbhc->impedance_offset =
-				pdata->imp_table[i].gain;
-			dev_info(codec->dev, "%s: zl = %d, imped offset = %d\n",
-				__func__, *zl, mbhc->impedance_offset);
-			break;
-		}
-	}
-	if (wcd938x->update_wcd_event)
-		wcd938x->update_wcd_event(wcd938x->handle,
-				SEC_WCD_BOLERO_EVT_IMPED_TRUE,
-				mbhc->impedance_offset);
-#endif
 
 	/* Start of right impedance ramp and calculation */
 	wcd938x_mbhc_zdet_ramp(codec, zdet_param_ptr, NULL, &z1R, d1);
@@ -683,6 +664,9 @@ right_ch_impedance:
 		mbhc->hph_type = WCD_MBHC_HPH_MONO;
 	}
 
+	/* Enable surge protection again after impedance detection */
+	regmap_update_bits(wcd938x->regmap,
+			   WCD938X_HPH_SURGE_HPHLR_SURGE_EN, 0xC0, 0xC0);
 zdet_complete:
 	snd_soc_write(codec, WCD938X_ANA_MBHC_BTN5, reg0);
 	snd_soc_write(codec, WCD938X_ANA_MBHC_BTN6, reg1);

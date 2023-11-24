@@ -312,21 +312,6 @@ struct vss_icommon_param_data_ch_mixer_v2_t {
 	struct vss_param_channel_mixer_info_t ch_mixer_info;
 } __packed;
 
-struct vss_icommon_param_data_ecns_t {
-	/* Valid ID of the module. */
-	uint32_t module_id;
-	/* Valid ID of the parameter. */
-	uint32_t param_id;
-	/*
-	 * Data size of the structure relating to the param_id/module_id
-	 * combination in uint8_t bytes.
-	 */
-	uint16_t param_size;
-	/* This field must be set to zero. */
-	uint16_t reserved;
-	uint32_t enable;
-} __packed;
-
 struct vss_icommon_cmd_set_param_ch_mixer_v2_t {
 	/*
 	 * Pointer to the unique identifier for an address (physical/virtual).
@@ -351,33 +336,6 @@ struct vss_icommon_cmd_set_param_ch_mixer_v2_t {
 	uint32_t mem_size;
 
 	struct vss_icommon_param_data_ch_mixer_v2_t param_data;
-} __packed;
-
-
-struct vss_icommon_cmd_set_ecns_enable_t {
-	/*
-	 * Pointer to the unique identifier for an address (physical/virtual).
-	 *
-	 * If the parameter data payload is within the message payload
-	 * (in-band), set this field to 0. The parameter data begins at the
-	 * specified data payload address.
-	 *
-	 * If the parameter data is out-of-band, this field is the handle to
-	 * the physical address in the shared memory that holds the parameter
-	 * data.
-	 */
-	uint32_t mem_handle;
-	/*
-	 * Location of the parameter data payload.
-	 *
-	 * The payload is an array of vss_icommon_param_data_t. If the
-	 * mem_handle is 0, this field is ignored.
-	 */
-	uint64_t mem_address;
-	/* Size of the parameter data payload in bytes. */
-	uint32_t mem_size;
-
-	struct vss_icommon_param_data_ecns_t param_data;
 } __packed;
 
 struct vss_icommon_param_data_mfc_config_v2_t {
@@ -851,7 +809,6 @@ struct vss_evt_voice_activity {
 
 #define MODULE_ID_VOICE_MODULE_ST			0x00010EE3
 #define VOICE_PARAM_MOD_ENABLE				0x00010E00
-#define MOD_ENABLE_PARAM_LEN				4
 
 #define VSS_IPLAYBACK_CMD_START				0x000112BD
 /* Start in-call music delivery on the Tx voice path. */
@@ -1722,11 +1679,6 @@ struct cvp_set_vp3_data_cmd {
 	struct apr_hdr hdr;
 } __packed;
 
-struct cvp_set_channel_ecns_cmd_v2 {
-	struct apr_hdr hdr;
-	struct vss_icommon_cmd_set_ecns_enable_t cvp_set_ecns;
-} __packed;
-
 struct cvp_set_rx_volume_index_cmd {
 	struct apr_hdr hdr;
 	struct vss_ivocproc_cmd_set_volume_index_t cvp_set_vol_idx;
@@ -1942,10 +1894,6 @@ struct voice_data {
 
 	bool mic_break_status;
 	struct work_struct voice_mic_break_work;
-
-	uint32_t ecns_enable;
-	uint32_t ecns_module_id;
-
 };
 
 #define MAX_VOC_SESSIONS 8
@@ -2094,8 +2042,6 @@ int voc_get_rx_device_mute(uint32_t session_id);
 int voc_set_route_flag(uint32_t session_id, uint8_t path_dir, uint8_t set);
 uint8_t voc_get_route_flag(uint32_t session_id, uint8_t path_dir);
 bool voc_get_mbd_enable(void);
-int voc_set_ecns_enable(uint32_t session_id, uint32_t module_id,
-			uint32_t enable);
 uint8_t voc_set_mbd_enable(bool enable);
 int voc_enable_dtmf_rx_detection(uint32_t session_id, uint32_t enable);
 void voc_disable_dtmf_det_on_active_sessions(void);
@@ -2146,7 +2092,4 @@ int voc_get_sound_focus(struct sound_focus_param *soundFocusData);
 int voc_get_source_tracking(struct source_tracking_param *sourceTrackingData);
 int voc_set_afe_sidetone(uint32_t session_id, bool sidetone_enable);
 bool voc_get_afe_sidetone(void);
-#ifdef CONFIG_SEC_SND_ADAPTATION
-struct common_data *voice_get_common_data(void);
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 #endif

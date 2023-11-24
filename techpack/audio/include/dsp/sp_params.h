@@ -32,7 +32,7 @@ static inline int afe_get_sp_xt_logging_data(u16 port_id)
 }
 #endif
 
-#ifdef CONFIG_SND_SOC_WSA881X
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
 struct afe_spk_ctl *get_wsa_sysfs_ptr(void);
 #endif
 #endif /* __SP_PARAMS_H__ */

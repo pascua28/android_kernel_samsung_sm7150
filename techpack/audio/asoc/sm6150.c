@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -47,10 +47,11 @@
 #include "codecs/wcd937x/wcd937x.h"
 #ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
 #include "sec_wcd_sysfs_cb.h"
-#endif /* CONFIG_SND_SOC_SAMSUNG_AUDIO */
 #ifdef CONFIG_SND_SOC_WSA881X
 #include "codecs/bigdata_wsa_sysfs_cb.h"
-#endif /* CONFIG_SND_SOC_WSA881X */
+#endif
+#endif /* CONFIG_SND_SOC_SAMSUNG_AUDIO */
+
 #ifdef CONFIG_SND_SOC_CS48L32
 #include "../sound/soc/codecs/tacna.h"
 #endif /* CONFIG_SND_SOC_CS48L32 */
@@ -6074,7 +6075,6 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 		if (mi2s_intf_conf[index].msm_is_ext_mclk) {
 			pr_debug("%s: Enabling mclk, clk_freq_in_hz = %u\n",
 				__func__, mi2s_mclk[index].clk_freq_in_hz);
-			mi2s_mclk[index].enable = 1;
 			ret = afe_set_lpass_clock_v2(port_id,
 							 &mi2s_mclk[index]);
 			if (ret < 0) {
@@ -6082,6 +6082,7 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 					__func__, ret);
 				goto clk_off;
 			}
+			mi2s_mclk[index].enable = 1;
 		}
 		if (pdata->mi2s_gpio_p[index])
 			msm_cdc_pinctrl_select_active_state(
@@ -6134,12 +6135,12 @@ static void msm_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 		if (mi2s_intf_conf[index].msm_is_ext_mclk) {
 			pr_debug("%s: Disabling mclk, clk_freq_in_hz = %u\n",
 				 __func__, mi2s_mclk[index].clk_freq_in_hz);
-			mi2s_mclk[index].enable = 0;
 			ret = afe_set_lpass_clock_v2(port_id,
 							 &mi2s_mclk[index]);
 			if (ret < 0)
 				pr_err("%s: mclk disable failed for MCLK (%d); ret=%d\n",
 					__func__, index, ret);
+			mi2s_mclk[index].enable = 0;
 		}
 	}
 	mutex_unlock(&mi2s_intf_conf[index].lock);
@@ -7378,33 +7379,6 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
-	},
-	/* Proxy Tx BACK END DAI Link */
-	{
-		.name = LPASS_BE_PROXY_TX,
-		.stream_name = "Proxy Capture",
-		.cpu_dai_name = "msm-dai-q6-dev.8195",
-		.platform_name = "msm-pcm-routing",
-		.codec_name = "msm-stub-codec.1",
-		.codec_dai_name = "msm-stub-tx",
-		.no_pcm = 1,
-		.dpcm_capture = 1,
-		.id = MSM_BACKEND_DAI_PROXY_TX,
-		.ignore_suspend = 1,
-	},
-	/* Proxy Rx BACK END DAI Link */
-	{
-		.name = LPASS_BE_PROXY_RX,
-		.stream_name = "Proxy Playback",
-		.cpu_dai_name = "msm-dai-q6-dev.8194",
-		.platform_name = "msm-pcm-routing",
-		.codec_name = "msm-stub-codec.1",
-		.codec_dai_name = "msm-stub-rx",
-		.no_pcm = 1,
-		.dpcm_playback = 1,
-		.id = MSM_BACKEND_DAI_PROXY_RX,
-		.ignore_pmdown_time = 1,
-		.ignore_suspend = 1,
 	},
 	{
 		.name = LPASS_BE_USB_AUDIO_RX,

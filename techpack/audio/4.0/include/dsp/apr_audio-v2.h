@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 
 
@@ -849,7 +849,6 @@ struct audproc_softvolume_params {
  */
 #define AUDPROC_MODULE_ID_MFC_EC_REF                        0x0001092C
 
-#define PARAM_ID_FFV_SPF_FREEZE                             0x00010960
 
 struct adm_cmd_set_pp_params_v5 {
 	struct apr_hdr hdr;
@@ -1385,7 +1384,7 @@ struct adm_cmd_connect_afe_port_v5 {
 #define AFE_PORT_ID_SLIMBUS_RANGE_SIZE	0xA
 
 /* Size of the range of port IDs for real-time proxy ports. */
-#define  AFE_PORT_ID_RT_PROXY_PORT_RANGE_SIZE	0x4
+#define  AFE_PORT_ID_RT_PROXY_PORT_RANGE_SIZE	0x2
 
 /* Size of the range of port IDs for pseudoports. */
 #define AFE_PORT_ID_PSEUDOPORT_RANGE_SIZE	0x5
@@ -1663,16 +1662,6 @@ struct adm_cmd_connect_afe_port_v5 {
  */
 #define AFE_PORT_ID_VOICE2_PLAYBACK_TX  0x8002
 #define AFE_PORT_ID_VOICE_PLAYBACK_TX   0x8005
-
-/*
- * Proxyport used for voice call data processing.
- * In cases like call-screening feature, where user can communicate
- * with caller with the help of "call screen" mode, and without
- * connecting the call with any HW input/output devices in the phon,
- * voice call can use Pseudo port to start voice data processing.
- */
-#define RT_PROXY_PORT_002_TX  0x2003
-#define RT_PROXY_PORT_002_RX  0x2002
 
 #define AFE_PORT_ID_PRIMARY_TDM_RX \
 	(AFE_PORT_ID_TDM_PORT_RANGE_START + 0x00)
@@ -4074,12 +4063,6 @@ struct afe_id_aptx_adaptive_enc_init
 #define AFE_ENCODER_PARAM_ID_PACKETIZER_ID 0x0001322E
 
 /*
- * MI2S packetizer id for #AVS_MODULE_ID_ENCODER module.
- * Used when I2S interface is selected.
- */
-#define AFE_MODULE_ID_PACKETIZER_MI2S 0x1000F101
-
-/*
  * Encoder config block  parameter for the #AVS_MODULE_ID_ENCODER module.
  * This parameter may be set runtime.
  */
@@ -4209,7 +4192,6 @@ struct aptx_channel_mode_param_t {
  * @table{weak__asm__sbc__enc__cfg__t}
  */
 #define ASM_MEDIA_FMT_SBC                         0x00010BF2
-#define ASM_MEDIA_FMT_SBC_SS                      0x00010BF5
 
 /* SBC channel Mono mode.*/
 #define ASM_MEDIA_FMT_SBC_CHANNEL_MODE_MONO                     1
@@ -4288,11 +4270,6 @@ struct asm_sbc_enc_cfg_t {
 	 */
 	uint32_t    sample_rate;
 };
-
-struct asm_ss_sbc_enc_cfg_t {
-	struct asm_sbc_enc_cfg_t custom_config;
-	struct afe_abr_enc_cfg_t abr_config;
-} __packed;
 
 #define ASM_MEDIA_FMT_AAC_AOT_LC            2
 #define ASM_MEDIA_FMT_AAC_AOT_SBR           5
@@ -4534,22 +4511,6 @@ struct asm_ldac_enc_cfg_t {
 	struct afe_abr_enc_cfg_t abr_config;
 } __packed;
 
-/* FMT ID for SSC */
-#define ASM_MEDIA_FMT_SSC 0x00010BF3
-
-struct asm_custom_enc_cfg_ssc_t {
-	uint32_t    sample_rate;
-	/* Mono or stereo */
-	uint16_t    num_channels;
-	uint16_t    reserved;
-	/* num_ch == 1, then PCM_CHANNEL_C,
-	 * num_ch == 2, then {PCM_CHANNEL_L, PCM_CHANNEL_R}
-	 */
-	uint8_t     channel_mapping[8];
-	uint32_t    custom_size;
-	struct afe_abr_enc_cfg_t abr_config;
-} __packed;
-
 struct afe_enc_fmt_id_param_t {
 	/*
 	 * Supported values:
@@ -4739,14 +4700,12 @@ struct asm_aptx_ad_speech_dec_cfg_t {
 
 union afe_enc_config_data {
 	struct asm_sbc_enc_cfg_t sbc_config;
-	struct asm_ss_sbc_enc_cfg_t ss_sbc_config;
 	struct asm_aac_enc_cfg_t aac_config;
 	struct asm_custom_enc_cfg_t  custom_config;
 	struct asm_celt_enc_cfg_t  celt_config;
 	struct asm_aptx_enc_cfg_t  aptx_config;
 	struct asm_ldac_enc_cfg_t  ldac_config;
 	struct asm_aptx_ad_enc_cfg_t  aptx_ad_config;
-	struct asm_custom_enc_cfg_ssc_t ssc_config;
 	struct asm_aptx_ad_speech_enc_cfg_t aptx_ad_speech_config;
 };
 
@@ -4794,8 +4753,6 @@ struct afe_enc_aptx_ad_speech_cfg_blk_param_t {
 struct afe_dec_media_fmt_t {
 	union afe_dec_config_data dec_media_config;
 } __packed;
-
-#define AVS_ENCODER_PARAM_ID_ENC_BITRATE 0x0001322D
 
 /*
  * Payload of the AVS_ENCODER_PARAM_ID_PACKETIZER_ID parameter.
@@ -6162,10 +6119,6 @@ struct asm_enc_cfg_blk_param_v2 {
  * this member.
  */
 
-} __packed;
-
-struct asm_bitrate_param_t {
-	u32 enc_bitrate;
 } __packed;
 
 struct asm_custom_enc_cfg_t_v2 {

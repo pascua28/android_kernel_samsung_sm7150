@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 #include <linux/slab.h>
 #include <linux/kthread.h>
@@ -23,10 +23,6 @@
 #include <ipc/apr_tal.h>
 #include "adsp_err.h"
 #include <dsp/voice_mhi.h>
-
-#ifdef CONFIG_SEC_SND_ADAPTATION
-#include <dsp/sec_adaptation.h>
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 
 #define TIMEOUT_MS 300
 
@@ -114,10 +110,6 @@ static int32_t qdsp_cvp_callback(struct apr_client_data *data, void *priv);
 static int voice_send_set_pp_enable_cmd(
 	struct voice_data *v, struct module_instance_info mod_inst_info,
 	int enable);
-
-static int voice_send_cvp_ecns_enable_cmd(struct voice_data *v,
-	uint32_t module_id, int enable);
-
 static int is_cal_memory_allocated(void);
 static bool is_cvd_version_queried(void);
 static int is_voip_memory_allocated(void);
@@ -154,13 +146,6 @@ static int voice_pack_and_set_cvp_param(struct voice_data *v,
 static int voice_pack_and_set_cvs_ui_property(struct voice_data *v,
 					      struct param_hdr_v3 param_hdr,
 					      u8 *param_data);
-
-#ifdef CONFIG_SEC_SND_ADAPTATION
-struct common_data *voice_get_common_data(void)
-{
-	return &common;
-}
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 
 static void voice_itr_init(struct voice_session_itr *itr,
 			   u32 session_id)
@@ -559,7 +544,6 @@ static bool is_sub1_vsid(u32 session_id)
 	case VOLTE_SESSION_VSID:
 	case VOWLAN_SESSION_VSID:
 	case VOICEMMODE1_VSID:
-	case VOIP_SESSION_VSID:
 		ret = true;
 		break;
 	default:
@@ -1285,6 +1269,7 @@ static int voice_unmap_cal_block(struct voice_data *v, int cal_index)
 		goto unlock;
 	}
 
+	mutex_lock(&common.common_lock);
 	result = voice_send_mvm_unmap_memory_physical_cmd(
 		v, cal_block->map_data.q6map_handle);
 	if (result)
@@ -1292,6 +1277,7 @@ static int voice_unmap_cal_block(struct voice_data *v, int cal_index)
 			__func__, v->session_id, result);
 
 	cal_block->map_data.q6map_handle = 0;
+	mutex_unlock(&common.common_lock);
 unlock:
 	mutex_unlock(&common.cal_data[cal_index]->lock);
 done:
@@ -1557,124 +1543,6 @@ static int voice_send_tty_mode_cmd(struct voice_data *v)
 fail:
 	return ret;
 }
-
-static int voice_send_cvp_ecns_enable_cmd(struct voice_data *v,
-	uint32_t module_id, int enable)
-{
-	int ret;
-	struct cvp_set_channel_ecns_cmd_v2 cvp_set_ch_ecns_cmd;
-	void *apr_cvp;
-	u16 cvp_handle;
-	struct vss_icommon_param_data_ecns_t *cvp_config_param_data =
-				&cvp_set_ch_ecns_cmd.
-				cvp_set_ecns.param_data;
-
-	if (v == NULL) {
-		pr_err("%s: v is NULL\n", __func__);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	apr_cvp = common.apr_q6_cvp;
-
-	if (!apr_cvp) {
-		pr_err("%s: apr_cvp is NULL\n", __func__);
-		ret = -EINVAL;
-		goto done;
-	}
-
-	cvp_handle = voice_get_cvp_handle(v);
-	memset(&cvp_set_ch_ecns_cmd, 0,
-		sizeof(cvp_set_ch_ecns_cmd));
-
-	cvp_set_ch_ecns_cmd.hdr.hdr_field =
-			APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
-			APR_HDR_LEN(APR_HDR_SIZE),
-			APR_PKT_VER);
-	cvp_set_ch_ecns_cmd.hdr.pkt_size =
-			APR_PKT_SIZE(APR_HDR_SIZE,
-			sizeof(cvp_set_ch_ecns_cmd) - APR_HDR_SIZE);
-	cvp_set_ch_ecns_cmd.hdr.src_svc = 0;
-	cvp_set_ch_ecns_cmd.hdr.src_domain = APR_DOMAIN_APPS;
-	cvp_set_ch_ecns_cmd.hdr.src_port =
-			voice_get_idx_for_session(v->session_id);
-	cvp_set_ch_ecns_cmd.hdr.dest_svc = 0;
-	cvp_set_ch_ecns_cmd.hdr.dest_domain = APR_DOMAIN_ADSP;
-	cvp_set_ch_ecns_cmd.hdr.dest_port = cvp_handle;
-	cvp_set_ch_ecns_cmd.hdr.token = 0;
-	cvp_set_ch_ecns_cmd.hdr.opcode = VSS_ICOMMON_CMD_SET_PARAM_V2;
-	cvp_set_ch_ecns_cmd.cvp_set_ecns.mem_size =
-			sizeof(struct vss_icommon_param_data_ecns_t);
-
-	cvp_config_param_data->module_id = module_id;
-	cvp_config_param_data->param_id = VOICE_PARAM_MOD_ENABLE;
-	cvp_config_param_data->param_size = MOD_ENABLE_PARAM_LEN;
-	cvp_config_param_data->reserved = 0;
-	cvp_config_param_data->enable = enable;
-
-	v->cvp_state = CMD_STATUS_FAIL;
-	v->async_err = 0;
-	ret = apr_send_pkt(apr_cvp, (uint32_t *)&cvp_set_ch_ecns_cmd);
-
-	if (ret < 0) {
-		pr_err("%s: Failed to send VSS_ICOMMON_CMD_SET_PARAM_V2 %d\n",
-		       __func__, ret);
-		goto done;
-	}
-	ret = wait_event_timeout(v->cvp_wait,
-				(v->cvp_state == CMD_STATUS_SUCCESS),
-				 msecs_to_jiffies(TIMEOUT_MS));
-
-	if (!ret) {
-		pr_err("%s: wait_event timeout\n", __func__);
-		ret = -ETIMEDOUT;
-		goto done;
-	}
-
-	if (v->async_err > 0) {
-		pr_err("%s: DSP returned error[%s] handle = %d\n", __func__,
-		       adsp_err_get_err_str(v->async_err), cvp_handle);
-		ret = adsp_err_get_lnx_err_code(v->async_err);
-		goto done;
-	}
-	ret = 0;
-done:
-	return ret;
-}
-
-/**
- * voc_set_ecns_enable -
- *       Command to set ECNS for voice module
- *
- * @session_id: voice session ID to send this command
- * @module_id: voice module id
- * @enable: enable/disable flag
- *
- * Returns 0 on success or error on failure
- */
-int voc_set_ecns_enable(uint32_t session_id, uint32_t module_id,
-	 uint32_t enable)
-{
-	struct voice_data *v = voice_get_session(session_id);
-	int ret = 0;
-
-	if (v == NULL) {
-		pr_err("%s: invalid session_id 0x%x\n", __func__, session_id);
-		return -EINVAL;
-	}
-	mutex_lock(&v->lock);
-	v->ecns_enable = enable;
-	v->ecns_module_id = module_id;
-
-	if (is_voc_state_active(v->voc_state))
-		ret = voice_send_cvp_ecns_enable_cmd(v,
-				v->ecns_module_id, v->ecns_enable);
-
-	mutex_unlock(&v->lock);
-
-	return ret;
-}
-EXPORT_SYMBOL(voc_set_ecns_enable);
 
 static int voice_send_set_pp_enable_cmd(
 	struct voice_data *v, struct module_instance_info mod_inst_info,
@@ -3219,7 +3087,7 @@ static int voice_send_cvp_register_cal_cmd(struct voice_data *v)
 				cal_block->cal_info)->tx_acdb_id;
 	v->dev_rx.dev_id = ((struct audio_cal_info_vocproc *)
 				cal_block->cal_info)->rx_acdb_id;
-	pr_info("%s: %s: Tx acdb id = %d and Rx acdb id = %d", __func__,
+	pr_debug("%s: %s: Tx acdb id = %d and Rx acdb id = %d", __func__,
 		 voc_get_session_name(v->session_id), v->dev_tx.dev_id,
 		 v->dev_rx.dev_id);
 
@@ -4307,7 +4175,6 @@ static int voice_send_cvp_mfc_config_v2(struct voice_data *v)
 	struct cvp_set_mfc_config_cmd_v2 cvp_set_mfc_config_cmd;
 	void *apr_cvp;
 	u16 cvp_handle;
-	uint8_t ch_idx;
 	struct vss_icommon_param_data_mfc_config_v2_t *cvp_config_param_data =
 		&cvp_set_mfc_config_cmd.cvp_set_mfc_param_v2.param_data;
 	struct vss_param_mfc_config_info_t *mfc_config_info =
@@ -4356,15 +4223,9 @@ static int voice_send_cvp_mfc_config_v2(struct voice_data *v)
 	mfc_config_info->num_channels = v->dev_rx.no_of_channels;
 	mfc_config_info->bits_per_sample = 16;
 	mfc_config_info->sample_rate = v->dev_rx.sample_rate;
-
-	/*
-	 * Do not use memcpy here as channel_type in mfc_config structure is a
-	 * uint16_t array while channel_mapping array of device is of uint8_t
-	 */
-	for (ch_idx = 0; ch_idx < VSS_NUM_CHANNELS_MAX; ch_idx++) {
-		mfc_config_info->channel_type[ch_idx] =
-					v->dev_rx.channel_mapping[ch_idx];
-	}
+	memcpy(&mfc_config_info->channel_type,
+	       v->dev_rx.channel_mapping,
+	       VSS_NUM_CHANNELS_MAX * sizeof(uint8_t));
 
 	v->cvp_state = CMD_STATUS_FAIL;
 	v->async_err = 0;
@@ -4558,10 +4419,6 @@ static int voice_setup_vocproc(struct voice_data *v)
 
 	if (v->dtmf_rx_detect_en)
 		voice_send_dtmf_rx_detection_cmd(v, v->dtmf_rx_detect_en);
-
-	if (v->ecns_enable)
-		voice_send_cvp_ecns_enable_cmd(v, v->ecns_module_id,
-			v->ecns_enable);
 
 	if (v->hd_enable)
 		voice_send_hd_cmd(v, v->hd_enable);
@@ -5218,9 +5075,6 @@ static int voice_destroy_vocproc(struct voice_data *v)
 	/* send stop dtmf detecton cmd */
 	if (v->dtmf_rx_detect_en)
 		voice_send_dtmf_rx_detection_cmd(v, 0);
-
-	if (v->ecns_enable)
-		voice_send_cvp_ecns_enable_cmd(v, v->ecns_module_id, 0);
 
 	/* detach VOCPROC and wait for response from mvm */
 	mvm_d_vocproc_cmd.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -6994,10 +6848,6 @@ int voc_end_voice_call(uint32_t session_id)
 
 		pr_debug("%s: VOC_STATE: %d\n", __func__, v->voc_state);
 
-#ifdef CONFIG_SEC_SND_ADAPTATION
-		voice_sec_loopback_end_cmd(session_id);
-#endif /* CONFIG_SEC_SND_ADAPTATION */
-
 		ret = voice_destroy_vocproc(v);
 		if (ret < 0)
 			pr_err("%s:  destroy voice failed\n", __func__);
@@ -7407,10 +7257,6 @@ int voc_start_voice_call(uint32_t session_id)
 			pr_err("start voice failed\n");
 			goto fail;
 		}
-
-#ifdef CONFIG_SEC_SND_ADAPTATION
-		voice_sec_loopback_start_cmd(session_id);
-#endif /* CONFIG_SEC_SND_ADAPTATION */
 
 		v->voc_state = VOC_RUN;
 	} else {

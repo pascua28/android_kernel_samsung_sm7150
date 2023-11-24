@@ -1571,13 +1571,11 @@ static int wsa881x_swr_reset(struct swr_device *pdev)
 
 	wsa881x->bg_cnt = 0;
 	wsa881x->clk_cnt = 0;
-	usleep_range(10000, 10100);
 	while (swr_get_logical_dev_num(pdev, pdev->addr, &devnum) && retry--) {
 		/* Retry after 1 msec delay */
 		usleep_range(1000, 1100);
 	}
 	pdev->dev_num = devnum;
-	usleep_range(5000, 5010);
 	wsa881x_regcache_sync(wsa881x);
 
 	return 0;
