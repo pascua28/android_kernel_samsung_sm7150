@@ -443,10 +443,14 @@ void ist40xx_special_cmd(struct ist40xx_data *data, int cmd)
 					data->scrub_id = SPONGE_EVENT_TYPE_FOD;
 					input_info(true, &data->client->dev,
 						"FOD %s\n", g_msg.b.gid ? "normal" : "long");
+					data->fod_pressed = true;
+					sysfs_notify(&data->input_dev->dev.kobj, NULL, "fod_pressed");
 				} else if (g_msg.b.gid == G_ID_FOD_RELEASE) {
 					data->scrub_id = SPONGE_EVENT_TYPE_FOD_RELEASE;
 					input_info(true, &data->client->dev,
 						"FOD release\n");
+					data->fod_pressed = false;
+					sysfs_notify(&data->input_dev->dev.kobj, NULL, "fod_pressed");
 				} else if (g_msg.b.gid == G_ID_FOD_OUT) {
 					data->scrub_id = SPONGE_EVENT_TYPE_FOD_OUT;
 					input_info(true, &data->client->dev,
