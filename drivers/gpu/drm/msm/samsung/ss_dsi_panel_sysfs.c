@@ -3915,6 +3915,15 @@ static ssize_t ss_finger_hbm_store(struct device *dev,
 	LCD_INFO("mask_bl_level value : %d\n", value);
 	vdd->br.finger_mask_bl_level = value;
 
+	// brightness value > 0 means enabled
+	if (value > 0) {
+		vdd->finger_mask = 1;
+	} else {
+		vdd->finger_mask = 0;
+	}
+	// Update finger mask after turning on and off
+	vdd->finger_mask_updated = true;
+
 	return size;
 
 }
