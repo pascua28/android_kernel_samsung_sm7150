@@ -645,11 +645,13 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 		if (vdd->support_optical_fingerprint) {
 			finger_mask_state = sde_connector_get_property(c_conn->base.state,
 					CONNECTOR_PROP_FINGERPRINT_MASK);
-			vdd->finger_mask_updated = false;
-			if (finger_mask_state != vdd->finger_mask) {
-				vdd->finger_mask = finger_mask_state;
-				vdd->finger_mask_updated = true;
-				SDE_ERROR("[FINGER_MASK]updated finger mask mode %d\n", finger_mask_state);
+                       if (finger_mask_state == 0 && vdd->finger_mask == 1) {
+                               finger_mask_state = vdd->finger_mask;
+                               SDE_ERROR("[FINGER_MASK]updated finger mask mode %d\n", vdd->finger_mask);
+                       } else if (finger_mask_state == 1 && vdd->finger_mask == 0) {
+                               finger_mask_state = vdd->finger_mask;
+                               vdd->finger_mask_updated = false;
+                               SDE_ERROR("[FINGER_MASK]updated finger mask mode %d\n", vdd->finger_mask);
 			}
 		}
 	}
