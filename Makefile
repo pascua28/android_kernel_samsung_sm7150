@@ -752,7 +752,7 @@ KBUILD_CFLAGS   += -O2
 endif
 
 ifeq ($(cc-name),clang)
-KBUILD_CFLAGS	+= -mcpu=cortex-a55 -mtune=cortex-a55
+KBUILD_CFLAGS	+= -march=armv8.2-a+lse+fp16+dotprod -mcpu=cortex-a55+crypto+crc
 
 ifdef CONFIG_POLLY_CLANG
 KBUILD_CFLAGS	+= -mllvm -polly \
@@ -774,7 +774,7 @@ endif
 endif
 
 else
-KBUILD_CFLAGS	+= -mcpu=cortex-a76.cortex-a55 -mtune=cortex-a76.cortex-a55
+KBUILD_CFLAGS	+= -march=armv8.2-a+lse+fp16+dotprod -mcpu=cortex-a76.cortex-a55+crypto+crc
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
