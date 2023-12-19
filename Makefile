@@ -755,6 +755,7 @@ KBUILD_LDFLAGS	+= -mllvm -enable-ml-inliner=release
 
 ifdef CONFIG_POLLY_CLANG
 KBUILD_CFLAGS	+= -mllvm -polly \
+		   -mllvm -polly-parallel \
 		   -mllvm -polly-ast-use-context \
 		   -mllvm -polly-invariant-load-hoisting \
 		   -mllvm -polly-run-inliner \
