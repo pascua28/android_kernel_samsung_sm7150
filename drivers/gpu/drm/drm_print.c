@@ -34,6 +34,7 @@ void __drm_printfn_seq_file(struct drm_printer *p, struct va_format *vaf)
 }
 EXPORT_SYMBOL(__drm_printfn_seq_file);
 
+#ifdef CONFIG_DRM_DEBUG_PRINT
 void __drm_printfn_info(struct drm_printer *p, struct va_format *vaf)
 {
 	dev_info(p->arg, "[" DRM_NAME "] %pV", vaf);
@@ -45,6 +46,7 @@ void __drm_printfn_debug(struct drm_printer *p, struct va_format *vaf)
 	pr_debug("%s %pV", p->prefix, vaf);
 }
 EXPORT_SYMBOL(__drm_printfn_debug);
+#endif
 
 /**
  * drm_printf - print to a &drm_printer stream
