@@ -74,8 +74,16 @@ struct drm_printer {
 };
 
 void __drm_printfn_seq_file(struct drm_printer *p, struct va_format *vaf);
+#ifdef CONFIG_DRM_DEBUG_PRINT
 void __drm_printfn_info(struct drm_printer *p, struct va_format *vaf);
 void __drm_printfn_debug(struct drm_printer *p, struct va_format *vaf);
+#else
+static inline
+void __drm_printfn_info(struct drm_printer *p, struct va_format *vaf) {}
+
+static inline
+void __drm_printfn_debug(struct drm_printer *p, struct va_format *vaf) {}
+#endif
 
 __printf(2, 3)
 void drm_printf(struct drm_printer *p, const char *f, ...);
