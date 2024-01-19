@@ -1879,9 +1879,9 @@ static int s2mu106_vbus_on_check(void *_data, int volt)
 	int vbus_check;
 
 	if (volt == OTG_5V)
-		s2mu106_usbpd_check_vbus(pdic_data, 4300, VBUS_ON);
+		vbus_check = s2mu106_usbpd_check_vbus(pdic_data, 4300, VBUS_ON);
 	else if (volt == OTG_9V)
-		s2mu106_usbpd_check_vbus(pdic_data, 8300, VBUS_ON);
+		vbus_check = s2mu106_usbpd_check_vbus(pdic_data, 8300, VBUS_ON);
 
 	return vbus_check;
 #else
