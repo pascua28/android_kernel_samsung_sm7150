@@ -45,9 +45,4 @@ RMNET_INGRESS_FORMAT_DL_MARKER_V2)
 /* Pass the frame directly to another device with dev_queue_xmit() */
 #define RMNET_EPMODE_BRIDGE (2)
 
-#if defined(CONFIG_ARGOS)
-extern bool rmnet_data_tx_aggr_enabled;
-extern u32 config_flushcount;
-#endif
-
 #endif /* _RMNET_PRIVATE_H_ */
