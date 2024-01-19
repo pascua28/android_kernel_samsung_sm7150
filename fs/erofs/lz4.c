@@ -427,9 +427,9 @@ static ssize_t lz4_decompress(const void *source,
 {
         uint8_t         *dstPtr = dest;
         const uint8_t   *srcPtr = source;
-        ssize_t         ret;
 
 #ifdef __ARCH_HAS_LZ4_ACCELERATOR
+	ssize_t		ret;
         /* Go fast if we can, keeping away from the end of buffers */
         if (outputSize > LZ4_FAST_MARGIN && inputSize > LZ4_FAST_MARGIN &&
             accel && lz4_decompress_accel_enable()) {

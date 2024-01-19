@@ -578,7 +578,7 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 	nanosec_rem = do_div(wdog_dd->last_pet, 1000000000);
 	dev_info(wdog_dd->dev, "Watchdog last pet at %lu.%06lu\n",
 			(unsigned long) wdog_dd->last_pet, nanosec_rem / 1000);
-	dev_info(wdog_dd->dev, "Watchdog pet_timer on cpu%d, expires = 0x%llx, jiffies = 0x%llx\n",
+	dev_info(wdog_dd->dev, "Watchdog pet_timer on cpu%d, expires = 0x%lx, jiffies = 0x%lx\n",
 			get_cpu_where_timer_on(&wdog_dd->pet_timer), wdog_dd->pet_timer.expires, jiffies);
 
 	if (wdog_dd->do_ipi_ping)
