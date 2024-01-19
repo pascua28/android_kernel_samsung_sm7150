@@ -97,7 +97,7 @@ TRACE_EVENT(net_receive_skb_exit,
 
 	),
 
-	TP_printk(" skbaddr=%pK UTC = %ld", __entry->skbaddr, __entry->utctime)
+	TP_printk(" skbaddr=%pK UTC = %lld", __entry->skbaddr, __entry->utctime)
 );
 
 TRACE_EVENT(net_dev_xmit,
@@ -125,7 +125,7 @@ TRACE_EVENT(net_dev_xmit,
 		__entry->utctime = ktime_get_tai_ns();
 	),
 
-	TP_printk("dev=%s skbaddr=%pK len=%u rc=%d UTC: %ld",
+	TP_printk("dev=%s skbaddr=%pK len=%u rc=%d UTC: %lld",
 		  __get_str(name), __entry->skbaddr, __entry->len, __entry->rc,
 		  __entry->utctime)
 );
@@ -150,7 +150,7 @@ DECLARE_EVENT_CLASS(net_dev_template,
 		__entry->utctime = ktime_get_tai_ns();
 	),
 
-	TP_printk("dev=%s skbaddr=%pK len=%u UTC: %ld",
+	TP_printk("dev=%s skbaddr=%pK len=%u UTC: %lld",
 		__get_str(name), __entry->skbaddr, __entry->len,
 		__entry->utctime)
 )

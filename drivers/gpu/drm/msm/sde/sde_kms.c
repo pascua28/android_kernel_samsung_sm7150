@@ -2736,7 +2736,7 @@ static int sde_kms_get_mixer_count(const struct msm_kms *kms,
 			mode->hdisplay > max_mixer_width) {
 		*num_lm = 2;
 		if ((mode_clock_hz >> 1) > max_mdp_clock_hz) {
-			SDE_DEBUG("[%s] clock %d exceeds max_mdp_clk %d\n",
+			SDE_DEBUG("[%s] clock %lld exceeds max_mdp_clk %lld\n",
 					mode->name, mode_clock_hz,
 					max_mdp_clock_hz);
 			return -EINVAL;

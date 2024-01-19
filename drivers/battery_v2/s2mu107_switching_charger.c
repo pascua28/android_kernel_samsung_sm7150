@@ -901,9 +901,9 @@ static int s2mu107_sc_set_property(struct power_supply *psy,
 			if (!psy)
 				return -EINVAL;
 			ret = power_supply_set_property(psy, POWER_SUPPLY_PROP_ENERGY_AVG, &value);
-			if (ret < 0)
+			if (ret < 0) {
 				pr_err("%s: Fail to execute property\n", __func__);
-			
+
 				if (sw_charger->cable_type == SEC_BATTERY_CABLE_NONE) {
 					/* At cable removal enable IVR IRQ if it was disabled */
 					if (sw_charger->irq_ivr_enabled == 0) {
@@ -916,6 +916,7 @@ static int s2mu107_sc_set_property(struct power_supply *psy,
 						enable_irq(sw_charger->irq_ivr);
 						s2mu107_read_reg(sw_charger->i2c, S2MU107_SC_INT2_MASK, &reg_data);
 						pr_info("%s : enable ivr : 0x%x\n", __func__, reg_data);
+					}
 				}
 			}
 		} else {
