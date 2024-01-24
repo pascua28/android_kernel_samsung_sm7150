@@ -75,6 +75,8 @@
 
 #include <uapi/linux/android/binder.h>
 #include <uapi/linux/sched/types.h>
+#include <uapi/linux/eventpoll.h>
+
 #include "binder_alloc.h"
 #include "binder_internal.h"
 #include "binder_trace.h"
