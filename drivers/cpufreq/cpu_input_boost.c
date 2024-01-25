@@ -35,6 +35,8 @@ struct boost_drv {
 	unsigned long state;
 };
 
+static unsigned int dynamic_stune_boost __read_mostly = 30;
+
 static void input_unboost_worker(struct work_struct *work);
 static void max_unboost_worker(struct work_struct *work);
 
@@ -45,18 +47,6 @@ static struct boost_drv boost_drv_g __read_mostly = {
 						  max_unboost_worker, 0),
 	.boost_waitq = __WAIT_QUEUE_HEAD_INITIALIZER(boost_drv_g.boost_waitq)
 };
-
-static unsigned int get_input_boost_freq(struct cpufreq_policy *policy)
-{
-	unsigned int freq;
-
-	if (cpumask_test_cpu(policy->cpu, cpu_lp_mask))
-		freq = CONFIG_INPUT_BOOST_FREQ_LP;
-	else
-		freq = CONFIG_INPUT_BOOST_FREQ_PERF;
-
-	return min(freq, policy->max);
-}
 
 static unsigned int get_max_boost_freq(struct cpufreq_policy *policy)
 {
@@ -89,6 +79,9 @@ static void __cpu_input_boost_kick(struct boost_drv *b)
 		return;
 
 	set_bit(INPUT_BOOST, &b->state);
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	do_stune_boost("top-app", dynamic_stune_boost);
+#endif
 	if (!mod_delayed_work(system_unbound_wq, &b->input_unboost,
 			      msecs_to_jiffies(CONFIG_INPUT_BOOST_DURATION_MS)))
 		wake_up(&b->boost_waitq);
@@ -109,6 +102,10 @@ static void __cpu_input_boost_kick_max(struct boost_drv *b,
 
 	if (test_bit(SCREEN_OFF, &b->state))
 		return;
+
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	do_stune_boost("top-app", dynamic_stune_boost);
+#endif
 
 	do {
 		curr_expires = atomic_long_read(&b->max_boost_expires);
@@ -140,6 +137,9 @@ static void input_unboost_worker(struct work_struct *work)
 
 	clear_bit(INPUT_BOOST, &b->state);
 	wake_up(&b->boost_waitq);
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	reset_stune_boost("top-app");
+#endif
 }
 
 static void max_unboost_worker(struct work_struct *work)
@@ -149,6 +149,9 @@ static void max_unboost_worker(struct work_struct *work)
 
 	clear_bit(MAX_BOOST, &b->state);
 	wake_up(&b->boost_waitq);
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	reset_stune_boost("top-app");
+#endif
 }
 
 static int cpu_boost_thread(void *data)
@@ -204,9 +207,7 @@ static int cpu_notifier_cb(struct notifier_block *nb, unsigned long action,
 	 * Boost to policy->max if the boost frequency is higher. When
 	 * unboosting, set policy->min to the absolute min freq for the CPU.
 	 */
-	if (test_bit(INPUT_BOOST, &b->state))
-		policy->min = get_input_boost_freq(policy);
-	else
+	if (!test_bit(INPUT_BOOST, &b->state))
 		policy->min = policy->cpuinfo.min_freq;
 
 	return NOTIFY_OK;
@@ -278,6 +279,9 @@ free_handle:
 
 static void cpu_input_boost_input_disconnect(struct input_handle *handle)
 {
+#ifdef CONFIG_DYNAMIC_STUNE_BOOST
+	reset_stune_boost("top-app");
+#endif
 	input_close_device(handle);
 	input_unregister_handle(handle);
 	kfree(handle);
