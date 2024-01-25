@@ -883,37 +883,6 @@ int set_freq_limit(unsigned long id, unsigned int freq)
 
 	pr_debug("%s: id=%d freq=%d\n", __func__, (int)id, freq);
 
-	/* min lock */
-	if (id & DVFS_TOUCH_ID) {
-		if (cpufreq_min_touch) {
-			cpufreq_limit_put(cpufreq_min_touch);
-			cpufreq_min_touch = NULL;
-		}
-		if (freq != -1) {
-			cpufreq_min_touch = cpufreq_limit_min_freq(freq, "touch min");
-			if (IS_ERR(cpufreq_min_touch)) {
-				pr_err("%s: fail to get the handle\n", __func__);
-				cpufreq_min_touch = NULL;
-				ret = -EINVAL;
-			}
-		}
-	}
-
-	if (id & DVFS_FINGER_ID) {
-		if (cpufreq_min_finger) {
-			cpufreq_limit_put(cpufreq_min_finger);
-			cpufreq_min_finger = NULL;
-		}
-		if (freq != -1) {
-			cpufreq_min_finger = cpufreq_limit_min_freq(freq, "finger min");
-			if (IS_ERR(cpufreq_min_finger)) {
-				pr_err("%s: fail to get the handle\n", __func__);
-				cpufreq_min_finger = NULL;
-				ret = -EINVAL;
-			}
-		}
-	}
-
 	if (id & DVFS_ARGOS_ID) {
 		if (cpufreq_min_argos) {
 			cpufreq_limit_put(cpufreq_min_argos);
