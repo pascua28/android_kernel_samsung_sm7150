@@ -148,14 +148,10 @@ extern int do_execveat(int, struct filename *,
 		       const char __user * const __user *,
 		       int);
 
-static inline bool task_is_booster(struct task_struct *tsk)
+static inline bool task_is_booster(void)
 {
-	char comm[sizeof(tsk->comm)];
-
-	get_task_comm(comm, tsk);
-	return !strcmp(comm, "init") || !strcmp(comm, "HyPerThread") ||
-	       !strcmp(comm, "perf@2.2-servic") ||
-	       !strcmp(comm, "init.qcom.post_");
+	return !strcmp(current->comm, "cpu_boostd") ||
+		current->parent->pid == 1;
 }
 
 #endif /* _LINUX_BINFMTS_H */
