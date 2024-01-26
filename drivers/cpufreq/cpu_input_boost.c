@@ -35,7 +35,7 @@ struct boost_drv {
 	unsigned long state;
 };
 
-static unsigned int dynamic_stune_boost __read_mostly = 30;
+static unsigned int dynamic_stune_boost __read_mostly = 10;
 
 static void input_unboost_worker(struct work_struct *work);
 static void max_unboost_worker(struct work_struct *work);
