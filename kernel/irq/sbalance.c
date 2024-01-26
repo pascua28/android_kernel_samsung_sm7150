@@ -221,8 +221,13 @@ static void balance_irqs(void)
 	 * interrupts. That way, time spent processing each interrupt is
 	 * considered when balancing.
 	 */
-	for_each_cpu(cpu, &cpus)
+	for_each_cpu(cpu, &cpus) {
+		if (idle_cpu(cpu)) {
+			cpumask_clear_cpu(cpu, &cpus);
+			continue;
+		}
 		per_cpu(cpu_cap, cpu) = cpu_rq(cpu)->cpu_capacity;
+	}
 
 	list_for_each_entry_rcu(bi, &bal_irq_list, node) {
 		if (!update_irq_data(bi, &cpu))
