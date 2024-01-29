@@ -1388,12 +1388,11 @@ static inline void unregister_sched_domain_sysctl(void)
 }
 #endif
 
-extern void flush_smp_call_function_from_idle(void);
+#else
 
-#else /* !CONFIG_SMP: */
-static inline void flush_smp_call_function_from_idle(void) { }
 static inline void sched_ttwu_pending(void) { }
-#endif
+
+#endif /* CONFIG_SMP */
 
 #include "stats.h"
 #include "autogroup.h"
@@ -1563,8 +1562,7 @@ static inline void finish_lock_switch(struct rq *rq, struct task_struct *prev)
  */
 #define WF_SYNC		0x01		/* waker goes to sleep after wakeup */
 #define WF_FORK		0x02		/* child wakeup after fork */
-#define WF_MIGRATED	0x04		/* internal use, task got migrated */
-#define WF_ON_RQ	0x08		/* wakee is on_rq */
+#define WF_MIGRATED	0x4		/* internal use, task got migrated */
 
 /*
  * To aid in avoiding the subversion of "niceness" due to uneven distribution
@@ -2011,18 +2009,13 @@ static inline unsigned long task_util(struct task_struct *p)
  *
  * Return: the (estimated) utilization for the specified CPU
  */
-
-#ifdef CONFIG_SCHED_WALT
 static inline unsigned long cpu_util(int cpu)
-#else
-static inline unsigned long __cpu_util(int cpu)
-#endif
 {
 	struct cfs_rq *cfs_rq;
 	unsigned int util;
 
 #ifdef CONFIG_SCHED_WALT
-	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
+	if (likely(!walt_disabled && sysctl_sched_use_walt_cpu_util)) {
 		u64 walt_cpu_util =
 			cpu_rq(cpu)->walt_stats.cumulative_runnable_avg_scaled;
 
@@ -2049,15 +2042,13 @@ struct sched_walt_cpu_load {
 
 static inline unsigned long cpu_util_cum(int cpu, int delta)
 {
+	u64 util = cpu_rq(cpu)->cfs.avg.util_avg;
 	unsigned long capacity = capacity_orig_of(cpu);
-	u64 util;
 
 #ifdef CONFIG_SCHED_WALT
-	util = cpu_util(cpu);
-#else
-	util = __cpu_util(cpu);
+	if (!walt_disabled && sysctl_sched_use_walt_cpu_util)
+		util = cpu_rq(cpu)->cum_window_demand_scaled;
 #endif
-
 	delta += util;
 	if (delta < 0)
 		return 0;
@@ -2125,17 +2116,11 @@ static inline unsigned long cpu_util_rt(int cpu)
 	return rt_rq->avg.util_avg;
 }
 
-static inline unsigned long cpu_util(int cpu)
-{
-	return min(__cpu_util(cpu) + cpu_util_rt(cpu), capacity_orig_of(cpu));
-}
-
 static inline unsigned long
 cpu_util_freq(int cpu, struct sched_walt_cpu_load *walt_load)
 {
-	return min(cpu_util(cpu), capacity_orig_of(cpu));
+	return min(cpu_util(cpu) + cpu_util_rt(cpu), capacity_orig_of(cpu));
 }
-
 
 #define sched_ravg_window TICK_NSEC
 #define sysctl_sched_use_walt_cpu_util 0
@@ -3034,22 +3019,29 @@ task_in_cum_window_demand(struct rq *rq, struct task_struct *p)
 }
 
 static inline bool hmp_capable(void) { return false; }
-static inline bool is_min_capacity_cpu(int cpu)
-{
-#ifdef CONFIG_SMP
-	int min_cpu = cpu_rq(cpu)->rd->min_cap_orig_cpu;
+static inline bool is_max_capacity_cpu(int cpu) { return true; }
+static inline bool is_min_capacity_cpu(int cpu) { return true; }
 
-	return unlikely(min_cpu == -1) ||
-		capacity_orig_of(cpu) == capacity_orig_of(min_cpu);
-#else
-	return true;
-#endif
+static inline int
+preferred_cluster(struct sched_cluster *cluster, struct task_struct *p)
+{
+	return 1;
+}
+
+static inline struct sched_cluster *rq_cluster(struct rq *rq)
+{
+	return NULL;
+}
+
+static inline u64 scale_load_to_cpu(u64 load, int cpu)
+{
+	return load;
 }
 
 #ifdef CONFIG_SMP
 static inline int cpu_capacity(int cpu)
 {
-	return capacity_orig_of(cpu);
+	return SCHED_CAPACITY_SCALE;
 }
 #endif
 
@@ -3077,6 +3069,11 @@ static inline int update_preferred_cluster(struct related_thread_group *grp,
 
 static inline void add_new_task_to_grp(struct task_struct *new) {}
 
+static inline int same_freq_domain(int src_cpu, int dst_cpu)
+{
+	return 1;
+}
+
 static inline void clear_reserved(int cpu) { }
 static inline int alloc_related_thread_groups(void) { return 0; }
 
@@ -3093,7 +3090,7 @@ static inline void update_cpu_cluster_capacity(const cpumask_t *cpus) { }
 #ifdef CONFIG_SMP
 static inline unsigned long thermal_cap(int cpu)
 {
-	return SCHED_CAPACITY_SCALE;
+	return cpu_rq(cpu)->cpu_capacity_orig;
 }
 #endif
 
@@ -3117,6 +3114,13 @@ static inline bool early_detection_notify(struct rq *rq, u64 wallclock)
 {
 	return 0;
 }
+
+#ifdef CONFIG_SMP
+static inline unsigned int power_cost(int cpu, u64 demand)
+{
+	return SCHED_CAPACITY_SCALE;
+}
+#endif
 
 static inline void note_task_waking(struct task_struct *p, u64 wallclock) { }
 static inline void walt_map_freq_to_load(void) { }
