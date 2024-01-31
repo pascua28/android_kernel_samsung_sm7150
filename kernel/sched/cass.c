@@ -120,7 +120,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync)
 	int cidx = 0, cpu;
 
 	/* Get candidate CPUs */
-	cpumask_and(&candidates, p->cpus_ptr, cpu_active_mask);
+	cpumask_and(&candidates, &p->cpus_allowed, cpu_active_mask);
 
 	/* Calculate energy of candidate cpu */
 	pd = rcu_dereference(rq->rd->pd);
