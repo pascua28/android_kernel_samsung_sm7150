@@ -1178,6 +1178,7 @@ qdf_tso_seg_dbg_zero(struct qdf_tso_seg_elem_t *tsoseg)
 
 #endif /* TSOSEG_DEBUG */
 
+#if 0
 /**
  * qdf_trace_hex_dump() - externally called hex dump function
  * @module: Module identifier a member of the QDF_MODULE_ID enumeration that
@@ -1194,7 +1195,14 @@ qdf_tso_seg_dbg_zero(struct qdf_tso_seg_elem_t *tsoseg)
  */
 void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
 			void *data, int buf_len);
+#else
+static inline void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+			void *data, int buf_len)
+{
+}
+#endif
 
+#if 0
 /**
  * qdf_trace_hex_ascii_dump() - externally called hex and ascii dump function
  * @module: Module identifier a member of the QDF_MODULE_ID enumeration that
@@ -1211,6 +1219,12 @@ void qdf_trace_hex_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
  */
 void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
 			      void *data, int buf_len);
+#else
+static inline void qdf_trace_hex_ascii_dump(QDF_MODULE_ID module, QDF_TRACE_LEVEL level,
+			      void *data, int buf_len)
+{
+}
+#endif
 
 #define ERROR_CODE                      -1
 #define QDF_MAX_NAME_SIZE               32
