@@ -2379,8 +2379,13 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
  */
 void cpufreq_update_policy(unsigned int cpu)
 {
-	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+	struct cpufreq_policy *policy;
 	struct cpufreq_policy new_policy;
+
+	if (task_is_booster())
+		return;
+
+	policy = cpufreq_cpu_get(cpu);
 
 	if (!policy)
 		return;
