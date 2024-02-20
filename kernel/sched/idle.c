@@ -229,7 +229,6 @@ exit_idle:
  */
 static void do_idle(void)
 {
-	int cpu = smp_processor_id();
 	/*
 	 * If the arch has a polling bit, we maintain an invariant:
 	 *
@@ -247,7 +246,7 @@ static void do_idle(void)
 		check_pgt_cache();
 		rmb();
 
-		if (cpu_is_offline(cpu)) {
+		if (cpu_is_offline(smp_processor_id())) {
 			tick_nohz_idle_stop_tick_protected();
 			cpuhp_report_idle_dead();
 			arch_cpu_idle_dead();
