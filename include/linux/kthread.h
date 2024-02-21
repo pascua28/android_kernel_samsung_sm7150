@@ -57,15 +57,13 @@ bool kthread_is_per_cpu(struct task_struct *k);
  *
  * Same as kthread_create(), but takes a perf cpumask to affine to.
  */
-#define kthread_run_perf_critical(perfmask, threadfn, data, namefmt, ...)  \
+#define kthread_run_perf_critical(threadfn, data, namefmt, ...)  \
 ({									   \
 	struct task_struct *__k						   \
 		= kthread_create(threadfn, data, namefmt, ## __VA_ARGS__); \
 	if (!IS_ERR(__k)) {						   \
 		__k->flags |= PF_PERF_CRITICAL;				   \
-		BUILD_BUG_ON(perfmask != cpu_lp_mask &&			   \
-			     perfmask != cpu_perf_mask);		   \
-		kthread_bind_mask(__k, perfmask);			   \
+		kthread_bind_mask(__k, cpu_perf_mask);			   \
 		wake_up_process(__k);					   \
 	}								   \
 	__k;								   \
