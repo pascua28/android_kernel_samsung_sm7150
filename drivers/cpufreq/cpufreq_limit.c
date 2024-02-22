@@ -317,42 +317,7 @@ static inline int is_big(unsigned int cpu)
 
 static int cpufreq_limit_hmp_boost(int enable)
 {
-	unsigned int ret = 0;
-
-	pr_debug("%s: enable=%d, prev_type=%d, type=%d, active=%d\n", __func__,
-		enable, hmp_param.hmp_prev_boost_type, hmp_param.hmp_boost_type, hmp_param.hmp_boost_active);
-
-	if (enable) {
-		if ((hmp_param.hmp_boost_type && !hmp_param.hmp_boost_active) ||
-			(hmp_param.hmp_boost_active && (hmp_param.hmp_boost_type != hmp_param.hmp_prev_boost_type))) {
-			hmp_param.hmp_boost_active = enable;
-
-			// Release previous boost type before enable new boost type.
-			if(hmp_param.hmp_prev_boost_type != NO_BOOST) {
-				ret = sched_set_boost(hmp_param.hmp_prev_boost_type * -1);
-				if (ret)
-					pr_err("%s: HMP boost enable failed\n", __func__);
-			}
-
-			// Set prev boost type
-			hmp_param.hmp_prev_boost_type = hmp_param.hmp_boost_type;
-
-			ret = sched_set_boost(CONSERVATIVE_BOOST);
-			if (ret)
-				pr_err("%s: HMP boost enable failed\n", __func__);
-		}
-	} else {
-		if (hmp_param.hmp_boost_type && hmp_param.hmp_boost_active) {
-			hmp_param.hmp_boost_active = 0;
-			ret = sched_set_boost(hmp_param.hmp_prev_boost_type * -1);
-			hmp_param.hmp_prev_boost_type = NO_BOOST;
-			hmp_param.hmp_boost_type = CONSERVATIVE_BOOST;
-			if (ret)
-				pr_err("%s: HMP boost disable failed\n", __func__);
-		}
-	}
-
-	return ret;
+	return 0;
 }
 
 static int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
