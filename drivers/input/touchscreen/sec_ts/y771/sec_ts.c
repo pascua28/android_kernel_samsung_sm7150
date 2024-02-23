@@ -1747,6 +1747,7 @@ void sec_ts_set_grip_type(struct sec_ts_data *ts, u8 set_type)
 
 struct sec_ts_data *g_ts;
 
+#ifdef CONFIG_DEBUG_FS
 static ssize_t sec_ts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
 					size_t len, loff_t *offset)
 {
@@ -2024,6 +2025,7 @@ err_alloc_sub:
 
 	input_err(true, &ts->client->dev, "%s: failed\n", __func__);
 }
+#endif
 
 /* for debugging--------------------------------------------------------------------------------------*/
 static int sec_ts_pinctrl_configure(struct sec_ts_data *ts, bool enable)
@@ -2835,7 +2837,9 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto err_allocate_frame;
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	sec_ts_init_proc(ts);
+#endif
 
 	if (ts->plat_data->support_dex) {
 		ts->input_dev_pad->name = "sec_touchpad";
