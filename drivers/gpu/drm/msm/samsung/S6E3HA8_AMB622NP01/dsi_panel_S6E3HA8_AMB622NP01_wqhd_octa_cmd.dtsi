@@ -5142,7 +5142,7 @@
 				qcom,mdss-dsc-encoders = <2>;
 				qcom,mdss-dsc-slice-height = <40>;
 				qcom,mdss-dsc-slice-width = <720>;
-				qcom,mdss-dsc-slice-per-pkt = <1>;
+				qcom,mdss-dsc-slice-per-pkt = <2>;
 				qcom,mdss-dsc-bit-per-component = <8>;
 				qcom,mdss-dsc-bit-per-pixel = <8>;
 				qcom,mdss-dsc-block-prediction-enable;
@@ -5284,7 +5284,7 @@
 				qcom,mdss-dsc-encoders = <2>;
 				qcom,mdss-dsc-slice-height = <30>;
 				qcom,mdss-dsc-slice-width = <540>;
-				qcom,mdss-dsc-slice-per-pkt = <1>;
+				qcom,mdss-dsc-slice-per-pkt = <2>;
 				qcom,mdss-dsc-bit-per-component = <8>;
 				qcom,mdss-dsc-bit-per-pixel = <8>;
 				qcom,mdss-dsc-block-prediction-enable;
@@ -5429,7 +5429,7 @@
 				qcom,mdss-dsc-encoders = <2>;
 				qcom,mdss-dsc-slice-height = <74>;
 				qcom,mdss-dsc-slice-width = <360>;
-				qcom,mdss-dsc-slice-per-pkt = <1>;
+				qcom,mdss-dsc-slice-per-pkt = <2>;
 				qcom,mdss-dsc-bit-per-component = <8>;
 				qcom,mdss-dsc-bit-per-pixel = <8>;
 				qcom,mdss-dsc-block-prediction-enable;
