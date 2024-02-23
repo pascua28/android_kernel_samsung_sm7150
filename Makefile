@@ -391,7 +391,7 @@ OBJDUMP		= $(CLANG_DIR)llvm-objdump
 READELF		= $(CLANG_DIR)llvm-readelf
 STRIP		= $(CLANG_DIR)llvm-strip
 else
-CC		= $(CROSS_COMPILE)gcc
+CC		= ccache $(CROSS_COMPILE)gcc
 LD		= $(CROSS_COMPILE)ld
 LDGOLD		= $(CROSS_COMPILE)ld.gold
 AR		= $(CROSS_COMPILE)ar
