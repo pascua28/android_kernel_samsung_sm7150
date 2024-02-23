@@ -36,18 +36,22 @@ struct msm_rtb_platform_data {
 	unsigned int size;
 };
 
+/*
+ * returns 1 if data was logged, 0 otherwise
+ */
+static inline int uncached_logk_pc(enum logk_event_type log_type, void *caller,
+				void *data) {
+	return 0;
+}
+
+/*
+ * returns 1 if data was logged, 0 otherwise
+ */
+static inline int uncached_logk(enum logk_event_type log_type, void *data) {
+	return 0;
+}
+
 #if defined(CONFIG_QCOM_RTB)
-/*
- * returns 1 if data was logged, 0 otherwise
- */
-int uncached_logk_pc(enum logk_event_type log_type, void *caller,
-				void *data);
-
-/*
- * returns 1 if data was logged, 0 otherwise
- */
-int uncached_logk(enum logk_event_type log_type, void *data);
-
 #define ETB_WAYPOINT  do { \
 				BRANCH_TO_NEXT_ISTR; \
 				nop(); \
@@ -69,14 +73,6 @@ int uncached_logk(enum logk_event_type log_type, void *data);
 				isb(); \
 			} while (0)
 #else
-
-static inline int uncached_logk_pc(enum logk_event_type log_type,
-					void *caller,
-					void *data) { return 0; }
-
-static inline int uncached_logk(enum logk_event_type log_type,
-					void *data) { return 0; }
-
 #define ETB_WAYPOINT
 #define BRANCH_TO_NEXT_ISTR
 /*
