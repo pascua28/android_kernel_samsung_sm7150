@@ -21,7 +21,6 @@ int layer_data[TYPE_RAWDATA_MAX];
 static void sec_ts_reset_work(struct work_struct *work);
 #endif
 static void sec_ts_read_info_work(struct work_struct *work);
-static void sec_ts_print_info_work(struct work_struct *work);
 
 #ifdef USE_OPEN_CLOSE
 static int sec_ts_input_open(struct input_dev *dev);
@@ -1031,45 +1030,6 @@ void sec_ts_reinit(struct sec_ts_data *ts)
 	}
 }
 
-void sec_ts_print_info(struct sec_ts_data *ts)
-{
-	if (!ts)
-		return;
-
-	if (!ts->client)
-		return;
-
-	ts->print_info_cnt_open++;
-
-	if (ts->print_info_cnt_open > 0xfff0)
-		ts->print_info_cnt_open = 0;
-
-	if (ts->touch_count == 0)
-		ts->print_info_cnt_release++;
-
-	input_info(true, &ts->client->dev,
-			"mode:%04X tc:%d noise:%x wet:%d wc:%x(%d) lp:(%x) fod:%d D%05X fn:%04X/%04X // v:%02X%02X cal:%02X(%02X) C%02XT%04X.%4s%s Cal_flag:%s fail_cnt:%d // id(%d,%d) tmp(%d)// #%d %d\n",
-			ts->print_info_currnet_mode, ts->touch_count,
-			ts->touch_noise_status, ts->wet_mode,
-			ts->charger_mode, ts->force_charger_mode,
-			ts->lowpower_mode, ts->fod_set_val, ts->defect_probability,
-			ts->touch_functions, ts->ic_status,
-			ts->plat_data->img_version_of_ic[2], ts->plat_data->img_version_of_ic[3],
-			ts->cal_status, ts->nv,
-#ifdef TCLM_CONCEPT
-			ts->tdata->nvdata.cal_count, ts->tdata->nvdata.tune_fix_ver,
-			ts->tdata->tclm_string[ts->tdata->nvdata.cal_position].f_name,
-			(ts->tdata->tclm_level == TCLM_LEVEL_LOCKDOWN) ? ".L" : " ",
-			(ts->tdata->nvdata.cal_fail_falg == SEC_CAL_PASS) ? "Success" : "Fail",
-			ts->tdata->nvdata.cal_fail_cnt,
-#else
-			0,0," "," "," ",0,
-#endif
-			ts->tspid_val, ts->tspicid_val,
-			ts->tsp_temp_data,
-			ts->print_info_cnt_open, ts->print_info_cnt_release);
-}
-
 /************************************************************
 *  720  * 1480 : <48 96 60> indicator: 24dp navigator:48dp edge:60px dpi=320
 * 1080  * 2220 :  4096 * 4096 : <133 266 341>  (approximately value)
@@ -1363,7 +1323,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 							input_report_key(ts->input_dev, BTN_TOUCH, 0);
 							input_report_key(ts->input_dev, BTN_TOOL_FINGER, 0);
 							ts->check_multi = 0;
-							ts->print_info_cnt_release = 0;
 						}
 
 						location_detect(ts, location, ts->coord[t_id].x, ts->coord[t_id].y);
@@ -1550,12 +1509,6 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 	} while (remain_event_count >= 0);
 
 	input_sync(ts->input_dev);
-
-	if(ts->touch_count == 0 && ts->tsp_temp_data_skip){
-		ts->tsp_temp_data_skip = false;
-		sec_ts_set_temp(ts, false);
-		input_err(true, &ts->client->dev, "%s: sec_ts_set_temp, no touch\n", __func__);	
-	}
 }
 
 static irqreturn_t sec_ts_irq_thread(int irq, void *ptr)
@@ -2632,7 +2585,6 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	INIT_DELAYED_WORK(&ts->reset_work, sec_ts_reset_work);
 #endif
 	INIT_DELAYED_WORK(&ts->work_read_info, sec_ts_read_info_work);
-	INIT_DELAYED_WORK(&ts->work_print_info, sec_ts_print_info_work);
 	INIT_DELAYED_WORK(&ts->work_read_functions, sec_ts_get_touch_function);
 
 	i2c_set_clientdata(client, ts);
@@ -3100,27 +3052,6 @@ static void sec_ts_reset_work(struct work_struct *work)
 }
 #endif
 
-static void sec_ts_print_info_work(struct work_struct *work)
-{
-	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
-			work_print_info.work);
-	sec_ts_print_info(ts);
-
-	if (ts->sec.cmd_is_running) {
-		input_err(true, &ts->client->dev, "%s: skip sec_ts_set_temp, cmd running\n", __func__);	
-	} else {
-		if (ts->touch_count) {
-			ts->tsp_temp_data_skip = true;
-			input_err(true, &ts->client->dev, "%s: skip sec_ts_set_temp, t_cnt(%d)\n", __func__, ts->touch_count);	
-		} else {
-			ts->tsp_temp_data_skip = false;
-			sec_ts_set_temp(ts, false);
-		}
-	}
-	
-	schedule_delayed_work(&ts->work_print_info, msecs_to_jiffies(TOUCH_PRINT_INFO_DWORK_TIME));
-}
-
 static void sec_ts_read_info_work(struct work_struct *work)
 {
 	struct sec_ts_data *ts = container_of(work, struct sec_ts_data,
@@ -3164,8 +3095,6 @@ static void sec_ts_read_info_work(struct work_struct *work)
 		input_err(true, &ts->client->dev, "%s done, do not run work\n", __func__);
 		return;
 	}
-
-	schedule_work(&ts->work_print_info.work);
 
 }
 
@@ -3284,10 +3213,6 @@ static int sec_ts_input_open(struct input_dev *dev)
 
 	mutex_unlock(&ts->modechange);
 
-	cancel_delayed_work(&ts->work_print_info);
-	ts->print_info_cnt_open = 0;
-	ts->print_info_cnt_release = 0;
-	schedule_work(&ts->work_print_info.work);
 	return 0;
 }
 
@@ -3315,8 +3240,6 @@ static void sec_ts_input_close(struct input_dev *dev)
 #ifdef MINORITY_REPORT
 	minority_report_sync_latest_val(ts);
 #endif
-	cancel_delayed_work(&ts->work_print_info);
-	sec_ts_print_info(ts);
 #ifdef CONFIG_INPUT_SEC_SECURE_TOUCH
 	secure_touch_stop(ts, 1);
 #endif
@@ -3347,7 +3270,6 @@ static int sec_ts_remove(struct i2c_client *client)
 	sec_ts_ioctl_remove(ts);
 
 	cancel_delayed_work_sync(&ts->work_read_info);
-	cancel_delayed_work_sync(&ts->work_print_info);
 	cancel_delayed_work_sync(&ts->work_read_functions);
 	disable_irq_nosync(ts->client->irq);
 	free_irq(ts->client->irq, ts);
