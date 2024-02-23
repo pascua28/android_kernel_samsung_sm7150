@@ -398,25 +398,6 @@ void mms_input_event_handler(struct mms_ts_info *info, u8 sz, u8 *buf)
 					info->finger_state[id] = 0;
 
 					mms_ts_location_detect(info, location, info->coord[id].x, info->coord[id].y);
-#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
-					input_info(true, &info->client->dev,
-							"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d V[%04x] D:%X ed:%d\n",
-							id, location,
-							info->coord[id].x - info->coord[id].p_x,
-							info->coord[id].y - info->coord[id].p_y,
-							info->coord[id].mcount, info->touch_count,
-							info->fw_ver_ic, info->defect_probability, info->ed_enable);
-
-#else
-					input_info(true, &info->client->dev,
-							"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d V[%04x] D:%X ed:%d\n",
-							id, location,
-							info->coord[id].x - info->coord[id].p_x,
-							info->coord[id].y - info->coord[id].p_y,
-							info->coord[id].mcount, info->touch_count,
-							info->coord[id].x, info->coord[id].y,
-							info->fw_ver_ic, info->defect_probability, info->ed_enable);
-#endif
 					info->coord[id].mcount = 0;
 				}
 

@@ -578,31 +578,8 @@ static void report_input_data(struct ist40xx_data *data)
                     data->p_y[id] = data->r_y[id] = coord_y;
                     location_detect(data, location, data->p_x[id],
                             data->p_y[id]);
-/*
- * ToDo
- * PALM status
- */
-#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-					input_info(true, &data->client->dev,
-						"%s tID:%d.%d x:%d y:%d z:%d loc:%s major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-						TOUCH_DOWN_MESSAGE, id, (data->input_dev->mt->trkid - 1) & TRKID_MAX,
-						coord_x, coord_y, data->fingers[idx].Z, location,
-						data->fingers[idx].Major, data->fingers[idx].Minor,
-						data->fingers[idx].NoiseLevel,
-						data->fingers[idx].MaxStrength,
-						data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-#else
-					input_info(true, &data->client->dev,
-						"%s tID:%d.%d z:%d loc:%s major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-						TOUCH_DOWN_MESSAGE, id, (data->input_dev->mt->trkid - 1) & TRKID_MAX,
-						data->fingers[idx].Z, location,
-						/*PARSE_PALM_STATUS(data->t_status),*/
-						data->fingers[idx].Major, data->fingers[idx].Minor,
-						data->fingers[idx].NoiseLevel,
-						data->fingers[idx].MaxStrength,
-						data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-#endif
-					if (data->tsp_touched[id] == false) {
+
+                    if (data->tsp_touched[id] == false) {
                         data->tsp_touched[id] = true;
                         data->touch_pressed_num++;
                         data->all_finger_count++;
@@ -634,23 +611,6 @@ static void report_input_data(struct ist40xx_data *data)
                     data->r_y[id] = coord_y;
                     location_detect(data, location, data->r_x[id],
                             data->r_y[id]);
-#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-					tsp_debug("%s tID:%d x:%d y:%d z:%d loc:%s t:%d major:%d minor:%d NL:%d, MS:%d, HIN:%d\n",
-                            TOUCH_MOVE_MESSAGE, id, coord_x, coord_y, data->fingers[idx].Z, location,
-                            ttype, data->fingers[idx].Major,
-                            data->fingers[idx].Minor, 
-                            data->fingers[idx].NoiseLevel,
-                            data->fingers[idx].MaxStrength,
-                            data->fingers[idx].HoverIdNum);
-#else
-					tsp_debug("%s tID:%d z:%d loc:%s t:%d major:%d minor:%d NL:%d, MS:%d, HIN:%d\n",
-                            TOUCH_MOVE_MESSAGE, id, data->fingers[idx].Z, location,
-                            ttype, data->fingers[idx].Major,
-                            data->fingers[idx].Minor, 
-                            data->fingers[idx].NoiseLevel,
-                            data->fingers[idx].MaxStrength,
-                            data->fingers[idx].HoverIdNum);
-#endif
                     if (data->tsp_touched[id] == false) {
                         data->tsp_touched[id] = true;
                         data->touch_pressed_num++;
@@ -669,32 +629,7 @@ static void report_input_data(struct ist40xx_data *data)
                         data->r_x[id] = coord_x;
                         data->r_y[id] = coord_y;
                         location_detect(data, location, data->r_x[id],
-                                data->r_y[id]);				
-#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-					input_info(true, &data->client->dev,
-							"%s tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-							TOUCH_UP_MESSAGE, id, location,
-							data->r_x[id] - data->p_x[id],
-							data->r_y[id] - data->p_y[id],
-							data->move_count[id], data->touch_pressed_num,
-							data->r_x[id], data->r_y[id],
-							data->fingers[idx].Major, data->fingers[idx].Minor,
-							data->fingers[idx].NoiseLevel,
-							data->fingers[idx].MaxStrength,
-							data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-#else
-					input_info(true, &data->client->dev,
-							"%s tID:%d loc:%s dd:%d,%d mc:%d tc:%d major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-							TOUCH_UP_MESSAGE, id, location,
-							data->r_x[id] - data->p_x[id],
-							data->r_y[id] - data->p_y[id],
-							data->move_count[id], data->touch_pressed_num,
-							data->fingers[idx].Major, data->fingers[idx].Minor,
-							data->fingers[idx].NoiseLevel,
-							data->fingers[idx].MaxStrength,
-							data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-
-#endif
+                                data->r_y[id]);
     					data->tsp_touched[id] = false;
 	                    data->move_count[id] = 0;
 	                    data->touch_pressed_num--;
@@ -702,7 +637,7 @@ static void report_input_data(struct ist40xx_data *data)
                     }
 
 				}
-    			idx++;            
+    			idx++;
 #ifdef IST40XX_FORCE_RELEASE
             } else if (data->tsp_touched[i] == true) {
 				snprintf(data->pos, 5, TOUCH_UP_MESSAGE);
@@ -712,41 +647,12 @@ static void report_input_data(struct ist40xx_data *data)
 						false);
 
 				location_detect(data, location, data->r_x[id], data->r_y[id]);
-#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
-				input_info(true, &data->client->dev,
-						"%s tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-						TOUCH_UP_MESSAGE, id, location,
-						data->r_x[id] - data->p_x[id],
-						data->r_y[id] - data->p_y[id],
-						data->move_count[id], data->touch_pressed_num,
-						data->r_x[id], data->r_y[id],
-						data->fingers[idx].Major, data->fingers[idx].Minor,
-						data->fingers[idx].NoiseLevel,
-						data->fingers[idx].MaxStrength,
-						data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-#else
-				input_info(true, &data->client->dev,
-						"%s tID:%d loc:%s dd:%d,%d mc:%d tc:%d major:%d minor:%d nl:%d ms:%d hn:%d tc:%d\n",
-						TOUCH_UP_MESSAGE, id, location,
-						data->r_x[id] - data->p_x[id],
-						data->r_y[id] - data->p_y[id],
-						data->move_count[id], data->touch_pressed_num,
-						data->fingers[idx].Major, data->fingers[idx].Minor,
-						data->fingers[idx].NoiseLevel,
-						data->fingers[idx].MaxStrength,
-						data->fingers[idx].HoverIdNum, data->touch_pressed_num);
-
-#endif
 
                 data->tsp_touched[i] = false;
                 data->touch_pressed_num--;
                 data->move_count[i] = 0;
 #endif
 			}
-		if (data->prev_type[id] != ttype)
-			input_info(true, &data->client->dev, "tID: %d ttype: (%c -> %c): %s\n",
-					id, finger_mode[data->prev_type[id]], finger_mode[ttype], data->pos);
-
 		data->prev_type[id] = ttype;
 
 		}
