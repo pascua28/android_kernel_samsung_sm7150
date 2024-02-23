@@ -2857,7 +2857,7 @@ out:
 	}  else {
 		zram_set_entry(zram, index, entry);
 		zram_set_obj_size(zram, index, comp_len);
-#ifdef CONFIG_ZRAM_LRU_WRITEBACK
+#if defined(CONFIG_ZRAM_LRU_WRITEBACK) && defined(CONFIG_MEMCG)
 		if (!page->mem_cgroup ||
 		    page->mem_cgroup->swappiness != NON_LRU_SWAPPINESS) {
 			spin_lock_irqsave(&zram->list_lock, irq_flags);
