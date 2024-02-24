@@ -3802,7 +3802,7 @@ static void sec_bat_set_polling(
 		(battery->charging_mode ==
 		SEC_BATTERY_CHARGING_NONE) ? "No" : "Yes",
 		battery->polling_short ? "Yes" : "No");
-	dev_info(battery->dev,
+	dev_dbg(battery->dev,
 		"%s: Polling time %d/%d sec.\n", __func__,
 		battery->polling_short ?
 		(polling_time_temp * battery->polling_count) :
@@ -6083,7 +6083,7 @@ static int sec_bat_get_property(struct power_supply *psy,
 			val->intval = SEC_BATTERY_CABLE_WIRELESS;
 		else
 			val->intval = battery->cable_type;
-		pr_info("%s cable type = %d sleep_mode = %d\n", __func__, val->intval, sleep_mode);
+		pr_debug("%s cable type = %d sleep_mode = %d\n", __func__, val->intval, sleep_mode);
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = battery->pdata->technology;

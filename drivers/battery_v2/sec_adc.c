@@ -377,7 +377,7 @@ bool sec_bat_get_value_by_adc(
 temp_by_adc_goto:
 	value->intval = temp;
 
-	dev_info(battery->dev,
+	dev_dbg(battery->dev,
 		"%s:[%d] Temp(%d), Temp-ADC(%d)\n",
 		__func__,channel, temp, temp_adc);
 

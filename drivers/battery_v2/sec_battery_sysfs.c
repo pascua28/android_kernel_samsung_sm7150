@@ -691,7 +691,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 					battery->max_charge_power >= HV_CHARGER_STATUS_STANDARD1) /* 12000mW */
 					check_val = AFC_9V_OR_15W;
 			}
-			pr_info("%s : HV_CHARGER_STATUS(%d) pd max charge power(%d), max_charge_power(%d)\n",
+			pr_debug("%s : HV_CHARGER_STATUS(%d) pd max charge power(%d), max_charge_power(%d)\n",
 				__func__, check_val, battery->pd_max_charge_power, battery->max_charge_power);
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", check_val);
 		}
@@ -1753,7 +1753,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 	case FACTORY_MODE_DISABLE:
 		break;
 	case BATT_FULL_CAPACITY:
-		pr_info("%s: BATT_FULL_CAPACITY = %d\n", __func__, battery->batt_full_capacity);
+		pr_debug("%s: BATT_FULL_CAPACITY = %d\n", __func__, battery->batt_full_capacity);
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n", battery->batt_full_capacity);
 		break;
 	default:
