@@ -339,47 +339,9 @@ static inline void qdf_vprint(const char *fmt, va_list args)
 }
 #endif
 
-#ifdef PANIC_ON_BUG
-#ifdef CONFIG_SLUB_DEBUG
-/**
- * __qdf_bug() - Calls BUG() when the PANIC_ON_BUG compilation option is enabled
- *
- * Note: Calling BUG() can cause a compiler to assume any following code is
- * unreachable. Because these BUG's may or may not be enabled by the build
- * configuration, this can cause developers some pain. Consider:
- *
- *	bool bit;
- *
- *	if (ptr)
- *		bit = ptr->returns_bool();
- *	else
- *		__qdf_bug();
- *
- *	// do stuff with @bit
- *
- *	return bit;
- *
- * In this case, @bit is potentially uninitialized when we return! However, the
- * compiler can correctly assume this case is impossible when PANIC_ON_BUG is
- * enabled. Because developers typically enable this feature, the "maybe
- * uninitialized" warning will not be emitted, and the bug remains uncaught
- * until someone tries to make a build without PANIC_ON_BUG.
- *
- * A simple workaround for this, is to put the definition of __qdf_bug in
- * another compilation unit, which prevents the compiler from assuming
- * subsequent code is unreachable. For CONFIG_SLUB_DEBUG, do this to catch more
- * bugs. Otherwise, use the typical inlined approach.
- *
- * Return: None
- */
-void __qdf_bug(void);
-#else /* CONFIG_SLUB_DEBUG */
-static inline void __qdf_bug(void)
-{
-	BUG();
-}
-#endif /* CONFIG_SLUB_DEBUG */
+static inline void __qdf_bug(void) {}
 
+#ifdef PANIC_ON_BUG
 /**
  * QDF_DEBUG_PANIC() - In debug builds, panic, otherwise do nothing
  * @reason_fmt: a format string containing the reason for the panic
