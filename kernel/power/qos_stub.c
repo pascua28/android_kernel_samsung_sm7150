@@ -64,8 +64,7 @@ bool pm_qos_update_flags(struct pm_qos_flags *pqf,
 
 
 int __always_inline pm_qos_update_target(struct pm_qos_constraints *c, struct plist_node *node,
-			 enum pm_qos_req_action action, int value,
-			 bool dev_req)
+			 enum pm_qos_req_action action, int value)
 {
 	return 1;
 }
