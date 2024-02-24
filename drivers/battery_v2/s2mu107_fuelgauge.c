@@ -1157,7 +1157,7 @@ static int s2mu107_get_current(struct s2mu107_fuelgauge_data *fuelgauge)
 		curr = (curr * (-1000)) >> 11;
 	}
 
-	dev_info(&fuelgauge->i2c->dev, "%s: current (%d)mA\n", __func__, curr);
+	dev_dbg(&fuelgauge->i2c->dev, "%s: current (%d)mA\n", __func__, curr);
 
 	return curr;
 }
@@ -1243,7 +1243,7 @@ static int s2mu107_get_avgcurrent(struct s2mu107_fuelgauge_data *fuelgauge)
 		curr = (curr * (-1000)) >> 11;
 	}
 
-	dev_info(&fuelgauge->i2c->dev, "%s: avg current (%d)mA\n", __func__, curr);
+	dev_dbg(&fuelgauge->i2c->dev, "%s: avg current (%d)mA\n", __func__, curr);
 
 	return curr;
 
