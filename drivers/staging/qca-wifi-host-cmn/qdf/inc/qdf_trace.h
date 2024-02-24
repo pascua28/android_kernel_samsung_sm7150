@@ -650,7 +650,7 @@ void qdf_mtrace(QDF_MODULE_ID src_module, QDF_MODULE_ID dst_module,
 }
 #endif
 
-#ifdef CONFIG_DP_TRACE
+#if 0
 void qdf_dp_set_proto_bitmap(uint32_t val);
 void qdf_dp_trace_set_verbosity(uint32_t val);
 void qdf_dp_set_no_of_record(uint32_t val);
@@ -1033,7 +1033,54 @@ static inline
 void qdf_dp_track_noack_check(qdf_nbuf_t nbuf, enum qdf_proto_subtype *subtype)
 {
 }
+
+static inline
+void qdf_dp_trace_mgmt_pkt(enum QDF_DP_TRACE_ID code, uint8_t vdev_id,
+			   uint8_t pdev_id, enum qdf_proto_type type,
+			   enum qdf_proto_subtype subtype)
+{
+}
+
+static inline
+void qdf_dp_trace(qdf_nbuf_t nbuf, enum QDF_DP_TRACE_ID code, uint8_t pdev_id,
+			   uint8_t *data, uint8_t size, enum qdf_proto_dir dir)
+{
+}
+
+static inline
+void qdf_dp_set_proto_event_bitmap(uint32_t value)
+{
+}
+
+static inline
+void qdf_dp_display_event_record(struct qdf_dp_trace_record_s *record,
+			   uint16_t index, uint8_t pdev_id, uint8_t info)
+{
+}
+
+static inline
+void qdf_dp_trace_record_event(enum QDF_DP_TRACE_ID code, uint8_t vdev_id,
+			   uint8_t pdev_id, enum qdf_proto_type type,
+			   enum qdf_proto_subtype subtype)
+{
+}
+
+static inline
+void qdf_dp_trace_ptr(qdf_nbuf_t nbuf, enum QDF_DP_TRACE_ID code,
+			   uint8_t pdev_id, uint8_t *data, uint8_t size,
+			   uint16_t msdu_id, uint16_t status)
+{
+}
+
+static inline
+void qdf_dp_trace_credit_record(enum QDF_CREDIT_UPDATE_SOURCE source,
+			   enum QDF_CREDIT_OPERATION operation,
+			   int delta, int total_credits,
+			   int g0_credit, int g1_credit)
+{
+}
 #endif
+
 
 #ifdef WLAN_DEBUG
 void qdf_trace_display(void);
