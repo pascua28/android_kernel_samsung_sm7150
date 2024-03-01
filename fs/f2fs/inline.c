@@ -146,7 +146,6 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 	err = f2fs_reserve_block(dn, 0);
 	if (err)
 		return err;
-
 	err = f2fs_get_node_info(fio.sbi, dn->nid, &ni);
 	if (err) {
 		f2fs_truncate_data_blocks_range(dn, 1);
