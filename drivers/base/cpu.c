@@ -196,7 +196,31 @@ static ssize_t isolate_show(struct device *dev,
 	return rc;
 }
 
-static DEVICE_ATTR_RO(isolate);
+static ssize_t isolate_store(struct device *dev,
+			     struct device_attribute *attr,
+			     const char *buf, size_t count)
+{
+	struct cpu *cpu = container_of(dev, struct cpu, dev);
+	int err;
+	int cpuid = cpu->dev.id;
+	unsigned int isolated;
+
+	err = kstrtouint(strstrip((char *)buf), 0, &isolated);
+	if (err)
+		return err;
+
+	if (isolated > 1)
+		return -EINVAL;
+
+	if (isolated)
+		sched_isolate_cpu(cpuid);
+	else
+		sched_unisolate_cpu(cpuid);
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(isolate);
 
 static struct attribute *cpu_isolated_attrs[] = {
 	&dev_attr_isolate.attr,
