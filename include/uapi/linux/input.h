@@ -330,16 +330,6 @@ struct input_mask {
 #define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
 
 /*
- * Switch events
- */
-#define SW_FLIP                 0x15  /* set = flip cover open, close*/
-#define SW_CERTIFYHALL          0x1b  /* set = certify_hall attach/detach */
-#define SW_SLIDINGUPHALL        0x1c  /* set = sliding_up_hall attach/detach */
-#define SW_SLIDINGDOWNHALL      0x1d  /* set = sliding_down_hall attach/detach */
-#define SW_DIGITALUPHALL		0x1e  /* set = digital_up_hall attach/detach */
-#define SW_DIGITALDOWNHALL      0x1f  /* set = digital_down_hall attach/detach */
-
-/*
  * IDs.
  */
 

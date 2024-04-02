@@ -76,7 +76,7 @@ static void certify_cover_work(struct work_struct *work)
 
 	if (first == second) {
 		certify_cover = first;
-		input_report_switch(ddata->input, SW_CERTIFYHALL, certify_cover);
+		input_report_switch(ddata->input, SW_MACHINE_COVER, certify_cover);
 		input_sync(ddata->input);
 #if defined(CONFIG_SUPPORT_HALL_ABNORMAL_TEST)
 		/* send uevent for hall ic */
@@ -100,7 +100,7 @@ static void certify_cover_work(struct work_struct *work)
 
 	certify_cover = first;
 	input_report_switch(ddata->input,
-			SW_CERTIFYHALL, certify_cover);
+			SW_MACHINE_COVER, certify_cover);
 	input_sync(ddata->input);
 }
 #endif
@@ -237,7 +237,7 @@ static int certify_hall_probe(struct platform_device *pdev)
 	input->dev.parent = &pdev->dev;
 
 	input->evbit[0] |= BIT_MASK(EV_SW);
-	input_set_capability(input, EV_SW, SW_CERTIFYHALL);
+	input_set_capability(input, EV_SW, SW_MACHINE_COVER);
 
 	input->open = certify_hall_open;
 	input->close = certify_hall_close;
