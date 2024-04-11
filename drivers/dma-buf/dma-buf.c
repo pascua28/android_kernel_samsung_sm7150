@@ -39,7 +39,6 @@
 #include <linux/list_sort.h>
 #include <linux/hashtable.h>
 #include <linux/mount.h>
-#include <linux/dcache.h>
 
 #include <uapi/linux/dma-buf.h>
 #include <uapi/linux/magic.h>
@@ -66,34 +65,18 @@ struct dma_proc {
 
 static struct dma_buf_list db_list;
 
-static void dmabuf_dent_put(struct dma_buf *dmabuf)
-{
-	if (atomic_dec_and_test(&dmabuf->dent_count)) {
-		kfree(dmabuf->name);
-		kfree(dmabuf);
-	}
-}
-
-
 static char *dmabuffs_dname(struct dentry *dentry, char *buffer, int buflen)
 {
 	struct dma_buf *dmabuf;
 	char name[DMA_BUF_NAME_LEN];
 	size_t ret = 0;
 
-	spin_lock(&dentry->d_lock);
 	dmabuf = dentry->d_fsdata;
-	if (!dmabuf || !atomic_add_unless(&dmabuf->dent_count, 1, 0)) {
-		spin_unlock(&dentry->d_lock);
-		goto out;
-	}
-	spin_unlock(&dentry->d_lock);
 	spin_lock(&dmabuf->name_lock);
 	if (dmabuf->name)
 		ret = strlcpy(name, dmabuf->name, DMA_BUF_NAME_LEN);
 	spin_unlock(&dmabuf->name_lock);
-	dmabuf_dent_put(dmabuf);
-out:
+
 	return dynamic_dname(dentry, buffer, buflen, "/%s:%s",
 			     dentry->d_name.name, ret > 0 ? name : "");
 }
@@ -104,9 +87,6 @@ static void dma_buf_release(struct dentry *dentry)
 
 	dmabuf = dentry->d_fsdata;
 
-	spin_lock(&dentry->d_lock);
-	dentry->d_fsdata = NULL;
-	spin_unlock(&dentry->d_lock);
 	BUG_ON(dmabuf->vmapping_counter);
 
 	/*
@@ -125,7 +105,8 @@ static void dma_buf_release(struct dentry *dentry)
 		reservation_object_fini(dmabuf->resv);
 
 	module_put(dmabuf->owner);
-	dmabuf_dent_put(dmabuf);
+	kfree(dmabuf->name);
+	kfree(dmabuf);
 }
 
 static int dma_buf_file_release(struct inode *inode, struct file *file)
@@ -626,7 +607,6 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 #if defined(CONFIG_DEBUG_FS)
 	dmabuf->ktime = ktime_get();
 #endif
-	atomic_set(&dmabuf->dent_count, 1);
 
 	if (!resv) {
 		resv = (struct reservation_object *)&dmabuf[1];
