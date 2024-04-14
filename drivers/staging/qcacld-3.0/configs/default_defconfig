@@ -797,7 +797,7 @@ CONFIG_WLAN_WEXT_SUPPORT_ENABLE := y
 CONFIG_ENABLE_MTRACE_LOG := n
 
 #Flag to enable nud tracking feature
-CONFIG_WLAN_NUD_TRACKING := n
+CONFIG_WLAN_NUD_TRACKING := y
 
 #Flag to enable wbuff feature
 CONFIG_WLAN_WBUFF := y
