@@ -1,6 +1,6 @@
 *.gen.S
 *.fw
-*.bin
+!*.bin
 *.csp
 *.dsp
 ihex2fw
