@@ -1292,8 +1292,10 @@ static inline void ufshcd_cond_add_cmd_trace(struct ufs_hba *hba,
 		}
 	}
 
+#ifdef CONFIG_SCSI_UFSHCD_CMD_LOGGING
 	__ufshcd_cmd_log(hba, (char *) str, cmd_type, tag, cmd_id, idn,
 			 lrbp->lun, lba, transfer_len);
+#endif
 }
 #else
 static inline void ufshcd_cond_add_cmd_trace(struct ufs_hba *hba,
