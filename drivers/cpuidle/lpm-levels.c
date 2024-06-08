@@ -170,6 +170,12 @@ module_param_named(secdebug,
 	msm_pm_sleep_sec_debug, int, S_IRUGO | S_IWUSR | S_IWGRP);
 #endif
 
+bool lpm_sleep_disabled(void)
+{
+	return sleep_disabled;
+}
+EXPORT_SYMBOL(lpm_sleep_disabled);
+
 /**
  * msm_cpuidle_get_deep_idle_latency - Get deep idle latency value
  *
