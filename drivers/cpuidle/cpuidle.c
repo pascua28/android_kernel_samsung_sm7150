@@ -671,7 +671,9 @@ static void wake_up_idle_cpus(void *v)
 static int cpuidle_latency_notify(struct notifier_block *b,
 		unsigned long l, void *v)
 {
-	wake_up_idle_cpus(v);
+	if (!lpm_sleep_disabled())
+		wake_up_idle_cpus(v);
+
 	return NOTIFY_OK;
 }
 
