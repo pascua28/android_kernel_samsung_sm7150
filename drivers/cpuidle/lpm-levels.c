@@ -1446,7 +1446,7 @@ static int lpm_cpuidle_select(struct cpuidle_driver *drv,
 	if (duration <= TICK_NSEC)
 		*stop_tick = false;
 
-	if (!cpu)
+	if (!cpu || sleep_disabled)
 		return 0;
 
 	return cpu_power_select(dev, cpu, ktime_to_us(duration));
@@ -1508,6 +1508,11 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	const struct cpumask *cpumask = get_cpu_mask(dev->cpu);
 	ktime_t start = ktime_get();
 	uint64_t start_time = ktime_to_ns(start), end_time;
+
+	if (sleep_disabled) {
+		cpu_do_idle();
+		return 0;
+	}
 
 	cpu_prepare(cpu, idx, true);
 	cluster_prepare(cpu->parent, cpumask, idx, true, start_time);
