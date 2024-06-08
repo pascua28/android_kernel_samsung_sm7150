@@ -277,4 +277,13 @@ static inline int cpuidle_register_governor(struct cpuidle_governor *gov)
 	__ret ? -1 : idx;					\
 })
 
+#ifdef CONFIG_MSM_PM
+extern bool lpm_sleep_disabled(void);
+#else
+static bool lpm_sleep_disabled(void)
+{
+	return false;
+}
+#endif
+
 #endif /* _LINUX_CPUIDLE_H */
