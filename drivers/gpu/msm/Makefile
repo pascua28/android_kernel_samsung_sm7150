@@ -2,7 +2,6 @@ ccflags-y := -Iinclude/linux
 
 msm_kgsl_core-y = \
 	kgsl.o \
-	kgsl_trace.o \
 	kgsl_drawobj.o \
 	kgsl_ioctl.o \
 	kgsl_sharedmem.o \
@@ -26,7 +25,6 @@ msm_adreno-y += \
 	adreno_ringbuffer.o \
 	adreno_drawctxt.o \
 	adreno_dispatch.o \
-	adreno_trace.o \
 	adreno_a3xx.o \
 	adreno_a4xx.o \
 	adreno_a5xx.o \
