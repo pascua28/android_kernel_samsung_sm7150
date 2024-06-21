@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013, Sony Mobile Communications AB.
- * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2345,6 +2345,7 @@ int msm_gpio_mpm_wake_set(unsigned int gpio, bool enable)
 
 	return 0;
 }
+EXPORT_SYMBOL(msm_gpio_mpm_wake_set);
 
 /*
  * msm_gpio_mpm_wake_get - API to get interrupt wakeup capable

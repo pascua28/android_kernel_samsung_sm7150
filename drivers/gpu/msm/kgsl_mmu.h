@@ -103,7 +103,7 @@ struct kgsl_mmu_pt_ops {
 	int (*svm_range)(struct kgsl_pagetable *, uint64_t *, uint64_t *,
 			uint64_t);
 	bool (*addr_in_range)(struct kgsl_pagetable *pagetable,
-			uint64_t, uint64_t);
+		       uint64_t, uint64_t);
 	int (*mmu_map_offset)(struct kgsl_pagetable *pt,
 			uint64_t virtaddr, uint64_t virtoffset,
 			struct kgsl_memdesc *memdesc, uint64_t physoffset,
@@ -209,7 +209,7 @@ unsigned int kgsl_mmu_log_fault_addr(struct kgsl_mmu *mmu,
 		u64 ttbr0, uint64_t addr);
 enum kgsl_mmutype kgsl_mmu_get_mmutype(struct kgsl_device *device);
 bool kgsl_mmu_gpuaddr_in_range(struct kgsl_pagetable *pt, uint64_t gpuaddr,
-		uint64_t size);
+	       uint64_t size);
 
 int kgsl_mmu_get_region(struct kgsl_pagetable *pagetable,
 		uint64_t gpuaddr, uint64_t size);

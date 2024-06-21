@@ -712,16 +712,16 @@ static void qrtr_alloc_backup(struct work_struct *work)
 
 	while (skb_queue_len(&qrtr_backup_lo) < QRTR_BACKUP_LO_NUM) {
 		skb = alloc_skb_with_frags(sizeof(struct qrtr_hdr_v1),
-				QRTR_BACKUP_LO_SIZE, 0, &errcode,
-				GFP_KERNEL);
+					   QRTR_BACKUP_LO_SIZE, 0, &errcode,
+					   GFP_KERNEL);
 		if (!skb)
 			break;
 		skb_queue_tail(&qrtr_backup_lo, skb);
 	}
 	while (skb_queue_len(&qrtr_backup_hi) < QRTR_BACKUP_HI_NUM) {
 		skb = alloc_skb_with_frags(sizeof(struct qrtr_hdr_v1),
-				QRTR_BACKUP_HI_SIZE, 0, &errcode,
-				GFP_KERNEL);
+					   QRTR_BACKUP_HI_SIZE, 0, &errcode,
+					   GFP_KERNEL);
 		if (!skb)
 			break;
 		skb_queue_tail(&qrtr_backup_hi, skb);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1102,6 +1102,9 @@ static int hgsl_wait_timestamp(struct file *filep, unsigned long arg)
 	}
 
 	timestamp = param.timestamp;
+
+	if (param.context_id >= HGSL_CONTEXT_NUM)
+		return -EINVAL;
 
 	read_lock(&hgsl->ctxt_lock);
 	ctxt = hgsl->contexts[param.context_id];

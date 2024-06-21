@@ -196,7 +196,6 @@ static DEFINE_MUTEX(selinux_sdcardfs_lock);
 int selinux_enforcing;
 static int selinux_enforcing_boot;
 
-
 static int __init enforcing_setup(char *str)
 {
 	unsigned long enforcing;

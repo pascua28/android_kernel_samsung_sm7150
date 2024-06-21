@@ -225,10 +225,10 @@ int cmdq_host_init_crypto_qti_spec(struct cmdq_host *host,
 	crypto_modes_supported[blk_mode_num] |= CRYPTO_CDU_SIZE * 512;
 
 	host->ksm = keyslot_manager_create(host->mmc->parent,
-			cmdq_num_keyslots(host), ksm_ops,
-			BLK_CRYPTO_FEATURE_STANDARD_KEYS |
-			BLK_CRYPTO_FEATURE_WRAPPED_KEYS,
-			crypto_modes_supported, host);
+					   cmdq_num_keyslots(host), ksm_ops,
+					   BLK_CRYPTO_FEATURE_STANDARD_KEYS |
+					   BLK_CRYPTO_FEATURE_WRAPPED_KEYS,
+					   crypto_modes_supported, host);
 
 	if (!host->ksm) {
 		err = -ENOMEM;

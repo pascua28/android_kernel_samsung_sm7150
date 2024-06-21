@@ -3,7 +3,7 @@
  *
  * This code is based on drivers/scsi/ufs/ufshcd.c
  * Copyright (C) 2011-2013 Samsung India Software Operations
- * Copyright (c) 2013-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
  *
  * Authors:
  *	Santosh Yaraganavi <santosh.sy@samsung.com>
@@ -11504,13 +11504,6 @@ disable_clks:
 	if (ret)
 		goto set_link_active;
 
-	/*
-	 * Disable the host irq as host controller as there won't be any
-	 * host controller transaction expected till resume.
-	 */
-	ufshcd_disable_irq(hba);
-
-	/* reset the connected UFS device during power down */
 	if (ufshcd_is_link_off(hba)) {
 		ret = ufshcd_assert_device_reset(hba);
 		if (ret)
@@ -11533,6 +11526,11 @@ disable_clks:
 		trace_ufshcd_clk_gating(dev_name(hba->dev),
 					hba->clk_gating.state);
 	}
+	/*
+	 * Disable the host irq as host controller as there won't be any
+	 * host controller transaction expected till resume.
+	 */
+	ufshcd_disable_irq(hba);
 
 	if (!hba->auto_bkops_enabled ||
 		!(req_dev_pwr_mode == UFS_ACTIVE_PWR_MODE &&

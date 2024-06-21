@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1322,7 +1322,7 @@ int msm_vdec_s_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 					"inst(%pK) operating rate capped from %d to %d\n",
 					inst, ctrl->val >> 16,
 					inst->clk_data.operating_rate >> 16);
-					inst->operating_rate_set = true;
+				inst->operating_rate_set = true;
 			} else {
 				dprintk(VIDC_ERR, "Invalid operating rate %u\n",
 					(ctrl->val >> 16));

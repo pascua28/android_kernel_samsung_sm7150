@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2014, 2016-2017, 2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2014, 2016-2017, 2019, 2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -181,7 +181,7 @@ void *diagmem_alloc(struct diagchar_dev *driver, int size, int pool_type)
 			break;
 		}
 		if (size == 0 || size > mempool->itemsize ||
-			size > (int)mempool->pool->pool_data) {			
+			size > (int)mempool->pool->pool_data) {
 			pr_err_ratelimited("diag: cannot alloc from mempool %s, invalid size: %d\n",
 					   mempool->name, size);
 			break;

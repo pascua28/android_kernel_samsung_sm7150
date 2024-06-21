@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2017,2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2017,2020-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -463,7 +463,8 @@ void kgsl_mmu_put_gpuaddr(struct kgsl_memdesc *memdesc)
 	if (memdesc->size == 0 || memdesc->gpuaddr == 0)
 		return;
 
-	if (!kgsl_memdesc_is_global(memdesc) && (KGSL_MEMDESC_MAPPED & memdesc->priv))
+	if (!kgsl_memdesc_is_global(memdesc) &&
+		(KGSL_MEMDESC_MAPPED & memdesc->priv))
 		unmap_fail = kgsl_mmu_unmap(pagetable, memdesc);
 
 	/*
@@ -640,7 +641,7 @@ bool kgsl_mmu_gpuaddr_in_range(struct kgsl_pagetable *pagetable,
 {
 	if (PT_OP_VALID(pagetable, addr_in_range))
 		return pagetable->pt_ops->addr_in_range(pagetable,
-			 gpuaddr, size);
+				gpuaddr, size);
 
 	return false;
 }
