@@ -786,7 +786,7 @@ next:
 	}
 
 	if (blk_idx)
-		free_block_bdev(zram, blk_idx, false);
+		free_block_bdev(zram, blk_idx);
 	ret = len;
 	__free_page(page);
 release_init_lock:
@@ -1160,6 +1160,12 @@ static ssize_t bd_stat_show(struct device *dev,
 	up_read(&zram->init_lock);
 
 	return ret;
+}
+
+static ssize_t bd_stat_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t len)
+{
+	return len;
 }
 #endif
 
