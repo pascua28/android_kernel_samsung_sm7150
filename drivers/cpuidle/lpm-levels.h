@@ -12,7 +12,7 @@
 
 #include <soc/qcom/pm.h>
 
-#ifdef CONFIG_SEC_PM
+#if defined(CONFIG_SEC_PM) && defined(CONFIG_QTI_RPM_STATS_LOG)
 extern void debug_rpmstats_show(char *annotation);
 extern void debug_masterstats_show(char *annotation);
 #endif
