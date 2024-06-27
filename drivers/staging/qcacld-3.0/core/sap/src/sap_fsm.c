@@ -2783,7 +2783,9 @@ QDF_STATUS sap_fsm(struct sap_context *sap_ctx, struct sap_sm_event *sap_event)
 	}
 	mac_handle = MAC_HANDLE(mac_ctx);
 
+#ifdef WLAN_DEBUG
 	sap_debug("state=%d handle event=%d", state_var, msg);
+#endif
 
 	switch (state_var) {
 	case SAP_INIT:
