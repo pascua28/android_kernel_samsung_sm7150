@@ -98,10 +98,13 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 #endif
 #endif
 
+#ifdef CONFIG_SEC_DEBUG
 extern bool enable_pr_debug;
+#endif
 
 #define LOG_KEYWORD "[SDE]"
 
+#ifdef CONFIG_SEC_DEBUG
 #define LCD_DEBUG(X, ...)	\
 		do {	\
 			if (enable_pr_debug)	\
@@ -113,6 +116,13 @@ extern bool enable_pr_debug;
 #define LCD_INFO(X, ...) pr_info("%s %s : "X, LOG_KEYWORD, __func__, ## __VA_ARGS__)
 #define LCD_INFO_ONCE(X, ...) pr_info_once("%s %s : "X, LOG_KEYWORD, __func__, ## __VA_ARGS__)
 #define LCD_ERR(X, ...) pr_err("%s %s : "X, LOG_KEYWORD, __func__, ## __VA_ARGS__)
+#else
+static inline void LCD_DEBUG(const char *fmt, ...) {}
+
+static inline void LCD_INFO(const char *fmt, ...) {}
+static inline void LCD_INFO_ONCE(const char *fmt, ...) {}
+static inline void LCD_ERR(const char *fmt, ...) {}
+#endif
 
 #define MAX_PANEL_NAME_SIZE 100
 
