@@ -10,8 +10,6 @@ menuconfig SEC_DEBUG
 	  Enables task history, debug level etc.
 	  This feature is enabled in defconfig.
 
-if SEC_DEBUG
-
 config SEC_LOG_BUF
 	bool "Samsung non-cached kernel printk"
 	default y
@@ -36,7 +34,6 @@ config SEC_LOG_BUF_CONSOLE
 	  sec_log_buf will be registered as a console.
 
 endchoice
-endif
 
 config SEC_LOG_LAST_KMSG
 	bool "Enable /proc/last_kmsg support: if EMBEDDED"
@@ -66,6 +63,7 @@ config SEC_STORE_POWER_ONOFF_HISTORY
 	help
 	  store power onoff history
 
+if SEC_DEBUG
 config SEC_DEBUG_SCHED_LOG
 	bool "Samsung Scheduler Logging Feature"
 	default n
@@ -303,4 +301,4 @@ config SEC_DEBUG_TEST
 	depends on SEC_KUNIT
 	help
 	  TODO: Describe config fully.
-
+endif
