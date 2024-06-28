@@ -3,7 +3,7 @@ ccflags-y += -Idrivers/gpu/drm/msm/sde
 ccflags-y += -Idrivers/gpu/drm/msm/samsung
 
 obj-y += ss_dsi_panel_sysfs.o
-obj-y += ss_dsi_panel_debug.o
+obj-$(CONFIG_SEC_DEBUG) += ss_dsi_panel_debug.o
 obj-y += ss_dsi_panel_common.o
 obj-y += ss_dsi_mdnie_lite_common.o
 obj-y += ss_dsi_smart_dimming_common.o
