@@ -61,10 +61,18 @@ struct ss_tlog {
 };
 
 /* PANEL DEBUG FUNCTION */
+#ifdef CONFIG_SEC_DEBUG
 void ss_xlog(const char *name, int flag, ...);
 void ss_dump_xlog(void);
 void ss_store_xlog_panic_dbg(void);
 int ss_panel_debug_init(struct samsung_display_driver_data *vdd);
+#else
+static inline void ss_xlog(const char *name, int flag, ...) {}
+static inline void ss_xlog_vsync(const char *name, int flag, ...) {}
+static inline void ss_dump_xlog(void) {}
+static inline void ss_store_xlog_panic_dbg(void) {}
+static inline int ss_panel_debug_init(struct samsung_display_driver_data *vdd) { return 0; }
+#endif
 
 #define SS_XLOG(...) ss_xlog(__func__, SS_XLOG_DEFAULT, \
 		##__VA_ARGS__, DATA_LIMITER)
@@ -97,6 +105,7 @@ struct ss_smmu_debug {
 	spinlock_t lock;
 };
 
+#ifdef CONFIG_SEC_DEBUG
 int ss_read_rddpm(struct samsung_display_driver_data *vdd);
 int ss_read_rddsm(struct samsung_display_driver_data *vdd);
 int ss_read_errfg(struct samsung_display_driver_data *vdd);
@@ -108,6 +117,19 @@ int ss_read_pps_data(struct samsung_display_driver_data *vdd);
 int ss_smmu_debug_init(struct samsung_display_driver_data *vdd);
 void ss_smmu_debug_map(enum ss_smmu_type type, int domain, struct file *file, struct sg_table *table);
 void ss_smmu_debug_unmap(enum ss_smmu_type type, struct sg_table *table);
+#else
+static inline int ss_read_rddpm(struct samsung_display_driver_data *vdd) { return 0; }
+static inline int ss_read_rddsm(struct samsung_display_driver_data *vdd) { return 0; }
+static inline int ss_read_errfg(struct samsung_display_driver_data *vdd) { return 0; }
+static inline int ss_read_dsierr(struct samsung_display_driver_data *vdd) { return 0; }
+static inline int ss_read_self_diag(struct samsung_display_driver_data *vdd) { return 0; }
+static inline int ss_read_ddi_cmd_log(struct samsung_display_driver_data *vdd, char *read_buf) { return 0; }
+static inline int ss_read_pps_data(struct samsung_display_driver_data *vdd) { return 0; }
+
+static inline int ss_smmu_debug_init(struct samsung_display_driver_data *vdd) { return 0; }
+static inline void ss_smmu_debug_map(enum ss_smmu_type type, int domain, struct file *file, struct sg_table *table) {}
+static inline void ss_smmu_debug_unmap(enum ss_smmu_type type, struct sg_table *table) {}
+#endif
 
 void ss_inc_ftout_debug(const char *name);
 
