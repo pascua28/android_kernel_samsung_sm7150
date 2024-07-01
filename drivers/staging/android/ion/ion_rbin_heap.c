@@ -27,11 +27,9 @@
 #ifdef CONFIG_ION_EXYNOS
 #include "ion_exynos.h"
 
-#define CREATE_TRACE_POINTS
 #else
 #include <linux/msm_ion.h>
 #endif
-#include <trace/events/ion.h>
 
 #define NUM_ORDERS ARRAY_SIZE(orders)
 
@@ -70,7 +68,6 @@ static struct page *alloc_rbin_page(struct ion_rbin_heap *rbin_heap,
 	struct device *dev = rbin_heap->heap.priv;
 #endif
 
-	trace_ion_rbin_partial_alloc_start(NULL, NULL, size, NULL);
 	for (order = get_order(size); order >= 0; order--) {
 		size = min_t(unsigned long, size, PAGE_SIZE << order);
 		paddr = ion_rbin_allocate(size);
@@ -91,7 +88,6 @@ static struct page *alloc_rbin_page(struct ion_rbin_heap *rbin_heap,
 		ion_pages_sync_for_device(dev, page, size, DMA_BIDIRECTIONAL);
 #endif
 	}
-	trace_ion_rbin_partial_alloc_end(NULL, NULL, size, page);
 	return page;
 }
 
@@ -129,7 +125,6 @@ static struct page *alloc_rbin_page_from_pool(struct ion_rbin_heap *rbin_heap,
 	unsigned int nr_pages;
 	int i;
 
-	trace_ion_rbin_pool_alloc_start(rbin_heap->heap.name, NULL, size, NULL);
 	size_order = get_order(size);
 	nr_pages = size >> PAGE_SHIFT;
 
@@ -155,8 +150,6 @@ static struct page *alloc_rbin_page_from_pool(struct ion_rbin_heap *rbin_heap,
 		goto done;
 	}
 done:
-	trace_ion_rbin_pool_alloc_end(rbin_heap->heap.name, NULL,
-				      page ? page_private(page) : 0, page);
 	if (page)
 		atomic_sub(page_private(page) >> PAGE_SHIFT, &rbin_pool_pages);
 	return page;
@@ -186,7 +179,6 @@ static int ion_rbin_heap_allocate(struct ion_heap *heap,
 	if (size_remain > nr_free << PAGE_SHIFT)
 		return -ENOMEM;
 
-	trace_ion_rbin_alloc_start(heap->name, buffer, size, NULL);
 	INIT_LIST_HEAD(&pages);
 	while (size_remain > 0) {
 		page = alloc_rbin_page_from_pool(rbin_heap, size_remain);
@@ -212,7 +204,6 @@ static int ion_rbin_heap_allocate(struct ion_heap *heap,
 	}
 	buffer->sg_table = table;
 
-	trace_ion_rbin_alloc_end(heap->name, buffer, size, NULL);
 	atomic_add(size >> PAGE_SHIFT, &rbin_allocated_pages);
 	return 0;
 
@@ -221,7 +212,6 @@ free_table:
 free_pages:
 	list_for_each_entry_safe(page, tmp, &pages, lru)
 		ion_rbin_free(page_to_phys(page), page_private(page));
-	trace_ion_rbin_alloc_end(heap->name, buffer, size, (void *)-1UL);
 	return -ENOMEM;
 }
 
@@ -233,14 +223,12 @@ static void ion_rbin_heap_free(struct ion_buffer *buffer)
 	unsigned long size = buffer->size;
 	int i;
 
-	trace_ion_rbin_free_start(buffer->heap->name, buffer, size, NULL);
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		page = sg_page(sg);
 		ion_rbin_free(page_to_phys(page), page_private(page));
 	}
 	sg_free_table(table);
 	kfree(table);
-	trace_ion_rbin_free_end(buffer->heap->name, buffer, size, NULL);
 	atomic_sub(size >> PAGE_SHIFT, &rbin_allocated_pages);
 }
 
@@ -306,7 +294,6 @@ static int ion_rbin_heap_prereclaim(void *data)
 
 	while (true) {
 		wait_event_freezable(rbin_heap->waitqueue, rbin_heap->task_run);
-		trace_printk("start\n");
 		total_size = 0;
 		while (true) {
 			page = alloc_rbin_page(rbin_heap, size, false);
@@ -318,7 +305,6 @@ static int ion_rbin_heap_prereclaim(void *data)
 			total_size += page_private(page);
 			atomic_add(1 << order, &rbin_pool_pages);
 		}
-		trace_printk("end %lu\n", total_size);
 		rbin_heap->task_run = 0;
 	}
 	return 0;
@@ -333,7 +319,6 @@ static int ion_rbin_heap_shrink(void *data)
 
 	while (true) {
 		wait_event_freezable(rbin_heap->waitqueue, rbin_heap->shrink_run);
-		trace_printk("start\n");
 		total_size = 0;
 		while (true) {
 			page = alloc_rbin_page_from_pool(rbin_heap, size);
@@ -342,7 +327,6 @@ static int ion_rbin_heap_shrink(void *data)
 			ion_rbin_free(page_to_phys(page), page_private(page));
 			total_size += page_private(page);
 		}
-		trace_printk("%lu\n", total_size);
 		rbin_heap->shrink_run = 0;
 	}
 	return 0;
