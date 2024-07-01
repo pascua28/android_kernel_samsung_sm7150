@@ -140,10 +140,6 @@ struct ion_buffer {
 	struct sg_table *sg_table;
 	struct list_head attachments;
 	struct list_head vmas;
-	char task_comm[TASK_COMM_LEN];
-	pid_t pid;
-	char thread_comm[TASK_COMM_LEN];
-	pid_t tid;
 	struct msm_iommu_data iommu_data;
 };
 
@@ -164,7 +160,6 @@ struct ion_device {
 	struct rw_semaphore lock;
 	struct plist_head heaps;
 	struct dentry *debug_root;
-	struct dentry *heaps_debug_root;
 	int heap_cnt;
 };
 
@@ -261,7 +256,6 @@ struct ion_heap {
 	wait_queue_head_t waitqueue;
 	struct task_struct *task;
 	atomic_long_t total_allocated;
-	atomic_long_t total_allocated_peak;
 
 	int (*debug_show)(struct ion_heap *heap, struct seq_file *, void *);
 };
@@ -510,7 +504,5 @@ int ion_walk_heaps(int heap_id, enum ion_heap_type type, void *data,
 long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
 
 int ion_query_heaps(struct ion_heap_query *query);
-
-unsigned int get_ion_system_heap_id(void);
 
 #endif /* _ION_H */
