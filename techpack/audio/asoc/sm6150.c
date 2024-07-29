@@ -7909,7 +7909,6 @@ static struct snd_soc_dai_link msm_wcn_be_dai_links[] = {
 		.id = MSM_BACKEND_DAI_SLIMBUS_8_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.init = &msm_wcn_init,
-		.ops = &msm_fm_wcn_ops,
 		.ignore_suspend = 1,
 	},
 };
