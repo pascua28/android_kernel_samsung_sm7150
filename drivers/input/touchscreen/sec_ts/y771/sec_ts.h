@@ -811,6 +811,7 @@ struct sec_ts_data {
 	unsigned int scrub_id;
 	unsigned int scrub_x;
 	unsigned int scrub_y;
+	int fod_pressed;
 
 	u8 tsp_temp_data;
 	bool tsp_temp_data_skip;
