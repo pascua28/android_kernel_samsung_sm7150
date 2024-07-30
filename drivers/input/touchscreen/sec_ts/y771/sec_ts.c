@@ -264,16 +264,27 @@ static ssize_t secure_ownership_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "1");
 }
 
+static ssize_t sec_ts_fod_pressed_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sec_ts_data *data = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", data->fod_pressed);
+}
+
 static DEVICE_ATTR(secure_touch_enable, (S_IRUGO | S_IWUSR | S_IWGRP),
 		secure_touch_enable_show, secure_touch_enable_store);
 static DEVICE_ATTR(secure_touch, S_IRUGO, secure_touch_show, NULL);
 
 static DEVICE_ATTR(secure_ownership, S_IRUGO, secure_ownership_show, NULL);
 
+static DEVICE_ATTR(fod_pressed, S_IRUGO, sec_ts_fod_pressed_show, NULL);
+
 static struct attribute *secure_attr[] = {
 	&dev_attr_secure_touch_enable.attr,
 	&dev_attr_secure_touch.attr,
 	&dev_attr_secure_ownership.attr,
+	&dev_attr_fod_pressed.attr,
 	NULL,
 };
 
@@ -1582,10 +1593,14 @@ static void sec_ts_read_event(struct sec_ts_data *ts)
 					input_report_key(ts->input_dev, KEY_WAKEUP, 1);
 					input_sync(ts->input_dev);
 					input_report_key(ts->input_dev, KEY_WAKEUP, 0);
+					ts->fod_pressed = true;
+					sysfs_notify(&ts->input_dev->dev.kobj, NULL, "fod_pressed");
 					} else if (p_gesture_status->gesture_id == SEC_GESTURE_ID_FOD_RELEASE) {
 						ts->scrub_id = SPONGE_EVENT_TYPE_FOD_RELEASE;
 						input_info(true, &ts->client->dev, "%s: FOD release\n", __func__);
 						input_report_key(ts->input_dev, KEY_BLACK_UI_GESTURE, 1);
+					ts->fod_pressed = false;
+					sysfs_notify(&ts->input_dev->dev.kobj, NULL, "fod_pressed");
 					} else if (p_gesture_status->gesture_id == SEC_GESTURE_ID_FOD_OUT) {
 						ts->scrub_id = SPONGE_EVENT_TYPE_FOD_OUT;
 						input_info(true, &ts->client->dev, "%s: FOD OUT\n", __func__);
