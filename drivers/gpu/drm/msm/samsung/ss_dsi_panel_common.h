@@ -80,6 +80,8 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 
 #include <linux/panel_notify.h>
 
+#include <linux/rom_notifier.h>
+
 #if defined(CONFIG_SEC_DEBUG)
 #include <linux/sec_debug.h>
 #endif
