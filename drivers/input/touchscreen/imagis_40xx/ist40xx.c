@@ -37,6 +37,8 @@
 #include <linux/t-base-tui.h>
 #endif
 
+#include <linux/rom_notifier.h>
+
 struct ist40xx_data *ts_data;
 
 #ifdef CONFIG_DISPLAY_SAMSUNG
@@ -455,6 +457,16 @@ void ist40xx_special_cmd(struct ist40xx_data *data, int cmd)
 					data->scrub_id = SPONGE_EVENT_TYPE_FOD_OUT;
 					input_info(true, &data->client->dev,
 						"FOD out\n");
+				}
+				if (!is_aosp) {
+					input_report_key(data->input_dev,
+						KEY_BLACK_UI_GESTURE,
+						true);
+					input_sync(data->input_dev);
+					input_report_key(data->input_dev,
+						KEY_BLACK_UI_GESTURE,
+						false);
+					input_sync(data->input_dev);
 				}
 				break;
 			default:
