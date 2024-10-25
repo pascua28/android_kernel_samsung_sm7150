@@ -4192,10 +4192,10 @@ int sec_tclm_data_write(struct i2c_client *client, int address)
 	int ret = 1;
 	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT];
 
-	memset(nbuff, 0x00, sizeof(struct sec_tclm_nvdata));
+	memset(nbuff, 0x00, sizeof(nbuff));
 	switch (address) {
 	case SEC_TCLM_NVM_ALL_DATA:
-		memcpy(nbuff, &ts->tdata->nvdata, sizeof(struct sec_tclm_nvdata));
+		memcpy(nbuff, &ts->tdata->nvdata, sizeof(nbuff));
 		ret = set_tsp_nvm_data_by_size(ts, SEC_TS_NVM_OFFSET_CAL_COUNT, sizeof(struct sec_tclm_nvdata), nbuff);
 		return ret;
 	case SEC_TCLM_NVM_TEST:
