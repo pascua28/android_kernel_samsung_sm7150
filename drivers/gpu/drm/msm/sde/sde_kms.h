@@ -46,39 +46,21 @@
  * SDE_DEBUG - macro for kms/plane/crtc/encoder/connector logs
  * @fmt: Pointer to format string
  */
-#define SDE_DEBUG(fmt, ...)                                                \
-	do {                                                               \
-		if (unlikely(drm_debug & DRM_UT_KMS))                      \
-			DRM_DEBUG(fmt, ##__VA_ARGS__); \
-		else                                                       \
-			pr_debug(fmt, ##__VA_ARGS__);                      \
-	} while (0)
+static inline void SDE_DEBUG(const char *fmt, ...) {}
 
 /**
  * SDE_INFO - macro for kms/plane/crtc/encoder/connector logs
  * @fmt: Pointer to format string
  */
-#define SDE_INFO(fmt, ...)                                                \
-	do {                                                               \
-		if (unlikely(drm_debug & DRM_UT_KMS))                      \
-			DRM_INFO(fmt, ##__VA_ARGS__); \
-		else                                                       \
-			pr_info(fmt, ##__VA_ARGS__);                      \
-	} while (0)
+static inline void SDE_INFO(const char *fmt, ...) {}
 
 /**
  * SDE_DEBUG_DRIVER - macro for hardware driver logging
  * @fmt: Pointer to format string
  */
-#define SDE_DEBUG_DRIVER(fmt, ...)                                         \
-	do {                                                               \
-		if (unlikely(drm_debug & DRM_UT_DRIVER))                   \
-			DRM_ERROR(fmt, ##__VA_ARGS__); \
-		else                                                       \
-			pr_debug(fmt, ##__VA_ARGS__);                      \
-	} while (0)
+static inline void SDE_DEBUG_DRIVER(const char *fmt, ...) {}
 
-#define SDE_ERROR(fmt, ...) pr_err("[sde error]" fmt, ##__VA_ARGS__)
+static inline void SDE_ERROR(const char *fmt, ...) {}
 
 #define POPULATE_RECT(rect, a, b, c, d, Q16_flag) \
 	do {						\
