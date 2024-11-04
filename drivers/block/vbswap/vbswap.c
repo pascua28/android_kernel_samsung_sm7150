@@ -29,6 +29,7 @@ static int vbswap_major;
 static struct gendisk *vbswap_disk;
 static u64 vbswap_disksize;
 static struct page *swap_header_page;
+static bool vbswap_initialized;
 
 /*
  * Check if request is within bounds and aligned on vbswap logical blocks.
@@ -223,6 +224,31 @@ static ssize_t disksize_store(struct device *dev,
 			      struct device_attribute *attr, const char *buf,
 			      size_t len)
 {
+	int ret;
+	u64 disksize;
+
+	ret = kstrtoull(buf, 10, &disksize);
+	if (ret)
+		return ret;
+
+	if (vbswap_initialized) {
+		pr_err("already initialized (disksize = %llu)\n", vbswap_disksize);
+		return -EBUSY;
+	}
+
+	vbswap_disksize = PAGE_ALIGN(disksize);
+	if (!vbswap_disksize) {
+		pr_err("disksize is invalid (disksize = %llu)\n", vbswap_disksize);
+
+		vbswap_disksize = 0;
+		vbswap_initialized = 0;
+
+		return -EINVAL;
+	}
+	set_capacity(vbswap_disk, vbswap_disksize >> SECTOR_SHIFT);
+
+	vbswap_initialized = 1;
+
 	return len;
 }
 
@@ -252,13 +278,6 @@ static struct attribute_group vbswap_disk_attr_group = {
 	.attrs = vbswap_disk_attrs,
 };
 
-static void set_disksize(void)
-{
-	vbswap_disksize = PAGE_ALIGN((u64)SZ_1G * 4);
-	set_capacity(vbswap_disk, vbswap_disksize >> SECTOR_SHIFT);
-	pr_info("created vbswap device with size %llu\n", vbswap_disksize);
-}
-
 static int create_device(void)
 {
 	int ret;
@@ -287,7 +306,6 @@ static int create_device(void)
 	vbswap_disk->fops = &vbswap_fops;
 	vbswap_disk->private_data = NULL;
 	snprintf(vbswap_disk->disk_name, 16, "zram%d", 0);
-	set_disksize();
 
 	/*
 	 * To ensure that we always get PAGE_SIZE aligned
@@ -301,6 +319,8 @@ static int create_device(void)
 	blk_queue_max_hw_sectors(vbswap_disk->queue, PAGE_SIZE / SECTOR_SIZE);
 
 	add_disk(vbswap_disk);
+
+	vbswap_initialized = 0;
 
 	ret = sysfs_create_group(&disk_to_dev(vbswap_disk)->kobj,
 				 &vbswap_disk_attr_group);
