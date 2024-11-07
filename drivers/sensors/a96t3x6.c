@@ -417,7 +417,7 @@ static void a96t3x6_diff_getdata(struct a96t3x6_data *data)
 
 static void a96t3x6_check_first_status(struct a96t3x6_data *data, int enable)
 {
-	u8 r_buf[2];
+	u8 r_buf[4] = {0,};
 	u16 grip_thd;
 
 	if (data->skip_event == true) {
