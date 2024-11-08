@@ -53,7 +53,8 @@
 #endif /* CONFIG_COMMON_CLK */
 #include "../../kernel/sched/sched.h"
 #ifdef CONFIG_DRM_PANEL
-#include <drm/drm_panel.h>
+#include <linux/fb.h>
+#include <linux/msm_drm_notify.h>
 #endif
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
@@ -131,21 +132,21 @@ module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 static int lpm_drm_panel_notify(struct notifier_block *nb,
 		unsigned long val, void *ptr)
 {
-	struct drm_panel_notifier *evdata = ptr;
-	int *blank = evdata->data;
-	switch (*blank) {
-	case DRM_PANEL_BLANK_UNBLANK:
-		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
-			sleep_disabled = true;
-			wake_up_all_idle_cpus();
-		}
+	struct fb_event *evdata = ptr;
+	unsigned int blank;
+
+	if (!evdata || !evdata->data || val != MSM_DRM_EVENT_BLANK)
+		return 0;
+
+	blank = *(int *)(evdata->data);
+	switch (blank) {
+	case MSM_DRM_BLANK_UNBLANK:
+		sleep_disabled = true;
+		wake_up_all_idle_cpus();
 		break;
-	case DRM_PANEL_BLANK_POWERDOWN:
-	case DRM_PANEL_BLANK_LP:
-		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
-			sleep_disabled = false;
-			wake_up_all_idle_cpus();
-		}
+	case MSM_DRM_BLANK_POWERDOWN:
+		sleep_disabled = false;
+		wake_up_all_idle_cpus();
 		break;
 	default:
 		break;
@@ -155,7 +156,6 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 static struct notifier_block drm_notifier = {
 	.notifier_call = lpm_drm_panel_notify,
 };
-extern struct drm_panel *goodix_get_panel(void);
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
@@ -1853,10 +1853,7 @@ static int lpm_probe(struct platform_device *pdev)
 	struct kobject *module_kobj = NULL;
 
 #ifdef CONFIG_DRM_PANEL
-	struct drm_panel *active_panel = goodix_get_panel();
-	if (!active_panel)
-		return -EPROBE_DEFER;
-	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
+	ret = msm_drm_register_client(&drm_notifier);
 	if (ret)
 		pr_err("Failed to register drm panel notifier: %d\n", ret);
 	else
