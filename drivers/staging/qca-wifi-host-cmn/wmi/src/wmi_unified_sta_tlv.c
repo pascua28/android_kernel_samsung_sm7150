@@ -1402,8 +1402,10 @@ static QDF_STATUS extract_sar2_result_event_tlv(void *handle,
 		return QDF_STATUS_E_INVAL;
 	}
 
+#ifdef WLAN_DEBUG
 	WMI_LOGI("SAR2 result: %s",
 		 wmi_sar2_result_string(sar2_fixed_param->result));
+#endif
 
 	return QDF_STATUS_SUCCESS;
 }
