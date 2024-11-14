@@ -693,7 +693,9 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 #define MAX_STR_LEN 80
 	size_t len, i;
 
+#ifdef CONFIG_QCOM_WATCHDOG_V2
 	emerg_pet_watchdog(); /* CTC-should be modify */
+#endif
 #ifdef CONFIG_SEC_USER_RESET_DEBUG
 	sec_debug_store_backtrace();
 #endif
