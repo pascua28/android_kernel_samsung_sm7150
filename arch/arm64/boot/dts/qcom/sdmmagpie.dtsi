@@ -403,8 +403,6 @@
 				1939200	1362
 				2169600	1801
 				2208000	2000
-				2361600	2326
-				2400000	2568
 			>;
 			idle-cost-data = <
 				100 80 60 40
@@ -444,8 +442,6 @@
 				1939200	50
 				2169600	60
 				2208000	61
-				2361600	62
-				2400000	63
 			>;
 			idle-cost-data = <
 				5 4 3 2 1
@@ -3003,7 +2999,7 @@
 			< 1094000 MHZ_TO_MBPS(466, 16) >,
 			< 1324000 MHZ_TO_MBPS(600, 16) >,
 			< 1708800 MHZ_TO_MBPS(806, 16) >,
-			< 2438400 MHZ_TO_MBPS(933, 16) >;
+			< 2208000 MHZ_TO_MBPS(933, 16) >;
 	};
 
 	cpu0_llcc_ddr_lat: qcom,cpu0-llcc-ddr-lat {
@@ -3047,7 +3043,7 @@
 			< 1094000 MHZ_TO_MBPS( 547, 4) >,
 			< 1324000 MHZ_TO_MBPS(1017, 4) >,
 			< 1708800 MHZ_TO_MBPS(1555, 4) >,
-			< 2438400 MHZ_TO_MBPS(1804, 4) >;
+			< 2208000 MHZ_TO_MBPS(1804, 4) >;
 	};
 
 	cpu0_cpu_ddr_latfloor: qcom,cpu0-cpu-ddr-latfloor {
@@ -3088,7 +3084,7 @@
 			< 1324000 MHZ_TO_MBPS( 547, 4) >,
 			< 1552200 MHZ_TO_MBPS( 768, 4) >,
 			< 1708000 MHZ_TO_MBPS(1017, 4) >,
-			< 2438400 MHZ_TO_MBPS(1804, 4) >;
+			< 2208000 MHZ_TO_MBPS(1804, 4) >;
 	};
 
 	npu_npu_ddr_bw: qcom,npu-npu-ddr-bw {
