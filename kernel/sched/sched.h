@@ -934,6 +934,7 @@ struct rq {
 	u64 age_stamp;
 	u64 idle_stamp;
 	u64 avg_idle;
+	struct sched_avg avg_irq;
 
 	/* This is used to determine avg_idle's max value */
 	u64 max_idle_balance_cost;
@@ -2193,6 +2194,13 @@ cpu_util_freq(int cpu, struct sched_walt_cpu_load *walt_load)
 }
 
 #else
+
+static inline unsigned long cpu_util_irq(int cpu)
+{
+	struct rq *rq = cpu_rq(cpu);
+
+	return rq->avg_irq.util_avg;
+}
 
 static inline unsigned long cpu_util_rt(int cpu)
 {

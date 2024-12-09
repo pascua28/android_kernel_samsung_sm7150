@@ -3596,6 +3596,18 @@ update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 	return decayed || removed_load;
 }
 
+int update_irq_load_avg(u64 now, int cpu, struct rq *rq, int running)
+{
+	int ret;
+	ret = ___update_load_avg(now - running, cpu, &rq->avg_irq, 0, 0, NULL, NULL);
+	ret += ___update_load_avg(now, cpu, &rq->avg_irq, 1, 1, NULL, NULL);
+
+	if (ret)
+		___update_load_avg(now, cpu, &rq->avg_irq, 1, 1, NULL, NULL);
+
+	return ret;
+}
+
 int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, int running)
 {
 	int ret;
