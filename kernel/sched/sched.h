@@ -938,6 +938,8 @@ struct rq {
 	defined(CONFIG_PARAVIRT_TIME_ACCOUNTING)
 	struct sched_avg avg_irq;
 #endif
+	struct sched_avg avg_dl;
+
 	/* This is used to determine avg_idle's max value */
 	u64 max_idle_balance_cost;
 #endif
@@ -1991,6 +1993,7 @@ static inline int hrtick_enabled(struct rq *rq)
 #endif /* CONFIG_SCHED_HRTICK */
 
 extern int update_irq_load_avg(struct rq *rq, u64 running);
+extern int update_dl_rq_load_avg(u64 now, int cpu, struct rq *rq, int running);
 
 #ifdef CONFIG_SCHED_WALT
 u64 sched_ktime_clock(void);
@@ -2206,6 +2209,11 @@ static inline unsigned long cpu_util_irq(struct rq *rq)
 	return rq->avg_irq.util_avg;
 }
 #endif
+
+static inline unsigned long cpu_util_dl(struct rq *rq)
+{
+	return rq->avg_dl.util_avg;
+}
 
 static inline unsigned long cpu_util_rt(int cpu)
 {
