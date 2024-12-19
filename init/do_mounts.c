@@ -55,7 +55,7 @@ dev_t ROOT_DEV;
 #ifdef CONFIG_ANDROID_SAR_RAMDISK
 static int __initdata android_bootmode;
 
-extern int mount_sar_ramdisk(char*);
+extern int __init mount_sar_ramdisk(char*);
 
 static int __init android_bootmode_setup(char *str) {
 	android_bootmode = simple_strtol(str,NULL,0);
