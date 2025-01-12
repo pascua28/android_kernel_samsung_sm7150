@@ -1046,7 +1046,6 @@ out_ksu_try_umount:
 	// fixme: use `collect_mounts` and `iterate_mount` to iterate all mountpoint and
 	// filter the mountpoint whose target is `/data/adb`
 	ksu_try_umount("/system", true, 0);
-	ksu_try_umount("/vendor", true, 0);
 	ksu_try_umount("/product", true, 0);
 	ksu_try_umount("/system_ext", true, 0);
 	ksu_try_umount("/data/adb/modules", false, MNT_DETACH);
