@@ -48,6 +48,9 @@
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
+static int fp_mask_bl = 331;
+module_param(fp_mask_bl, int, 0660);
+
 struct sde_crtc_custom_events {
 	u32 event;
 	int (*func)(struct drm_crtc *crtc, bool en,
@@ -5379,7 +5382,7 @@ static void sde_crtc_fod_atomic_check(struct sde_crtc_state *cstate,
 
 	// Samsung fingerprint HBM
 	if (!vdd->finger_mask && vdd->br.finger_mask_bl_level == 0) {
-		vdd->br.finger_mask_bl_level = 331;
+		vdd->br.finger_mask_bl_level = fp_mask_bl;
 		vdd->finger_mask = 1;
 		vdd->finger_mask_updated = true;
 		SDE_DEBUG("[FINGER_MASK] enabled mask");
