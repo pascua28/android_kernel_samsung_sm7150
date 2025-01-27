@@ -30,6 +30,16 @@ $(info -- How to backport: https://github.com/tiann/KernelSU/pull/2320#issuecomm
 $(info -- Fallback to old changes.)
 endif
 
+ifeq ($(shell grep -q "strncpy_from_user_nofault" $(srctree)/include/linux/uaccess.h; echo $$?),0)
+ccflags-y += -DKSU_STRNCPY_FROM_USER_NOFAULT
+endif
+ifeq ($(shell grep -q "ssize_t kernel_read" $(srctree)/fs/read_write.c; echo $$?),0)
+ccflags-y += -DKSU_KERNEL_READ
+endif
+ifeq ($(shell grep "ssize_t kernel_write" $(srctree)/fs/read_write.c | grep -q "const void" ; echo $$?),0)
+ccflags-y += -DKSU_KERNEL_WRITE
+endif
+
 ifndef KSU_NEXT_EXPECTED_SIZE
 KSU_NEXT_EXPECTED_SIZE := 0x3e6
 endif
