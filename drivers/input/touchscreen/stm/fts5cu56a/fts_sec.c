@@ -1457,22 +1457,22 @@ void fts_print_frame(struct fts_ts_info *info, short *min, short *max)
 	if (pStr == NULL)
 		return;
 
-	snprintf(pTmp, 4, "    ");
+	snprintf(pTmp, 5, "    ");
 	strlcat(pStr, pTmp, BUFFER_MAX);
 
 	for (i = 0; i < info->SenseChannelLength; i++) {
-		snprintf(pTmp, 6, "Rx%02d  ", i);
+		snprintf(pTmp, 7, "Rx%02d  ", i);
 		strlcat(pStr, pTmp, BUFFER_MAX);
 	}
 
 	input_raw_info_d(true, &info->client->dev, "%s\n", pStr);
 
 	memset(pStr, 0x0, 6 * (info->SenseChannelLength + 1));
-	snprintf(pTmp, 2, " +");
+	snprintf(pTmp, 3, " +");
 	strlcat(pStr, pTmp, BUFFER_MAX);
 
 	for (i = 0; i < info->SenseChannelLength; i++) {
-		snprintf(pTmp, 6, "------");
+		snprintf(pTmp, 7, "------");
 		strlcat(pStr, pTmp, BUFFER_MAX);
 	}
 
@@ -1480,11 +1480,11 @@ void fts_print_frame(struct fts_ts_info *info, short *min, short *max)
 
 	for (i = 0; i < info->ForceChannelLength; i++) {
 		memset(pStr, 0x0, 6 * (info->SenseChannelLength + 1));
-		snprintf(pTmp, 7, "Tx%02d | ", i);
+		snprintf(pTmp, 8, "Tx%02d | ", i);
 		strlcat(pStr, pTmp, BUFFER_MAX);
 
 		for (j = 0; j < info->SenseChannelLength; j++) {
-			snprintf(pTmp, 6, "%5d ", info->pFrame[(i * info->SenseChannelLength) + j]);
+			snprintf(pTmp, 7, "%5d ", info->pFrame[(i * info->SenseChannelLength) + j]);
 			strlcat(pStr, pTmp, BUFFER_MAX);
 
 			if (info->pFrame[(i * info->SenseChannelLength) + j] < *min) {
