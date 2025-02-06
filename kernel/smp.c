@@ -19,7 +19,6 @@
 #include <linux/sched.h>
 #include <linux/sched/idle.h>
 #include <linux/hypervisor.h>
-#include <linux/suspend.h>
 
 #include "smpboot.h"
 
@@ -777,8 +776,7 @@ void wake_up_all_idle_cpus(void)
 		if (cpu == raw_smp_processor_id())
 			continue;
 
-		if (s2idle_state == S2IDLE_STATE_ENTER ||
-		    !cpu_isolated(cpu))
+		if (!cpu_isolated(cpu))
 			wake_up_if_idle(cpu);
 	}
 	cpus_read_unlock();
