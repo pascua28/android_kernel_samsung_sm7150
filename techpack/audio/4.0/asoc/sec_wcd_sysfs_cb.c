@@ -32,10 +32,15 @@ static struct snd_soc_codec *wcd_codec;
 
 static int get_jack_status(void)
 {
+	int value = 0;
 	struct snd_soc_codec *codec = wcd_codec;
 	struct wcd938x_mbhc *wcd938x_mbhc = wcd938x_soc_get_mbhc(codec);
-	struct wcd_mbhc *mbhc = &wcd938x_mbhc->wcd_mbhc;
-	int value = 0;
+	struct wcd_mbhc *mbhc;
+
+	if (!wcd938x_mbhc)
+		return value;
+
+	mbhc = &wcd938x_mbhc->wcd_mbhc
 
 	if ((mbhc->hph_status == SND_JACK_HEADSET) ||
 	    (mbhc->hph_status == SND_JACK_HEADPHONE))
