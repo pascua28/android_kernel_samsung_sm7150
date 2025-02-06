@@ -36,10 +36,15 @@ static int mad_mic_bias;
 static int get_jack_status(void)
 {
 #if defined(CONFIG_SND_SOC_WCD937X)
+	int value = 0;
 	struct snd_soc_codec *codec = wcd_codec;
 	struct wcd937x_mbhc *wcd937x_mbhc = wcd937x_soc_get_mbhc(codec);
-	struct wcd_mbhc *mbhc = &wcd937x_mbhc->wcd_mbhc;
-	int value = 0;
+	struct wcd_mbhc *mbhc;
+
+	if (!wcd937x_mbhc)
+		return value;
+
+	mbhc = &wcd937x_mbhc->wcd_mbhc;
 
 	if ((mbhc->hph_status == SND_JACK_HEADSET) ||
 	    (mbhc->hph_status == SND_JACK_HEADPHONE))
