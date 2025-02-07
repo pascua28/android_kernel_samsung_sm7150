@@ -1052,7 +1052,11 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	init_completion(&gi2c->xfer);
 	platform_set_drvdata(pdev, gi2c);
 	ret = devm_request_irq(gi2c->dev, gi2c->irq, geni_i2c_irq,
+#ifdef CONFIG_IRQ_SBALANCE
 			       IRQF_TRIGGER_HIGH | IRQF_NOBALANCING,
+#else
+			       IRQF_TRIGGER_HIGH,
+#endif
 			       "i2c_geni", gi2c);
 	if (ret) {
 		dev_err(gi2c->dev, "Request_irq failed:%d: err:%d\n",
