@@ -212,7 +212,7 @@ static void zswap_update_total_size(void)
 	rcu_read_unlock();
 
 	zswap_pool_total_size_kb = DIV_ROUND_UP(total, 1024);
-	zswap_pool_pages = zswap_pool_total_size >> PAGE_SHIFT;
+	zswap_pool_pages = total >> PAGE_SHIFT;
 }
 
 /*********************************
