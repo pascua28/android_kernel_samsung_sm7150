@@ -150,7 +150,7 @@ int msm_comm_reset_bufreqs(struct msm_vidc_inst *inst,
 int msm_comm_copy_bufreqs(struct msm_vidc_inst *inst,
 	enum hal_buffer src_type, enum hal_buffer dst_type);
 struct hal_buffer_requirements *get_buff_req_buffer(
-			struct msm_vidc_inst *inst, u32 buffer_type);
+			struct msm_vidc_inst *inst, enum hal_buffer buffer_type);
 #define IS_PRIV_CTRL(idx) (\
 		(V4L2_CTRL_ID2WHICH(idx) == V4L2_CTRL_CLASS_MPEG) && \
 		V4L2_CTRL_DRIVER_PRIV(idx))
