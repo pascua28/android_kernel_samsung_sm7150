@@ -110,19 +110,19 @@ void msm_vidc_debugfs_update(struct msm_vidc_inst *inst,
 		enum msm_vidc_debugfs_event e);
 int msm_vidc_check_ratelimit(void);
 #else
-static int msm_vidc_debug = 0;
+static __maybe_unused int msm_vidc_debug = 0;
 EXPORT_SYMBOL(msm_vidc_debug);
 
-static int msm_vidc_debug_out = 0;
+static __maybe_unused int msm_vidc_debug_out = 0;
 EXPORT_SYMBOL(msm_vidc_debug_out);
 
-static int msm_vidc_fw_debug = 0x00;
-static int msm_vidc_fw_debug_mode = 0;
-static int msm_vidc_fw_low_power_mode = 1;
-static bool msm_vidc_fw_coverage = false;
-static bool msm_vidc_thermal_mitigation_disabled = false;
-static int msm_vidc_clock_voting = 0;
-static bool msm_vidc_syscache_disable = false;
+static __maybe_unused int msm_vidc_fw_debug = 0x00;
+static __maybe_unused int msm_vidc_fw_debug_mode = 0;
+static __maybe_unused int msm_vidc_fw_low_power_mode = 1;
+static __maybe_unused bool msm_vidc_fw_coverage = false;
+static __maybe_unused bool msm_vidc_thermal_mitigation_disabled = false;
+static __maybe_unused int msm_vidc_clock_voting = 0;
+static __maybe_unused bool msm_vidc_syscache_disable = false;
 
 #define dprintk(__level, __fmt, arg...)	\
 	do { \
