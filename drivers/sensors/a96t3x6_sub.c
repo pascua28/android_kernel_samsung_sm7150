@@ -2245,7 +2245,7 @@ static int a96t3x6_ccic_handle_notification(struct notifier_block *nb,
 		SENSOR_INFO("sub TA/USB is removed\n");
 		break;
 	default:
-		pr_info("ccic skip attach = %d\n",
+		pr_info("%s: ccic skip attach = %d\n",
 			__func__, usb_status.drp);
 		break;
 	}
