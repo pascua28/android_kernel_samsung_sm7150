@@ -492,6 +492,6 @@ int ipa_wigig_send_msg(int msg_type,
 void ipa_register_client_callback(int (*client_cb)(bool is_lock),
 			bool (*teth_port_state)(void), enum ipa_client_type client);
 
-void ipa_deregister_client_callback(u32 ipa_ep_idx);
+void ipa_deregister_client_callback(enum ipa_client_type ipa_ep_idx);
 
 #endif /* _IPA_COMMON_I_H_ */
