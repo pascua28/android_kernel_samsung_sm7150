@@ -662,7 +662,7 @@ static void s2mu106_temperature_compensation(struct s2mu106_fuelgauge_data *fuel
 			if (fuelgauge->temperature >= fuelgauge->low_temp_limit ||
 				((fuelgauge->temperature < fuelgauge->low_temp_limit) && (data[1] != 0))) {
 				fuelgauge->soc_r = soc_map;
-				pr_info("%s: When Initial Mapping, UI SOC = soc_r = soc_map\n", __func__, fuelgauge->soc_r);
+				pr_info("%s: When Initial Mapping, UI SOC = soc_r = %d\n", __func__, fuelgauge->soc_r);
 				fuelgauge->ui_soc = fuelgauge->soc_r / 100;
 				fuelgauge->capacity_old = fuelgauge->ui_soc;
 			}
