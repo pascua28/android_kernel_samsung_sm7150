@@ -620,96 +620,96 @@ static void irq_work_routine(struct work_struct *work)
  */
 
 		if ((nDevInt1Status &
-	    TAS2562_LATCHEDINTERRUPTREG0_TDMCLOCKERRORSTICKY_INTERRUPT) ||
-		(nDevInt3Status &
-	    TAS2562_LATCHEDINTERRUPTREG0_TDMCLOCKERRORSTICKY_INTERRUPT)) {
+		     TAS2562_LATCHEDINTERRUPTREG0_TDMCLOCKERRORSTICKY_INTERRUPT) ||
+		     (nDevInt3Status &
+	    	     TAS2562_LATCHEDINTERRUPTREG0_TDMCLOCKERRORSTICKY_INTERRUPT)) {
 			p_tas2562->mn_err_code |= ERROR_CLOCK;
 			dev_err(p_tas2562->dev, "TDM clock error!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_OVER_CURRENT;
+		} else
+			p_tas2562->mn_err_code &= ~ERROR_OVER_CURRENT;
 
-	if ((nDevInt1Status &
-		TAS2562_LATCHEDINTERRUPTREG0_OCEFLAGSTICKY_INTERRUPT) ||
-		(nDevInt3Status &
-		TAS2562_LATCHEDINTERRUPTREG0_OCEFLAGSTICKY_INTERRUPT)) {
-		p_tas2562->mn_err_code |= ERROR_OVER_CURRENT;
-		dev_err(p_tas2562->dev, "SPK over current!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_OVER_CURRENT;
+		if ((nDevInt1Status &
+		     TAS2562_LATCHEDINTERRUPTREG0_OCEFLAGSTICKY_INTERRUPT) ||
+		     (nDevInt3Status &
+		     TAS2562_LATCHEDINTERRUPTREG0_OCEFLAGSTICKY_INTERRUPT)) {
+			p_tas2562->mn_err_code |= ERROR_OVER_CURRENT;
+			dev_err(p_tas2562->dev, "SPK over current!\n");
+		} else
+			p_tas2562->mn_err_code &= ~ERROR_OVER_CURRENT;
 
-	if ((nDevInt1Status &
-		TAS2562_LATCHEDINTERRUPTREG0_OTEFLAGSTICKY_INTERRUPT) ||
-		(nDevInt3Status &
-		TAS2562_LATCHEDINTERRUPTREG0_OTEFLAGSTICKY_INTERRUPT)) {
-		p_tas2562->mn_err_code |= ERROR_DIE_OVERTEMP;
-		dev_err(p_tas2562->dev, "die over temperature!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_DIE_OVERTEMP;
+		if ((nDevInt1Status &
+		     TAS2562_LATCHEDINTERRUPTREG0_OTEFLAGSTICKY_INTERRUPT) ||
+		     (nDevInt3Status &
+		     TAS2562_LATCHEDINTERRUPTREG0_OTEFLAGSTICKY_INTERRUPT)) {
+		     p_tas2562->mn_err_code |= ERROR_DIE_OVERTEMP;
+			dev_err(p_tas2562->dev, "die over temperature!\n");
+		} else
+			p_tas2562->mn_err_code &= ~ERROR_DIE_OVERTEMP;
 
-	if ((nDevInt2Status &
-	TAS2562_LATCHEDINTERRUPTREG1_VBATOVLOSTICKY_INTERRUPT) ||
-		(nDevInt4Status &
-	TAS2562_LATCHEDINTERRUPTREG1_VBATOVLOSTICKY_INTERRUPT)) {
-		p_tas2562->mn_err_code |= ERROR_OVER_VOLTAGE;
-		dev_err(p_tas2562->dev, "SPK over voltage!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_UNDER_VOLTAGE;
+		if ((nDevInt2Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_VBATOVLOSTICKY_INTERRUPT) ||
+		     (nDevInt4Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_VBATOVLOSTICKY_INTERRUPT)) {
+				p_tas2562->mn_err_code |= ERROR_OVER_VOLTAGE;
+				dev_err(p_tas2562->dev, "SPK over voltage!\n");
+		} else
+			p_tas2562->mn_err_code &= ~ERROR_UNDER_VOLTAGE;
 
-	if ((nDevInt2Status &
-	TAS2562_LATCHEDINTERRUPTREG1_VBATUVLOSTICKY_INTERRUPT) ||
-		(nDevInt4Status &
-	TAS2562_LATCHEDINTERRUPTREG1_VBATUVLOSTICKY_INTERRUPT)) {
-		p_tas2562->mn_err_code |= ERROR_UNDER_VOLTAGE;
-		dev_err(p_tas2562->dev, "SPK under voltage!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_UNDER_VOLTAGE;
+		if ((nDevInt2Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_VBATUVLOSTICKY_INTERRUPT) ||
+		     (nDevInt4Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_VBATUVLOSTICKY_INTERRUPT)) {
+			p_tas2562->mn_err_code |= ERROR_UNDER_VOLTAGE;
+			dev_err(p_tas2562->dev, "SPK under voltage!\n");
+		} else
+			p_tas2562->mn_err_code &= ~ERROR_UNDER_VOLTAGE;
 
-	if ((nDevInt2Status &
-	TAS2562_LATCHEDINTERRUPTREG1_BROWNOUTFLAGSTICKY_INTERRUPT) ||
-		(nDevInt4Status &
-	TAS2562_LATCHEDINTERRUPTREG1_BROWNOUTFLAGSTICKY_INTERRUPT)) {
-		p_tas2562->mn_err_code |= ERROR_BROWNOUT;
-		dev_err(p_tas2562->dev, "brownout!\n");
-	} else
-		p_tas2562->mn_err_code &= ~ERROR_BROWNOUT;
+		if ((nDevInt2Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_BROWNOUTFLAGSTICKY_INTERRUPT) ||
+		     (nDevInt4Status &
+		     TAS2562_LATCHEDINTERRUPTREG1_BROWNOUTFLAGSTICKY_INTERRUPT)) {
+			p_tas2562->mn_err_code |= ERROR_BROWNOUT;
+			dev_err(p_tas2562->dev, "brownout!\n");
+		} else {
+			p_tas2562->mn_err_code &= ~ERROR_BROWNOUT;
 
-		goto reload;
+			goto reload;
+		}
 	} else {
 		n_counter = 2;
 
-	while (n_counter > 0) {
-		if (chn & channel_left)
-			n_result = p_tas2562->read(p_tas2562, channel_left,
-				TAS2562_POWERCONTROL, &nDevInt1Status);
-		if (n_result < 0)
-			goto reload;
-		if (chn & channel_right)
-			n_result = p_tas2562->read(p_tas2562, channel_right,
-			TAS2562_POWERCONTROL, &nDevInt3Status);
-		if (n_result < 0)
-			goto reload;
+		while (n_counter > 0) {
+			if (chn & channel_left)
+				n_result = p_tas2562->read(p_tas2562, channel_left,
+					TAS2562_POWERCONTROL, &nDevInt1Status);
+			if (n_result < 0)
+				goto reload;
+			if (chn & channel_right)
+				n_result = p_tas2562->read(p_tas2562, channel_right,
+				TAS2562_POWERCONTROL, &nDevInt3Status);
+			if (n_result < 0)
+				goto reload;
 
-		if ((nDevInt1Status
-			& TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK)
-			!= TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN) {
-			/* If only left should be power on */
-			if (chn == channel_left)
-				break;
-			/* If both should be power on */
-			if ((nDevInt3Status
+			if ((nDevInt1Status
 				& TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK)
-				!=
-				TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN)
-				break;
-		}
-		/*If only right should be power on */
-		else if (chn == channel_right) {
-			if ((nDevInt3Status
-				& TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK)
-				!=
-				TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN)
-				break;
-		}
+				!= TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN) {
+				/* If only left should be power on */
+				if (chn == channel_left)
+					break;
+				/* If both should be power on */
+				if ((nDevInt3Status
+					& TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK) !=
+					TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN)
+					break;
+			}
+
+			/*If only right should be power on */
+			else if (chn == channel_right) {
+				if ((nDevInt3Status
+					& TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK) !=
+					TAS2562_POWERCONTROL_OPERATIONALMODE10_SHUTDOWN)
+					break;
+			}
 
 			p_tas2562->read(p_tas2562, channel_left,
 				TAS2562_LATCHEDINTERRUPTREG0, &irqreg);
@@ -748,7 +748,7 @@ static void irq_work_routine(struct work_struct *work)
 
 			n_counter--;
 			if (n_counter > 0) {
-	/* in case check pow status just after power on TAS2562 */
+			/* in case check pow status just after power on TAS2562 */
 				dev_dbg(p_tas2562->dev, "PowSts B: 0x%x, check again after 10ms\n",
 					nDevInt1Status);
 				msleep(20);
