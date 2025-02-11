@@ -210,7 +210,7 @@ static int dev_monitor_notifier_cb(struct notifier_block *nb,
 {
 	struct net_device *dev = netdev_notifier_info_to_dev(info);
 
-	pr_err("dev : %s : event : %d\n", dev->name, event);
+	pr_err("dev : %s : event : %lu\n", dev->name, event);
 	switch (event) {
 	//case NETDEV_DOWN:
 	case NETDEV_UNREGISTER_FINAL:
