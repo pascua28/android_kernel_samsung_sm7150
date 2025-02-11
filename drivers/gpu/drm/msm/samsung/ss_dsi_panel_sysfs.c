@@ -1253,7 +1253,7 @@ static ssize_t ss_write_mtp_store(struct device *dev,
 	}
 
 	while ((p = strsep(&arg, " ")) != NULL && i < len) {
-		if (sscanf(p, "%02x", &val) != 1)
+		if (sscanf(p, "%02hhx", &val) != 1)
 			LCD_INFO("fail to sscanf..\n");
 		tx_buf[i++] = val;
 		LCD_INFO("arg [%02x] \n", val);
