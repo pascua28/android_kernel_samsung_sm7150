@@ -727,11 +727,7 @@ int susfs_set_cmdline_or_bootconfig(char* __user user_fake_cmdline_or_bootconfig
 	spin_unlock(&susfs_spin_lock);
 
 	if (res > 0) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
 		SUSFS_LOGI("fake_cmdline_or_bootconfig is set, length of string: %lu\n", strlen(fake_cmdline_or_bootconfig));
-#else
-		SUSFS_LOGI("fake_cmdline_or_bootconfig is set, length of string: %u\n", strlen(fake_cmdline_or_bootconfig));
-#endif
 		return 0;
 	}
 	SUSFS_LOGI("failed setting fake_cmdline_or_bootconfig\n");
