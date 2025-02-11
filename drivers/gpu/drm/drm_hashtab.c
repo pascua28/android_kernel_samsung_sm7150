@@ -56,20 +56,6 @@ int drm_ht_create(struct drm_open_hash *ht, unsigned int order)
 }
 EXPORT_SYMBOL(drm_ht_create);
 
-void drm_ht_verbose_list(struct drm_open_hash *ht, unsigned long key)
-{
-	struct drm_hash_item *entry;
-	struct hlist_head *h_list;
-	unsigned int hashed_key;
-	int count = 0;
-
-	hashed_key = hash_long(key, ht->order);
-	DRM_DEBUG("Key is 0x%08lx, Hashed key is 0x%08x\n", key, hashed_key);
-	h_list = &ht->table[hashed_key];
-	hlist_for_each_entry(entry, h_list, head)
-		DRM_DEBUG("count %d, key: 0x%08lx\n", count++, entry->key);
-}
-
 static struct hlist_node *drm_ht_find_key(struct drm_open_hash *ht,
 					  unsigned long key)
 {
