@@ -443,16 +443,16 @@ void prox_set_name_vendor(int32_t buf)
 	pr_info("[FACTORY] %s: name = %d, rev = %u\n", __func__, buf, sec_hw_rev());
 
 	if (sec_hw_rev() >= 4) {
-		strncpy(pdata->name, CHIP_ID_STK33617, sizeof(CHIP_ID_STK33617));
-		strncpy(pdata->vendor, VENDOR_STK, sizeof(VENDOR_STK));	
+		strncpy(pdata->name, CHIP_ID_STK33617, sizeof(pdata->name));
+		strncpy(pdata->vendor, VENDOR_STK, sizeof(pdata->vendor));
 	}
 	else {
 		if (buf == STK3031) {
-			strncpy(pdata->name, CHIP_ID_STK3031, sizeof(CHIP_ID_STK3031));
-			strncpy(pdata->vendor, VENDOR_STK, sizeof(VENDOR_STK));
+			strncpy(pdata->name, CHIP_ID_STK3031, sizeof(pdata->name));
+			strncpy(pdata->vendor, VENDOR_STK, sizeof(pdata->vendor));
 		} else if (buf == VCNL36811) {
-			strncpy(pdata->name, CHIP_ID_CAPELLA, sizeof(CHIP_ID_CAPELLA));
-			strncpy(pdata->vendor, VENDOR_CAPELLA, sizeof(VENDOR_CAPELLA));
+			strncpy(pdata->name, CHIP_ID_CAPELLA, sizeof(pdata->name));
+			strncpy(pdata->vendor, VENDOR_CAPELLA, sizeof(pdata->vendor));
 		} else
 			pr_info("[FACTORY] %s: wrong sensor name\n", __func__);
 	}
@@ -716,8 +716,8 @@ static int __init prox_factory_init(void)
 	pdata->high_detect_h = 30;
 	pdata->high_detect_l = 20;
 
-	strncpy(pdata->name, CHIP_ID_STK33617, sizeof(CHIP_ID_STK33617));
-	strncpy(pdata->vendor, VENDOR_STK, sizeof(VENDOR_STK));
+	strncpy(pdata->name, CHIP_ID_STK33617, sizeof(pdata->name));
+	strncpy(pdata->vendor, VENDOR_STK, sizeof(pdata->name));
 
 	return 0;
 }
