@@ -460,7 +460,7 @@ int s2mu106_led_mode_ctrl(int state)
 			if (fled->is_en_flash) {
 				if (!fled->psy_chg)
 					fled->psy_chg = power_supply_get_by_name("s2mu106-charger");
-				fled->is_en_flash = value.intval = false;
+				fled->is_en_flash = (value.intval = false);
 				power_supply_set_property(fled->psy_chg,
 					POWER_SUPPLY_PROP_ENERGY_AVG, &value);
 			}
@@ -484,7 +484,7 @@ int s2mu106_led_mode_ctrl(int state)
 		if (!fled->psy_chg)
 			fled->psy_chg = power_supply_get_by_name("s2mu106-charger");
 
-		fled->is_en_flash = value.intval = true;
+		fled->is_en_flash = (value.intval = true);
 		power_supply_set_property(fled->psy_chg,
 				POWER_SUPPLY_PROP_ENERGY_AVG, &value);
 
