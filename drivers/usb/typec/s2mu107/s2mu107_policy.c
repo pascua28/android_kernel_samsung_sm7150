@@ -1351,7 +1351,7 @@ retry:
 
 		/* TimeOver Check */
 		if (ms >= tPSTransition) {
-			pr_info("%s, time out ms = %d, sec = %lld, usec = %lld\n",
+			pr_info("%s, time out ms = %lld, sec = %ld, usec = %ld\n",
 		__func__, ms, pd_data->check_time.tv_sec, pd_data->check_time.tv_usec);
 			if (policy->check_ps_ready_retry == 0) {
 				policy->check_ps_ready_retry = 1;
@@ -1536,7 +1536,7 @@ policy_state usbpd_policy_snk_hard_reset(struct policy_data *policy)
 	**********************************************/
 
 	/* PD State Inform to AP */
-	dev_info(pd_data->dev, "%s, time out sec = %lld, usec = %lld\n",
+	dev_info(pd_data->dev, "%s, time out sec = %ld, usec = %ld\n",
 		__func__, pd_data->check_time.tv_sec, pd_data->check_time.tv_usec);
 	pd_data->phy_ops.hard_reset(pd_data);
 	pd_data->phy_ops.set_cc_control(pd_data, USBPD_CC_OFF);
