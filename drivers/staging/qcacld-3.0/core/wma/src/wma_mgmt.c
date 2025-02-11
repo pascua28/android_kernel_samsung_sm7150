@@ -2476,6 +2476,7 @@ void wma_beacon_miss_handler(tp_wma_handle wma, uint32_t vdev_id, int32_t rssi)
 	wma_lost_link_info_handler(wma, vdev_id, rssi);
 }
 
+#ifdef WLAN_DEBUG
 /**
  * wma_get_status_str() - get string of tx status from firmware
  * @status: tx status
@@ -2494,6 +2495,7 @@ static const char *wma_get_status_str(uint32_t status)
 	CASE_RETURN_STRING(WMI_MGMT_TX_COMP_TYPE_MAX);
 	}
 }
+#endif
 
 #ifdef CONFIG_HL_SUPPORT
 static inline void wma_mgmt_unmap_buf(tp_wma_handle wma_handle, qdf_nbuf_t buf)
