@@ -4389,7 +4389,7 @@ got_pg:
 			a_file += node_page_state(pgdat, NR_ACTIVE_FILE);
 			in_file += node_page_state(pgdat, NR_INACTIVE_FILE);
 		}
-		pr_info("alloc stall: timeJS(ms):%u|%u rec:%lu|%lu ret:%d o:%d gfp:%#x(%pGg) AaiFai:%lukB|%lukB|%lukB|%lukB\n",
+		pr_info("alloc stall: timeJS(ms):%u|%llu rec:%lu|%lu ret:%d o:%d gfp:%#x(%pGg) AaiFai:%lukB|%lukB|%lukB|%lukB\n",
 			jiffies_to_msecs(jiffies - jiffies_s),
 			stime_d / NSEC_PER_MSEC,
 			did_some_progress, pages_reclaimed, retry_loop_count,

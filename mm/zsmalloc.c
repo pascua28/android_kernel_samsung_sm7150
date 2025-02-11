@@ -2509,7 +2509,7 @@ static void do_zs_compact(struct work_struct *work)
 	unsigned long pages_freed;
 	if (g_pool) {
 		pages_freed = zs_compact(g_pool);
-		pr_info("zs_compact pages_freed=%d", pages_freed);
+		pr_info("zs_compact pages_freed=%lu", pages_freed);
 	}
 }
 static DECLARE_WORK(zs_compact_work, do_zs_compact);
