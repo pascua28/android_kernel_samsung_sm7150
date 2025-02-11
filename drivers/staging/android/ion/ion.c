@@ -111,8 +111,6 @@ static void ion_buffer_add(struct ion_device *dev,
 	rb_insert_color(&buffer->node, &dev->buffers);
 }
 
-static void ion_debug_heap_usage_show(struct ion_heap *heap);
-
 /* this function should only be called while dev->lock is held */
 static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 					    struct ion_device *dev,
@@ -193,7 +191,6 @@ err1:
 	heap->ops->free(buffer);
 err2:
 	kfree(buffer);
-	ion_debug_heap_usage_show(heap);
 	return ERR_PTR(ret);
 }
 
@@ -1242,43 +1239,6 @@ static const struct file_operations ion_fops = {
 	.compat_ioctl	= ion_ioctl,
 #endif
 };
-
-static void ion_debug_heap_usage_show(struct ion_heap *heap)
-{
-	struct ion_device *dev = heap->dev;
-	struct rb_node *n;
-	size_t total_size = 0;
-	static DEFINE_RATELIMIT_STATE(show_heap_usage, HZ * 10, 1);
-
-	/* supports only for some heaps */
-	if (heap->type != ION_HEAP_TYPE_CARVEOUT &&
-	    heap->type != ION_HEAP_TYPE_DMA &&
-	    heap->type != ION_HEAP_TYPE_SECURE_DMA &&
-	    heap->type != ION_HEAP_TYPE_HYP_CMA &&
-	    heap->type != ION_HEAP_TYPE_SECURE_CARVEOUT)
-		return;
-
-	if (!__ratelimit(&show_heap_usage))
-		return;
-
-	pr_info("heap: %s %u\n", heap->name, heap->id);
-	pr_info("%16s %16s %16s\n", "task", "pid", "size");
-	mutex_lock(&dev->buffer_lock);
-	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
-		struct ion_buffer *buffer = rb_entry(n, struct ion_buffer,
-						     node);
-		if (buffer->heap->id != heap->id)
-			continue;
-		total_size += buffer->size;
-		pr_info("%16s %16u (%16s %16u) %16zu\n", buffer->task_comm,
-			buffer->pid, buffer->thread_comm, buffer->tid,
-			buffer->size);
-	}
-	mutex_unlock(&dev->buffer_lock);
-	pr_info("%16s %16zu\n", "total ", total_size);
-	pr_info("%16.s %16lu\n", "peak allocated",
-		atomic_long_read(&heap->total_allocated_peak));
-}
 
 static int ion_debug_heap_show(struct seq_file *s, void *unused)
 {
