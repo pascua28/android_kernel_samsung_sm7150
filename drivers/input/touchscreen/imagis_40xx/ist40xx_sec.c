@@ -3648,8 +3648,8 @@ void get_cm_array(void *dev_data)
 	return;
 
 out:
-	snprintf(buf, sizeof(buf), "NG");
-	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
+	snprintf(buf, sizeof(*buf), "NG");
+	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(*buf)));
 
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 }
@@ -3691,7 +3691,7 @@ void get_slope0_array(void *dev_data)
 	return;
 
 out:
-	snprintf(buf, sizeof(buf), "NG");
+	snprintf(buf, sizeof(*buf), "NG");
 	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
 
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
@@ -3734,7 +3734,7 @@ void get_slope1_array(void *dev_data)
 	return;
 
 out:
-	snprintf(buf, sizeof(buf), "NG");
+	snprintf(buf, sizeof(*buf), "NG");
 	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
 
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
@@ -3783,7 +3783,7 @@ void get_cs_array(void *dev_data)
 	return;
 
 out:
-	snprintf(buf, sizeof(buf), "NG");
+	snprintf(buf, sizeof(*buf), "NG");
 	sec_cmd_set_cmd_result(sec, buf, strnlen(buf, sizeof(buf)));
 
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
@@ -4409,7 +4409,7 @@ int ist40xx_tclm_data_write(struct i2c_client *client, int address)
 		   data->tdata->nvdata.cal_pos_hist_cnt,
 		   data->tdata->nvdata.cal_pos_hist_lastp);
 
-	memset(nbuff, 0x00, IST40XX_NVM_OFFSET_LENGTH);
+	memset(nbuff, 0x00, IST40XX_NVM_OFFSET_LENGTH * sizeof(u32));
 
 	nbuff[IST40XX_NVM_OFFSET_FAC_RESULT] = (u32)data->test_result.data[0];
 	nbuff[IST40XX_NVM_OFFSET_DISASSEMBLE_COUNT] = data->disassemble_count;
@@ -5604,7 +5604,7 @@ static ssize_t fod_info_show(struct device *dev,
 
 	if (!data->dt_data->support_fod) {
 		input_err(true, &data->client->dev, "%s: fod is not supported\n", __func__);
-		return snprintf(buf, sizeof(buf), "NG");
+		return snprintf(buf, sizeof(*buf), "NG");
 	}
 
 	input_info(true, &data->client->dev, "%s: tx:%d, rx:%d, size:%d\n",
@@ -5625,17 +5625,17 @@ static ssize_t fod_position_show(struct device *dev,
 
 	if (data->status.sys_mode == STATE_POWER_OFF) {
 		input_err(true, &data->client->dev, "%s: error currently power off\n", __func__);
-		return snprintf(buf, sizeof(buf), "NG");
+		return snprintf(buf, sizeof(*buf), "NG");
 	}
 
 	if (!data->dt_data->support_fod) {
 		input_err(true, &data->client->dev, "%s: fod is not supported\n", __func__);
-		return snprintf(buf, sizeof(buf), "NG");
+		return snprintf(buf, sizeof(*buf), "NG");
 	}
 
 	if (!data->fod_vi_size) {
 		input_err(true, &data->client->dev, "%s: not read fod_info yet\n", __func__);
-		return snprintf(buf, sizeof(buf), "NG");
+		return snprintf(buf, sizeof(*buf), "NG");
 	}
 
 	if (data->status.sys_mode == STATE_LPM)
