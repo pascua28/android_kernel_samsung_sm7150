@@ -101,7 +101,7 @@ sec_therm_parse_dt(struct platform_device *pdev)
 	if (IS_ERR(pdata->chan)) {
 		rc = PTR_ERR(pdata->chan);
 		if (rc != -EPROBE_DEFER)
-			pr_err("%s: Fail to get iio channel : %ld\n", __func__, rc);
+			pr_err("%s: Fail to get iio channel : %d\n", __func__, rc);
 
 		return ERR_PTR(rc);
 	}
