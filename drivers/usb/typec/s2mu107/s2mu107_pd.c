@@ -25,7 +25,7 @@ extern struct pdic_notifier_struct pd_noti;
 void usbpd_timer1_start(struct usbpd_data *pd_data)
 {
 	do_gettimeofday(&pd_data->time1);
-	pr_info("%s, sec = %lld, usec = %lld\n", __func__,
+	pr_info("%s, sec = %ld, usec = %ld\n", __func__,
 							pd_data->time1.tv_sec, pd_data->time1.tv_usec);
 }
 

@@ -763,7 +763,7 @@ int samsung_uvdm_out_request_message(void *data, int size)
 					cur_set_num, size, remained_data_size);
 			cur_set_data = get_data_size(manager->uvdm_first_req,remained_data_size);
 
-			pr_info("%s current set data size: %d, total data size %ld, current uvdm set num %d\n", __func__, cur_set_data, size, cur_set_num);
+			pr_info("%s current set data size: %d, total data size %d, current uvdm set num %d\n", __func__, cur_set_data, size, cur_set_num);
 
 			if (manager->uvdm_first_req) {
 				SEC_DATA = (uint8_t *)&manager->uvdm_data_obj[3];
