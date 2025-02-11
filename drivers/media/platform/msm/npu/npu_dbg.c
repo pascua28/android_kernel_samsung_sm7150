@@ -66,7 +66,7 @@ void npu_dump_ipc_queue(struct npu_device *npu_dev, uint32_t target_que)
 		HFI_QUEUE_HEADER_SIZE);
 
 	pr_err("DUMP IPC queue %d:\n", target_que);
-	pr_err("Header size %d:\n", HFI_QUEUE_HEADER_SIZE);
+	pr_err("Header size %lu:\n", HFI_QUEUE_HEADER_SIZE);
 	pr_err("Content size %d:\n", queue.qhdr_q_size);
 	pr_err("============QUEUE HEADER=============\n");
 	for (i = 0; i < HFI_QUEUE_HEADER_SIZE/4; i++) {
