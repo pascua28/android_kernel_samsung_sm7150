@@ -3627,15 +3627,6 @@ long kgsl_ioctl_gpuobj_alloc(struct kgsl_device_private *dev_priv,
 {
 	struct kgsl_gpuobj_alloc *param = data;
 	struct kgsl_mem_entry *entry;
-#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-	struct kgsl_process_private *private = dev_priv->process_priv;
-	uint64_t debug_size;
-	debug_size = param->size >> 10;
-
-	if(debug_size > 200000) {
-		pr_err("kgsl: huge memory %lldKB is requested from pid = %d comm = %s\n", debug_size, private->pid, private->comm);
-	}
-#endif
 	entry = gpumem_alloc_entry(dev_priv, param->size, param->flags);
 
 	if (IS_ERR(entry))
