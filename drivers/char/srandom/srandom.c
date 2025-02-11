@@ -325,8 +325,7 @@ size_t count, loff_t *ppos)
 			new_buf = kzalloc((count_remaining + 512) *
 				sizeof(uint8_t), GFP_KERNEL);
 			while (!new_buf) {
-				pr_debug("buffered kzalloc failed to allocate buffer.",
-					"retrying...\n");
+				pr_debug("buffered kzalloc failed to allocate buffer.\nretrying...\n");
 				new_buf = kzalloc((count_remaining + 512) *
 					sizeof(uint8_t), GFP_KERNEL);
 			}
@@ -539,11 +538,7 @@ int nextbuffer(void)
 	uint8_t nextbuffer = (sarr_RND[num_arr_RND][position] >> (roll * 4))
 		& (num_arr_RND - 1);
 
-	pr_debug("raw:%lld",
-			"position:%d",
-			"roll:%d",
-			"%s:%d",
-			"CC_buffer_position:%d\n",
+	pr_debug("raw:%llu, position:%d, roll:%d, %s:%d, CC_buffer_position:%d\n",
 			sarr_RND[num_arr_RND][position],
 			position,
 			roll,
