@@ -32,30 +32,6 @@ void sec_cmd_execution(struct sec_cmd_data *data)
 }
 #endif
 
-void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
-{
-#ifdef USE_SEC_CMD_QUEUE
-	mutex_lock(&data->fifo_lock);
-	if (kfifo_len(&data->cmd_queue)) {
-		pr_info("%s %s: do next cmd, left cmd[%d]\n", SECLOG, __func__,
-			(int)(kfifo_len(&data->cmd_queue) / sizeof(struct command)));
-		mutex_unlock(&data->fifo_lock);
-
-		schedule_work(&data->cmd_work.work);
-	} else {
-		mutex_unlock(&data->fifo_lock);
-
-		mutex_lock(&data->cmd_lock);
-		data->cmd_is_running = false;
-		mutex_unlock(&data->cmd_lock);
-	}
-#else
-	mutex_lock(&data->cmd_lock);
-	data->cmd_is_running = false;
-	mutex_unlock(&data->cmd_lock);
-#endif
-}
-
 #if defined USE_SEC_CMD_QUEUE
 static void cmd_exit_work(struct work_struct *work)
 {
@@ -64,14 +40,6 @@ static void cmd_exit_work(struct work_struct *work)
 	sec_cmd_execution(data);
 }
 #endif
-
-void sec_cmd_set_default_result(struct sec_cmd_data *data)
-{
-	char *delim = ":";
-	memset(data->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN);
-	memcpy(data->cmd_result, data->cmd, SEC_CMD_STR_LEN);
-	strlcat(data->cmd_result, delim, sizeof(data->cmd_result));
-}
 
 void sec_cmd_set_cmd_result_all(struct sec_cmd_data *data, char *buff, int len, char *item)
 {
@@ -704,53 +672,6 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 #endif
 	mutex_destroy(&data->cmd_lock);
 	list_del(&data->cmd_list_head);
-}
-
-void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result)
-{
-	char *event[5];
-	char timestamp[32];
-	char feature[32];
-	char stest[32];
-	char sresult[32];
-	ktime_t calltime;
-	u64 realtime;
-	int curr_time;
-	char *eol = "\0";
-
-	calltime = ktime_get();
-	realtime = ktime_to_ns(calltime);
-	do_div(realtime, NSEC_PER_USEC);
-	curr_time = realtime / USEC_PER_MSEC;
-
-	snprintf(timestamp, 32, "TIMESTAMP=%d", curr_time);
-	strncat(timestamp, eol, 1);
-	snprintf(feature, 32, "FEATURE=TSP");
-	strncat(feature, eol, 1);
-	if (!test) {
-		snprintf(stest, 32, "TEST=NULL");
-	} else {
-		snprintf(stest, 32, "%s", test);
-	}
-	strncat(stest, eol, 1);
-
-	if (!result) {
-		snprintf(sresult, 32, "RESULT=NULL");
-	} else {
-		snprintf(sresult, 32, "%s", result);
-	}
-	strncat(sresult, eol, 1);
-
-	pr_info("%s %s: time:%s, feature:%s, test:%s, result:%s\n",
-			SECLOG, __func__, timestamp, feature, stest, sresult);
-
-	event[0] = timestamp;
-	event[1] = feature;
-	event[2] = stest;
-	event[3] = sresult;
-	event[4] = NULL;
-
-	kobject_uevent_env(&data->fac_dev->kobj, KOBJ_CHANGE, event);
 }
 
 MODULE_DESCRIPTION("Samsung factory command");
