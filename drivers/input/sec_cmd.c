@@ -196,38 +196,35 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	size_t count;
 	struct command cmd = {{0}};
 
-	if (!data) {
+	if (unlikely(!data)) {
 		pr_err("%s %s: No platform data found\n", SECLOG, __func__);
 		return;
 	}
 
 	mutex_lock(&data->fifo_lock);
-	if (kfifo_len(&data->cmd_queue)) {
-		ret = kfifo_out(&data->cmd_queue, &cmd, sizeof(struct command));
-		if (!ret) {
-			pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n", SECLOG, __func__, ret);
-			mutex_unlock(&data->fifo_lock);
-			return;
-		}
-	} else {
-		pr_err("%s %s: left cmd is nothing\n", SECLOG, __func__);
+	if (!kfifo_len(&data->cmd_queue)) {
+		pr_err("%s %s: no pending cmd\n", SECLOG, __func__);
 		mutex_unlock(&data->fifo_lock);
 		mutex_lock(&data->cmd_lock);
 		data->cmd_is_running = false;
 		mutex_unlock(&data->cmd_lock);
 		return;
 	}
+
+	ret = kfifo_out(&data->cmd_queue, &cmd, sizeof(cmd));
 	mutex_unlock(&data->fifo_lock);
+
+	if (unlikely(!ret)) {
+		pr_err("%s %s: kfifo_out failed, it seems empty, ret=%d\n", SECLOG, __func__, ret);
+		return;
+	}
 
 	buf = cmd.cmd;
 	count = strlen(buf);
 
-	for (i = 0; i < (int)ARRAY_SIZE(data->cmd_param); i++)
-		data->cmd_param[i] = 0;
+	memset(data->cmd_param, 0, sizeof(data->cmd_param));
 
-	len = (int)count;
-	if (*(buf + len - 1) == '\n')
-		len--;
+	len = (count && buf[count - 1] == '\n') ? count - 1 : count;
 
 	memset(data->cmd, 0x00, ARRAY_SIZE(data->cmd));
 	memcpy(data->cmd, buf, len);
