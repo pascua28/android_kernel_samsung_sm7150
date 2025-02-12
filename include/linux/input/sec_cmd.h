@@ -119,10 +119,7 @@ static inline void sec_cmd_set_cmd_exit(struct sec_cmd_data *data)
 
 static inline void sec_cmd_set_default_result(struct sec_cmd_data *data)
 {
-	char *delim = ":";
-	memset(data->cmd_result, 0x00, SEC_CMD_RESULT_STR_LEN);
-	memcpy(data->cmd_result, data->cmd, SEC_CMD_STR_LEN);
-	strlcat(data->cmd_result, delim, sizeof(data->cmd_result));
+	snprintf(data->cmd_result, SEC_CMD_RESULT_STR_LEN, "%s:", data->cmd);
 }
 
 static inline void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *result)
