@@ -144,6 +144,10 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 		sleep_disabled = true;
 		wake_up_all_idle_cpus();
 		break;
+	case MSM_DRM_BLANK_LP1:
+	case MSM_DRM_BLANK_LP2:
+	case MSM_DRM_BLANK_STANDBY:
+	case MSM_DRM_BLANK_SUSPEND:
 	case MSM_DRM_BLANK_POWERDOWN:
 		sleep_disabled = false;
 		wake_up_all_idle_cpus();
