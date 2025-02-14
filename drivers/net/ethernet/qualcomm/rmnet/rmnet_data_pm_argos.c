@@ -19,6 +19,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/pm_qos.h>
+#include <linux/suspend.h>
 
 #include "rmnet_data_pm_argos.h"
 
@@ -360,7 +361,11 @@ static int rmnet_data_dev_cb(struct notifier_block *nb,
 		/* Set initial value */
 		rmnet_data_pm_argos_cb(NULL, 0, NULL);
 
+#ifdef CONFIG_ARGOS
 		ret = sec_argos_register_notifier(&rmnet_data_argos_nb, MIF_ARGOS_IPC_LABEL);
+#else
+		ret = register_pm_notifier(&rmnet_data_argos_nb);
+#endif
 		if (ret)
 			pr_err("Fail to register rmnet_data pm argos notifier block\n");
 		break;
@@ -369,7 +374,11 @@ static int rmnet_data_dev_cb(struct notifier_block *nb,
 			break;
 
 		pr_info("Reset rmnet_data_pm_argos configure\n");
+#ifdef CONFIG_ARGOS
 		ret = sec_argos_unregister_notifier(&rmnet_data_argos_nb, MIF_ARGOS_IPC_LABEL);
+#else
+		ret = unregister_pm_notifier(&rmnet_data_argos_nb);
+#endif
 		if (ret)
 			pr_err("Fail to unregister rmnet_data pm argos notifier block\n");
 

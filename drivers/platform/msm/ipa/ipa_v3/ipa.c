@@ -9319,7 +9319,6 @@ module_param(emulation_type, uint, 0000);
 MODULE_PARM_DESC(
 	emulation_type,
 	"emulation_type=N N can be 13 for IPA 3.5.1, 14 for IPA 4.0, 17 for IPA 4.5");
-#if defined(CONFIG_ARGOS)
 void ipa3_set_napi_chained_rx(bool enable)
 {
 	if (!ipa3_ctx)
@@ -9331,4 +9330,3 @@ void ipa3_set_napi_chained_rx(bool enable)
 		ipa3_ctx->enable_napi_chain = 0;
 }
 EXPORT_SYMBOL(ipa3_set_napi_chained_rx);
-#endif
