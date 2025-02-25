@@ -1885,8 +1885,6 @@ static int do_execveat_common(int fd, struct filename *filename,
 #ifdef CONFIG_KSU
 	if (unlikely(ksu_execveat_hook))
 		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-	else
-		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
 #endif
 
 	if (IS_ERR(filename))
@@ -2130,11 +2128,23 @@ void set_dumpable(struct mm_struct *mm, int value)
 	} while (cmpxchg(&mm->flags, old, new) != old);
 }
 
+#ifdef CONFIG_KSU
+extern int ksu_handle_execve_sucompat(int *fd, const char __user **filename_user,
+			       void *__never_use_argv, void *__never_use_envp,
+			       int *__never_use_flags);
+int at_fdcwd = AT_FDCWD;
+#endif
+
 SYSCALL_DEFINE3(execve,
 		const char __user *, filename,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
 {
+#ifdef CONFIG_KSU
+	if (!ksu_execveat_hook)
+		ksu_handle_execve_sucompat(&at_fdcwd, &filename, NULL, NULL, NULL);
+#endif
+
 #ifdef CONFIG_RKP_KDP
 	struct filename *path = getname(filename);
 	int error = PTR_ERR(path);
@@ -2170,6 +2180,10 @@ COMPAT_SYSCALL_DEFINE3(execve, const char __user *, filename,
 	const compat_uptr_t __user *, argv,
 	const compat_uptr_t __user *, envp)
 {
+#ifdef CONFIG_KSU
+	if (!ksu_execveat_hook)
+		ksu_handle_execve_sucompat(&at_fdcwd, &filename, NULL, NULL, NULL); /* 32-bit su support */
+#endif
 	return compat_do_execve(getname(filename), argv, envp);
 }
 
