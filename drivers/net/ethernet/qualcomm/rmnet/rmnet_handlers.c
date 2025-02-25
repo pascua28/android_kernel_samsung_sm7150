@@ -373,15 +373,10 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 	struct sk_buff *skbn;
 	int (*rmnet_perf_core_deaggregate)(struct sk_buff *skb,
 					   struct rmnet_port *port);
-#if defined(CONFIG_ARGOS)
 	struct napi_struct *napi;
 	bool dl_marker;
-#endif
-
-#if defined(CONFIG_ARGOS)
 	dl_marker = !!(port->data_format &
 					RMNET_INGRESS_FORMAT_DL_MARKER);
-#endif
 
 	if (skb->dev->type == ARPHRD_ETHER) {
 		if (pskb_expand_head(skb, ETH_HLEN, 0, GFP_ATOMIC)) {
@@ -428,7 +423,6 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 			__rmnet_map_ingress_handler(skbn, port);
 			curr_count++;
 
-#if defined(CONFIG_ARGOS)
 			napi = get_current_napi_context();
 
 			/* flush when the configured flush
@@ -439,7 +433,6 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 			    !(curr_count % config_flushcount)) {
 				napi_gro_flush(napi, false);
 			}
-#endif
 			if (skbn == skb)
 				goto next_skb;
 		}
@@ -448,7 +441,6 @@ rmnet_map_ingress_handler(struct sk_buff *skb,
 next_skb:
 		skb = skb_frag;
 
-#if defined(CONFIG_ARGOS)
 		napi = get_current_napi_context();
 
 		/* flush the remaining packets
@@ -456,7 +448,6 @@ next_skb:
 		 */
 		if (dl_marker && napi && !skb)
 			napi_gro_flush(napi, false);
-#endif
 	}
 }
 

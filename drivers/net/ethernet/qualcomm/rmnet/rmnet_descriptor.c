@@ -1181,11 +1181,9 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 {
 	rmnet_perf_chain_hook_t rmnet_perf_opt_chain_end;
 	LIST_HEAD(desc_list);
-#if defined(CONFIG_ARGOS)
 	struct napi_struct* napi = get_current_napi_context();
 	bool dl_marker =  !!(port->data_format &
 						RMNET_INGRESS_FORMAT_DL_MARKER);
-#endif
 
 	/* Deaggregation and freeing of HW originating
 	 * buffers is done within here
@@ -1205,12 +1203,10 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 				__rmnet_frag_ingress_handler(frag_desc, port);
 
 				curr_count++;
-#if defined(CONFIG_ARGOS)
 				if (dl_marker && napi && config_flushcount &&
 					!(curr_count % config_flushcount)) {
 					napi_gro_flush(napi, false);
 				}
-#endif
 			}
 		}
 
@@ -1218,10 +1214,8 @@ void rmnet_frag_ingress_handler(struct sk_buff *skb,
 		skb_shinfo(skb)->frag_list = NULL;
 		consume_skb(skb);
 		skb = skb_frag;
-#if defined(CONFIG_ARGOS)
 		if (dl_marker && napi && !skb)
 			napi_gro_flush(napi, false);
-#endif
 	}
 
 	rcu_read_lock();

@@ -886,7 +886,6 @@ static struct notifier_block rmnet_addr4_notifier_block __read_mostly = {
 	.notifier_call = rmnet_addr4_event,
 };
 
-#if defined(CONFIG_ARGOS)
 #define PROC_BUFSIZE 20
 
 static ssize_t rmnet_set_dl_flush_count(struct file *file,
@@ -937,7 +936,6 @@ static const struct file_operations rmnet_fops = {
 	.read		= rmnet_get_dl_flush_count,
 	.write		= rmnet_set_dl_flush_count,
 };
-#endif
 
 /* Startup/Shutdown */
 
@@ -972,7 +970,6 @@ err1:
 err0:
 	unregister_netdevice_notifier(&rmnet_dev_notifier);
 
-#if defined(CONFIG_ARGOS)
 {
 	struct proc_dir_entry *pde;
 
@@ -982,7 +979,6 @@ err0:
 	if (!pde)
 		return -ENOMEM;
 }
-#endif
 	return rc;
 }
 
@@ -992,9 +988,7 @@ static void __exit rmnet_exit(void)
 	unregister_inet6addr_notifier(&rmnet_addr6_notifier_block);
 	unregister_netdevice_notifier(&rmnet_dev_notifier);
 	rtnl_link_unregister(&rmnet_link_ops);
-#if defined(CONFIG_ARGOS)
 	remove_proc_entry("rmnet_flush_count", NULL);
-#endif
 }
 
 module_init(rmnet_init)
