@@ -512,6 +512,7 @@ err_free:
 	return NULL;
 }
 
+#ifdef CONFIG_MODULES
 static void pgo_module_init(struct module *mod)
 {
 	struct prf_object *po;
@@ -627,6 +628,7 @@ mod_found:
 static struct notifier_block pgo_module_nb = {
 	.notifier_call = pgo_module_notifier
 };
+#endif
 
 /* Create debugfs entries. */
 static int __init pgo_init(void)
@@ -684,8 +686,10 @@ static int __init pgo_init(void)
 	/* Show notice why the system slower: */
 	pr_info("Clang PGO instrumentation is active");
 
+#ifdef CONFIG_MODULES
 	/* Register module notifer. */
 	register_module_notifier(&pgo_module_nb);
+#endif
 
 	return 0;
 

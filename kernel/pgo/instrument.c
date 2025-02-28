@@ -27,6 +27,7 @@
 #include <linux/mutex.h>
 #include <linux/atomic.h>
 #include <linux/rcupdate.h>
+#include <linux/sched.h>
 #include "pgo.h"
 
 /*
