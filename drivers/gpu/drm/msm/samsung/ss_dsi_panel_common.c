@@ -1154,11 +1154,6 @@ int ss_send_cmd(struct samsung_display_driver_data *vdd,
 		goto error;
 	}
 
-	if (vdd->debug_data->print_cmds)
-		LCD_INFO("Send cmd(%d): %s ++\n", type, ss_get_cmd_name(type));
-	else
-		LCD_DEBUG("Send cmd(%d): %s ++\n", type, ss_get_cmd_name(type));
-
 	/* case 03063186:
 	 * To prevent deadlock between phandle->phandle_lock and panel->panel_lock,
 	 * dsi_display_clk_ctrl() should be called without locking panel_lock.
@@ -1180,11 +1175,6 @@ int ss_send_cmd(struct samsung_display_driver_data *vdd,
 				dsi_display->name, rc);
 		goto error;
 	}
-
-	if (vdd->debug_data->print_cmds)
-		LCD_INFO("Send cmd(%d): %s --\n", type, ss_get_cmd_name(type));
-	else
-		LCD_DEBUG("Send cmd(%d): %s --\n", type, ss_get_cmd_name(type));
 
 error:
 	if (likely(is_vdd_locked))
