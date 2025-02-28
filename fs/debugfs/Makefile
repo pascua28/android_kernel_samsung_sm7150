@@ -1,4 +1,4 @@
 debugfs-objs	:= inode.o file.o
 
-obj-$(CONFIG_DEBUG_FS)	+= debugfs.o
+obj-$(or $(CONFIG_DEBUG_FS), $(CONFIG_PGO_CLANG)) += debugfs.o
 

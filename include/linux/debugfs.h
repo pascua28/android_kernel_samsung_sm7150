@@ -59,7 +59,7 @@ static const struct file_operations __fops = {				\
 
 typedef struct vfsmount *(*debugfs_automount_t)(struct dentry *, void *);
 
-#if defined(CONFIG_DEBUG_FS)
+#if defined(CONFIG_DEBUG_FS) || defined(CONFIG_PGO_CLANG)
 
 struct dentry *debugfs_lookup(const char *name, struct dentry *parent);
 
