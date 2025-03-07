@@ -1185,10 +1185,7 @@ static int usb_bam_disconnect_ipa_prod(
 
 		pipe_connect->enabled = false;
 		spin_lock(&ctx->usb_bam_lock);
-		if (ctx->pipes_enabled_per_bam == 0)
-			log_event_err("%s: wrong pipes enabled counter for bam=%d\n",
-				__func__, pipe_connect->bam_type);
-		else
+		if (ctx->pipes_enabled_per_bam)
 			ctx->pipes_enabled_per_bam -= 1;
 		spin_unlock(&ctx->usb_bam_lock);
 	}
@@ -1307,10 +1304,7 @@ retry:
 
 		pipe_connect->enabled = false;
 		spin_lock(&ctx->usb_bam_lock);
-		if (ctx->pipes_enabled_per_bam == 0)
-			log_event_err("%s: wrong pipes enabled counter for bam=%d\n",
-				 __func__, pipe_connect->bam_type);
-		else
+		if (ctx->pipes_enabled_per_bam)
 			ctx->pipes_enabled_per_bam -= 1;
 		spin_unlock(&ctx->usb_bam_lock);
 	}
@@ -1327,8 +1321,6 @@ static void _msm_bam_wait_for_host_prod_granted(enum usb_ctrl bam_type)
 
 	spin_lock(&ctx->usb_bam_lock);
 
-	log_event_dbg("%s: enter bam=%s\n", __func__,
-			bam_enable_strings[bam_type]);
 	ctx->is_bam_inactivity = false;
 
 	/* Get back to resume state including wakeup ipa */
