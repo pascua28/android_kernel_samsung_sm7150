@@ -23,7 +23,6 @@
 #include "sde_rotator_util.h"
 #include "sde_rotator_r1_internal.h"
 #include "sde_rotator_core.h"
-#include "sde_rotator_trace.h"
 
 #define SMP_MB_SIZE		(mdss_res->smp_mb_size)
 #define SMP_MB_CNT		(mdss_res->smp_mb_cnt)
@@ -57,9 +56,6 @@ static int sde_mdp_pipe_qos_lut(struct sde_mdp_pipe *pipe)
 	u32 qos_lut;
 
 	qos_lut = QOS_LUT_NRT_READ; /* low priority for nrt */
-
-	trace_rot_perf_set_qos_luts(pipe->num, pipe->src_fmt->format,
-		qos_lut, sde_mdp_is_linear_format(pipe->src_fmt));
 
 	sde_mdp_pipe_write(pipe, SDE_MDP_REG_SSPP_CREQ_LUT,
 		qos_lut);
