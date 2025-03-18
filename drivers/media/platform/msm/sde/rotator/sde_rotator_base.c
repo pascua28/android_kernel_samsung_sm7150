@@ -26,10 +26,8 @@
 #include <linux/msm-bus-board.h>
 #include <linux/regulator/consumer.h>
 
-#define CREATE_TRACE_POINTS
 #include "sde_rotator_base.h"
 #include "sde_rotator_util.h"
-#include "sde_rotator_trace.h"
 #include "sde_rotator_debug.h"
 #include "sde_rotator_dev.h"
 #include "sde_rotator_vbif.h"
@@ -343,8 +341,6 @@ void sde_mdp_set_ot_limit(struct sde_mdp_set_ot_params *params)
 				"rot", "vbif_dbg_bus", "panic");
 		}
 	}
-
-	trace_rot_perf_set_ot(params->num, params->xin_id, ot_lim);
 
 	forced_on = force_on_xin_clk(params->bit_off_mdp_clk_ctrl,
 		params->reg_off_mdp_clk_ctrl, true);
