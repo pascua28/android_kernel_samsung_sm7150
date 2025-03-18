@@ -30,7 +30,6 @@
 #include "sde_rotator_core.h"
 #include "sde_rotator_dev.h"
 #include "sde_rotator_debug.h"
-#include "sde_rotator_trace.h"
 
 /* Start v4l2 device number (default allocation) */
 #define SDE_ROTATOR_BASE_DEVICE_NUMBER	-1
@@ -1092,7 +1091,6 @@ struct sde_rotator_ctx *sde_rotator_ctx_open(
 
 	SDEDEV_DBG(ctx->rot_dev->dev, "SDE v4l2 rotator open success\n");
 
-	ATRACE_BEGIN(ctx->kobj.name);
 
 	return ctx;
 error_ctrl_handler:
@@ -1143,7 +1141,6 @@ static int sde_rotator_ctx_release(struct sde_rotator_ctx *ctx,
 	rot_dev = ctx->rot_dev;
 	session_id = ctx->session_id;
 
-	ATRACE_END(ctx->kobj.name);
 
 	SDEDEV_DBG(rot_dev->dev, "release s:%d\n", session_id);
 	mutex_lock(&rot_dev->lock);
@@ -1887,28 +1884,6 @@ int sde_rotator_inline_commit(void *handle, struct sde_rotator_inline_cmd *cmd,
 		}
 		req->retire_kw = ctx->work_queue.rot_kw;
 		req->retire_work = &request->retire_work;
-
-		/* Set values to pass to trace */
-		rot_trace.wb_idx = req->entries[0].item.wb_idx;
-		rot_trace.flags = req->entries[0].item.flags;
-		rot_trace.input_format = req->entries[0].item.input.format;
-		rot_trace.input_width = req->entries[0].item.input.width;
-		rot_trace.input_height = req->entries[0].item.input.height;
-		rot_trace.src_x = req->entries[0].item.src_rect.x;
-		rot_trace.src_y = req->entries[0].item.src_rect.y;
-		rot_trace.src_w = req->entries[0].item.src_rect.w;
-		rot_trace.src_h = req->entries[0].item.src_rect.h;
-		rot_trace.output_format = req->entries[0].item.output.format;
-		rot_trace.output_width = req->entries[0].item.output.width;
-		rot_trace.output_height = req->entries[0].item.output.height;
-		rot_trace.dst_x = req->entries[0].item.dst_rect.x;
-		rot_trace.dst_y = req->entries[0].item.dst_rect.y;
-		rot_trace.dst_w = req->entries[0].item.dst_rect.w;
-		rot_trace.dst_h = req->entries[0].item.dst_rect.h;
-
-
-		trace_rot_entry_fence(
-			ctx->session_id, cmd->sequence_id, &rot_trace);
 
 		ret = sde_rotator_handle_request_common(
 				rot_dev->mgr, ctx->private, req);
@@ -3172,28 +3147,6 @@ static int sde_rotator_process_buffers(struct sde_rotator_ctx *ctx,
 
 	ts[SDE_ROTATOR_TS_FENCE] = ktime_get();
 
-	/* Set values to pass to trace */
-	rot_trace.wb_idx = ctx->fh.prio;
-	rot_trace.flags = (ctx->rotate << 0) | (ctx->hflip << 8) |
-			(ctx->hflip << 9) | (ctx->secure << 10);
-	rot_trace.input_format = ctx->format_out.fmt.pix.pixelformat;
-	rot_trace.input_width = ctx->format_out.fmt.pix.width;
-	rot_trace.input_height = ctx->format_out.fmt.pix.height;
-	rot_trace.src_x = ctx->crop_out.left;
-	rot_trace.src_y = ctx->crop_out.top;
-	rot_trace.src_w = ctx->crop_out.width;
-	rot_trace.src_h = ctx->crop_out.height;
-	rot_trace.output_format = ctx->format_cap.fmt.pix.pixelformat;
-	rot_trace.output_width = ctx->format_cap.fmt.pix.width;
-	rot_trace.output_height = ctx->format_cap.fmt.pix.height;
-	rot_trace.dst_x = ctx->crop_cap.left;
-	rot_trace.dst_y = ctx->crop_cap.top;
-	rot_trace.dst_w = ctx->crop_cap.width;
-	rot_trace.dst_h = ctx->crop_cap.height;
-
-	trace_rot_entry_fence(
-		ctx->session_id, vbinfo_cap->fence_ts, &rot_trace);
-
 	if (vbinfo_out->fence) {
 		sde_rot_mgr_unlock(rot_dev->mgr);
 		mutex_unlock(&rot_dev->lock);
@@ -3361,7 +3314,6 @@ static void sde_rotator_device_run(void *priv)
 				"pending request fail in device run s:%d\n",
 				ctx->session_id);
 			rot_dev->stats.fail_count++;
-			ATRACE_INT("fail_count", rot_dev->stats.fail_count);
 			goto error_process_buffers;
 
 		} else if (!atomic_read(&request->req->pending_count)) {
@@ -3384,8 +3336,6 @@ static void sde_rotator_device_run(void *priv)
 					ctx->session_id,
 					failed_count);
 				rot_dev->stats.fail_count++;
-				ATRACE_INT("fail_count",
-						rot_dev->stats.fail_count);
 				goto error_process_buffers;
 			}
 
@@ -3453,7 +3403,6 @@ static void sde_rotator_device_run(void *priv)
 				"fail process buffer in device run s:%d\n",
 				ctx->session_id);
 			rot_dev->stats.fail_count++;
-			ATRACE_INT("fail_count", rot_dev->stats.fail_count);
 			goto error_process_buffers;
 		}
 	}
