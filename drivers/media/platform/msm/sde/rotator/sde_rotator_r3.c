@@ -32,7 +32,6 @@
 #include "sde_rotator_r3_internal.h"
 #include "sde_rotator_r3_hwio.h"
 #include "sde_rotator_r3_debug.h"
-#include "sde_rotator_trace.h"
 #include "sde_rotator_debug.h"
 #include "sde_rotator_vbif.h"
 
@@ -2325,7 +2324,6 @@ static u32 sde_hw_rotator_wait_done_regdma(
 				msecs_to_jiffies(KOFF_TIMEOUT_SBUF) :
 				msecs_to_jiffies(rot->koff_timeout));
 
-		ATRACE_INT("sde_rot_done", 0);
 		spin_lock_irqsave(&rot->rotisr_lock, flags);
 
 		last_isr = ctx->last_regdma_isr_status;
@@ -3126,10 +3124,6 @@ static int sde_hw_rotator_config(struct sde_rot_hw_resource *hw,
 
 	if (test_bit(SDE_QOS_PER_PIPE_LUT, mdata->sde_qos_map))	{
 		u32 qos_lut = 0; /* low priority for nrt read client */
-
-		trace_rot_perf_set_qos_luts(mdata->vbif_xin_id[XIN_SSPP],
-			sspp_cfg.fmt->format, qos_lut,
-			sde_mdp_is_linear_format(sspp_cfg.fmt));
 
 		SDE_ROTREG_WRITE(rot->mdss_base, ROT_SSPP_CREQ_LUT, qos_lut);
 	}
