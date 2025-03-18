@@ -335,9 +335,4 @@ int sde_mdp_init_vbif(void);
 #define SDE_REG_READ(mdata, offset) \
 		sde_reg_r(&mdata->sde_io, offset, 0)
 
-#define ATRACE_END(name) trace_rot_mark_write(current->tgid, name, 0)
-#define ATRACE_BEGIN(name) trace_rot_mark_write(current->tgid, name, 1)
-#define ATRACE_INT(name, value) \
-	trace_rot_trace_counter(current->tgid, name, value)
-
 #endif /* __SDE_ROTATOR_BASE__ */
