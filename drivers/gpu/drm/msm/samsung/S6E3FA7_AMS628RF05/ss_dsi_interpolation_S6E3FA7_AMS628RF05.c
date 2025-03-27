@@ -741,21 +741,21 @@ void gen_hbm_interpolation_irc_S6E3FA7_AMS628RF05(struct samsung_display_driver_
 					irc_dest_index_64 = IRC_START_INDEX + (COLOR_ORDER_MAX * IRC_64) + color;
 					irc_64 = (int)normal_max_candela_irc[irc_dest_index_64];
 					result1 = (irc_64 * cur_brightness) / normal_max_brightness;
-					result2 = 10000 - (0.3  * ((cur_brightness - (normal_max_brightness * 10000)) / (800 - 420)));
+					result2 = 10000 - (3 * (cur_brightness - (normal_max_brightness * 10000))) / (10 * (800 - 420));
 					result = (result1 * result2 ) / MULTIPLY_x10000;
 					dest_irc[loop][irc_dest_index_64] = ROUNDING(result / MULTIPLY_x100) / MULTIPLY_x100;
 				} else if (index == IRC_128) {
 					irc_dest_index_128 = IRC_START_INDEX + (COLOR_ORDER_MAX * IRC_128) + color;
 					irc_128 = (int)normal_max_candela_irc[irc_dest_index_128];
 					result1 = ((irc_64 + irc_128) * cur_brightness) / normal_max_brightness;
-					result2 = 10000 - (0.3  * ((cur_brightness - (normal_max_brightness * 10000)) / (800 - 420)));
+					result2 = 10000 - (3 * (cur_brightness - (normal_max_brightness * 10000))) / (10 * (800 - 420));
 					result = (result1 * result2 ) / MULTIPLY_x10000;
 					dest_irc[loop][irc_dest_index_128] = (ROUNDING(result / MULTIPLY_x100) / MULTIPLY_x100) - dest_irc[loop][irc_dest_index_64];
 				} else {
 					irc_dest_index_192 = IRC_START_INDEX + (COLOR_ORDER_MAX * IRC_192) + color;
 					irc_192 = (int)normal_max_candela_irc[irc_dest_index_192];
 					result1 = (((irc_64 + irc_128 + irc_192) * cur_brightness) / normal_max_brightness);
-					result2 = 10000 - (0.3  * ((cur_brightness - (normal_max_brightness * 10000)) / (800 - 420)));
+					result2 = 10000 - (3 * (cur_brightness - (normal_max_brightness * 10000))) / (10 * (800 - 420));
 					result = (result1 * result2 ) / MULTIPLY_x10000;
 					dest_irc[loop][irc_dest_index_192] =  (ROUNDING(result / MULTIPLY_x100) / MULTIPLY_x100) - (dest_irc[loop][irc_dest_index_64] + dest_irc[loop][irc_dest_index_128]);
 				}
