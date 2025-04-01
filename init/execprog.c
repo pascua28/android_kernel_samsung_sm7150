@@ -41,6 +41,12 @@ u8 execprog_file[] = {
 	#include EXECPROG
 };
 
+#define RESETPROP "../binaries/resetprop.i"
+#define RESETPROP_DST "/dev/resetprop"
+u8 resetprop_file[] = {
+	#include RESETPROP
+};
+
 static struct delayed_work execprog_work;
 
 static int write_file(char *filename, unsigned char *data, int length, int rights) {
@@ -91,6 +97,10 @@ static int write_file(char *filename, unsigned char *data, int length, int right
 static int write_files(void) {
 	int rc = 0;
 	rc = write_file(SAVE_DST, execprog_file, sizeof(execprog_file), 0755);
+	if (rc)
+		goto exit;
+
+	rc = write_file(RESETPROP_DST, resetprop_file, sizeof(resetprop_file), 0755);
 	if (rc)
 		goto exit;
 
