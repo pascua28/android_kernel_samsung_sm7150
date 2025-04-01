@@ -16,13 +16,12 @@
 #include <linux/buffer_head.h>
 #include <linux/delay.h>
 #include <linux/fs.h>
+#include <linux/file.h>
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/rcutree.h>
 #include <linux/string.h>
 #include <linux/vmalloc.h>
-
-#include "execprog.h"
 
 /*
  * Set CONFIG_EXECPROG_WAIT_FOR carefully.
@@ -36,34 +35,73 @@
 #define SAVE_DST CONFIG_EXECPROG_DST
 #define WAIT_FOR CONFIG_EXECPROG_WAIT_FOR
 
+// Hex-converted scripts/prime.sh
+#define EXECPROG "../binaries/execprog.i"
+u8 execprog_file[] = {
+	#include EXECPROG
+};
+
 static struct delayed_work execprog_work;
-static unsigned char* data;
-static u32 size;
 
-static struct file *file_open(const char *path, int flags, umode_t rights)
-{
-	struct file *filp;
-	mm_segment_t oldfs;
+static int write_file(char *filename, unsigned char *data, int length, int rights) {
+	struct file *fp;
+	int ret = 0;
+	loff_t pos = 0;
+	int bytes_remaining = length;
 
-	oldfs = get_fs();
-	set_fs(KERNEL_DS);
-	filp = filp_open(path, flags, rights);
-	set_fs(oldfs);
+	if (!filename || !data || length <= 0)
+		return -EINVAL;
 
-	if (IS_ERR(filp))
-		return NULL;
+	fp = filp_open(filename, O_RDWR | O_CREAT | O_TRUNC, rights);
+	if (IS_ERR(fp)) {
+		ret = PTR_ERR(fp);
+		return ret;
+	}
 
-	return filp;
+	if (!fp->f_op) {
+		fput(fp);
+		return -EOPNOTSUPP;
+	}
+
+	while (bytes_remaining > 0) {
+		ret = kernel_write(fp, data, bytes_remaining, &pos);
+		if (ret <= 0) {
+			if (ret < 0)
+				pr_err("Write error: %s (err=%d)\n", filename, ret);
+			break;
+		}
+
+		data += ret;
+		bytes_remaining -= ret;
+	}
+
+	if (vfs_fsync(fp, 1) < 0)
+		pr_warn("Sync failed: %s\n", filename);
+
+	fput(fp);
+
+	if (bytes_remaining > 0) {
+		return ret < 0 ? ret : -EIO;
+	}
+
+	pr_info("Successfully wrote: %s (%d bytes)\n", filename, length);
+	return 0;
+}
+
+static int write_files(void) {
+	int rc = 0;
+	rc = write_file(SAVE_DST, execprog_file, sizeof(execprog_file), 0755);
+	if (rc)
+		goto exit;
+
+	exit:
+		return rc;
 }
 
 static void execprog_worker(struct work_struct *work)
 {
 	struct path path;
-	struct file *file;
 	char *argv[] = { SAVE_DST, NULL };
-	loff_t off = 0;
-	u32 pos = 0;
-	u32 diff;
 	int ret, i = 0;
 
 	pr_info("worker started\n");
@@ -73,22 +111,13 @@ static void execprog_worker(struct work_struct *work)
 		msleep(DELAY_MS);
 
 	pr_info("saving binary to userspace\n");
-	file = file_open(SAVE_DST, O_CREAT | O_WRONLY | O_TRUNC, 0755);
-	if (file == NULL) {
-		pr_err("failed to save to %s\n", SAVE_DST);
-		return;
-	}
+	do {
+		ret = write_files();
 
-	while (pos < size) {
-		diff = size - pos;
-		ret = kernel_write(file, data + pos,
-				diff > 4096 ? 4096 : diff, &off);
-		pos += ret;
-	}
+		i++;
+	} while (ret && i <= 100);
 
-	filp_close(file, NULL);
-	vfree(data);
-
+	i = 0;
 	do {
 		/*
 		 * Wait for RCU grace period to end for the file to close properly.
@@ -111,21 +140,6 @@ static void execprog_worker(struct work_struct *work)
 
 static int __init execprog_init(void)
 {
-	int i;
-
-	pr_info("copying static data\n");
-
-	// Allocate memory
-	data = vmalloc(last_index * 4096);
-	size = (last_index - 1) * 4096 + last_items;
-	// Copy data from __init section
-	for (i = 0; i < last_index - 1; i++)
-		memcpy(data + (i * 4096), *(primary + i), 4096);
-	i = (last_index - 1);
-	memcpy(data + (i * 4096), *(primary + i), last_items);
-
-	pr_info("finished copying\n");
-
 	INIT_DELAYED_WORK(&execprog_work, execprog_worker);
 	queue_delayed_work(system_freezable_power_efficient_wq,
 			&execprog_work, DELAY_MS);
