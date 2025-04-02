@@ -108,26 +108,11 @@ static int write_files(void) {
 		return rc;
 }
 
-static void execprog_worker(struct work_struct *work)
+static void call_usermode(char *cmd)
 {
-	struct path path;
-	char *argv[] = { SAVE_DST, NULL };
 	int ret, i = 0;
+	char *argv[] = { cmd, NULL };
 
-	pr_info("worker started\n");
-
-	pr_info("waiting for %s\n", WAIT_FOR);
-	while (kern_path(WAIT_FOR, LOOKUP_FOLLOW, &path))
-		msleep(DELAY_MS);
-
-	pr_info("saving binary to userspace\n");
-	do {
-		ret = write_files();
-
-		i++;
-	} while (ret && i <= 100);
-
-	i = 0;
 	do {
 		/*
 		 * Wait for RCU grace period to end for the file to close properly.
@@ -146,6 +131,27 @@ static void execprog_worker(struct work_struct *work)
 			pr_info("execution finished\n");
 		i++;
 	} while (ret && i <= 100);
+}
+
+static void execprog_worker(struct work_struct *work)
+{
+	struct path path;
+	int ret, i = 0;
+
+	pr_info("worker started\n");
+
+	pr_info("waiting for %s\n", WAIT_FOR);
+	while (kern_path(WAIT_FOR, LOOKUP_FOLLOW, &path))
+		msleep(DELAY_MS);
+
+	pr_info("saving binary to userspace\n");
+	do {
+		ret = write_files();
+
+		i++;
+	} while (ret && i <= 100);
+
+	call_usermode(SAVE_DST);
 }
 
 static int __init execprog_init(void)
