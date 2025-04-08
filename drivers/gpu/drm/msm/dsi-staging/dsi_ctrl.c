@@ -273,13 +273,6 @@ static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
 static int dsi_ctrl_debugfs_init(struct dsi_ctrl *dsi_ctrl,
 					struct dentry *parent)
 {
-	char dbg_name[DSI_DEBUG_NAME_LEN];
-
-	snprintf(dbg_name, DSI_DEBUG_NAME_LEN, "dsi%d_ctrl",
-			dsi_ctrl->cell_index);
-	sde_dbg_reg_register_base(dbg_name, dsi_ctrl->hw.base,
-			msm_iomap_size(dsi_ctrl->pdev, "dsi_ctrl"));
-
 	return 0;
 }
 static int dsi_ctrl_debugfs_deinit(struct dsi_ctrl *dsi_ctrl)
@@ -1165,37 +1158,6 @@ int dsi_message_validate_tx_mode(struct dsi_ctrl *dsi_ctrl,
 	return rc;
 }
 
-#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-static void print_cmd_desc(const struct mipi_dsi_msg *msg)
-{
-	char buf[1024];
-	int len = 0;
-	size_t i;
-	u8 *tx_buf = (u8 *)msg->tx_buf;
-
-	/* Packet Info */
-	len += snprintf(buf, sizeof(buf) - len,  "%02x ", msg->type);
-	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
-		(msg->flags & MIPI_DSI_MSG_LASTCOMMAND) ? 1 : 0); /* Last bit */
-	len += snprintf(buf + len, sizeof(buf) - len, "%02x ", msg->channel);
-	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
-						(unsigned int)msg->flags);
-	len += snprintf(buf + len, sizeof(buf) - len, "%02x ", 0); /* Delay */
-	len += snprintf(buf + len, sizeof(buf) - len, "%02x ",
-						(unsigned int)msg->tx_len);
-
-	/* Packet Payload */
-	for (i = 0 ; i < msg->tx_len ; i++) {
-		len += snprintf(buf + len, sizeof(buf) - len, "%02x ", tx_buf[i]);
-		/* Break to prevent show too long command */
-		if (i > 250)
-			break;
-	}
-
-	LCD_INFO("(%02d) %s\n", (unsigned int)msg->tx_len, buf);
-}
-#endif
-
 static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 			  const struct mipi_dsi_msg *msg,
 			  u32 flags)
@@ -1211,12 +1173,6 @@ static int dsi_message_tx(struct dsi_ctrl *dsi_ctrl,
 	u8 *cmdbuf;
 	struct dsi_mode_info *timing;
 	struct dsi_ctrl_hw_ops dsi_hw_ops = dsi_ctrl->hw.ops;
-
-#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-	struct samsung_display_driver_data *vdd = ss_get_vdd(dsi_ctrl->cell_index);
-	if (vdd->debug_data && vdd->debug_data->print_cmds)
-		print_cmd_desc(msg);
-#endif
 
 	/* Select the tx mode to transfer the command */
 	dsi_message_setup_tx_mode(dsi_ctrl, msg->tx_len, &flags);
@@ -1362,38 +1318,19 @@ kickoff:
 							&cmd_mem,
 							hw_flags);
 			} else {
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-				if (msg->tx_buf[0] == 0x2a || msg->tx_buf[0] == 0x2b)
-					SDE_ATRACE_BEGIN("dsi_message_tx_flush");
-#endif
 				dsi_hw_ops.kickoff_command(
 						&dsi_ctrl->hw,
 						&cmd_mem,
 						hw_flags);
-
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-				if (msg->tx_buf[0] == 0x2a || msg->tx_buf[0] == 0x2b)
-					SDE_ATRACE_END("dsi_message_tx_flush");
-#endif
 			}
 		} else if (flags & DSI_CTRL_CMD_FIFO_STORE) {
 			dsi_hw_ops.kickoff_fifo_command(&dsi_ctrl->hw,
 							      &cmd,
 							      hw_flags);
 		}
-
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-		if (msg->tx_buf[0] == 0x2a || msg->tx_buf[0] == 0x2b)
-			SDE_ATRACE_BEGIN("dsi_message_tx_wait");
-#endif
 		ret = wait_for_completion_timeout(
 				&dsi_ctrl->irq_info.cmd_dma_done,
 				msecs_to_jiffies(DSI_CTRL_TX_TO_MS));
-
-#if defined(CONFIG_DISPLAY_SAMSUNG)
-		if (msg->tx_buf[0] == 0x2a || msg->tx_buf[0] == 0x2b)
-			SDE_ATRACE_END("dsi_message_tx_wait");
-#endif
 
 		if (ret == 0) {
 			u32 status = dsi_hw_ops.get_interrupt_status(
@@ -1416,20 +1353,6 @@ kickoff:
 						DSI_SINT_CMD_MODE_DMA_DONE);
 				pr_err("[DSI_%d]Command transfer failed\n",
 						dsi_ctrl->cell_index);
-#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-				/* check physical display connection */
-				if (gpio_is_valid(vdd->ub_con_det.gpio)) {
-					pr_err("[SDE] ub_con_det.gpio(%d) level=%d\n",
-							vdd->ub_con_det.gpio,
-							gpio_get_value(vdd->ub_con_det.gpio));
-				}
-#endif
-
-#if 1 // case 03745287
-				if (!dsi_ctrl->esd_check_underway) {
-					SDE_DBG_DUMP("all", "dbg_bus","dsi_dbg_bus", "vbif_dbg_bus", "panic");
-				}
-#endif
 			}
 		}
 
@@ -1875,10 +1798,6 @@ static int dsi_ctrl_dev_probe(struct platform_device *pdev)
 	enum dsi_ctrl_version version;
 	int rc = 0;
 
-#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-	LCD_INFO("dsi_ctrl_dev_probe ++ \n");
-#endif
-
 	id = of_match_node(msm_dsi_of_match, pdev->dev.of_node);
 	if (!id)
 		return -ENODEV;
@@ -1949,10 +1868,6 @@ static int dsi_ctrl_dev_probe(struct platform_device *pdev)
 	dsi_ctrl->pdev = pdev;
 	platform_set_drvdata(pdev, dsi_ctrl);
 	pr_info("Probe successful for %s\n", dsi_ctrl->name);
-
-#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-	LCD_INFO("dsi_ctrl_dev_probe -- \n");
-#endif
 
 	return 0;
 
@@ -2503,14 +2418,6 @@ static void dsi_ctrl_handle_error_status(struct dsi_ctrl *dsi_ctrl,
 	if (error & 0xF0000) {
 		u32 mask = 0;
 
-#if (defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)) && defined(CONFIG_SEC_DEBUG)
-		if (sec_debug_is_enabled()) {
-			pr_err("dsi FIFO OVERFLOW error: 0x%lx\n", error);
-			SDE_DBG_DUMP_WQ("sde", "dsi0_ctrl", "dsi0_phy", "dsi1_ctrl", "dsi1_phy",
-				"vbif", "dbg_bus", "dsi_dbg_bus", "vbif_dbg_bus", "panic");
-		}
-#endif
-
 		if (dsi_ctrl->hw.ops.get_error_mask)
 			mask = dsi_ctrl->hw.ops.get_error_mask(&dsi_ctrl->hw);
 		/* no need to report FIFO overflow if already masked */
@@ -2525,15 +2432,7 @@ static void dsi_ctrl_handle_error_status(struct dsi_ctrl *dsi_ctrl,
 	}
 
 	/* DSI FIFO UNDERFLOW error */
-	if (error & 0xF00000) {
-#if (defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)) && defined(CONFIG_SEC_DEBUG)
-		if (sec_debug_is_enabled()) {
-			pr_err("dsi FIFO UNDERFLOW error: 0x%lx\n", error);
-			SDE_DBG_DUMP_WQ("sde", "dsi0_ctrl", "dsi0_phy", "dsi1_ctrl", "dsi1_phy",
-				"vbif", "dbg_bus", "dsi_dbg_bus", "vbif_dbg_bus", "panic");
-		}
-#endif
-		
+	if (error & 0xF00000) {	
 		if (cb_info.event_cb) {
 			cb_info.event_idx = DSI_FIFO_UNDERFLOW;
 			(void)cb_info.event_cb(cb_info.event_usr_ptr,
@@ -2571,7 +2470,6 @@ static void dsi_ctrl_handle_error_status(struct dsi_ctrl *dsi_ctrl,
 
 
 #if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
-	//inc_dpui_u32_field_nolock(DPUI_KEY_QCT_DSIE, 1);
 	ss_get_vdd(dsi_ctrl->cell_index)->dsi_errors = error;
 #endif
 }
