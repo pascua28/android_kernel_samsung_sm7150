@@ -1865,9 +1865,9 @@ static int msm_runtime_suspend(struct device *dev)
 	DBG("");
 
 	if (priv->mdss)
-		msm_mdss_disable(priv->mdss);
+		return msm_mdss_disable(priv->mdss);
 	else
-		sde_power_resource_enable(&priv->phandle,
+		return sde_power_resource_enable(&priv->phandle,
 				priv->pclient, false);
 
 	return 0;
@@ -1877,17 +1877,16 @@ static int msm_runtime_resume(struct device *dev)
 {
 	struct drm_device *ddev = dev_get_drvdata(dev);
 	struct msm_drm_private *priv = ddev->dev_private;
-	int ret;
 
 	DBG("");
 
 	if (priv->mdss)
-		ret = msm_mdss_enable(priv->mdss);
+		return msm_mdss_enable(priv->mdss);
 	else
-		ret = sde_power_resource_enable(&priv->phandle,
+		return sde_power_resource_enable(&priv->phandle,
 				priv->pclient, true);
 
-	return ret;
+	return 0;
 }
 #endif
 
