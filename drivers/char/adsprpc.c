@@ -50,8 +50,6 @@
 #include <linux/pm_qos.h>
 #include <linux/stat.h>
 
-#include <linux/sec_debug.h>
-
 #define TZ_PIL_PROTECT_MEM_SUBSYS_ID 0x0C
 #define TZ_PIL_CLEAR_PROTECT_MEM_SUBSYS_ID 0x0D
 #define TZ_PIL_AUTH_QDSP6_PROC 1
@@ -415,8 +413,6 @@ struct fastrpc_file {
 	int wake_enable;
 	/* To indicate attempt has been made to allocate memory for debug_buf */
 	int debug_buf_alloced_attempted;
-	/* Flag to indicate dynamic process creation status */
-	bool in_process_create;
 };
 
 static struct fastrpc_apps gfa;
@@ -1489,7 +1485,7 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 	uintptr_t args;
 	size_t rlen = 0, copylen = 0, metalen = 0, lrpralen = 0;
 	int i, oix;
-	int err = 0, j = 0;
+	int err = 0;
 	int mflags = 0;
 	uint64_t *fdlist;
 	uint32_t *crclist;
@@ -1533,8 +1529,6 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 		if (!err && ctx->maps[i])
 			ctx->maps[i]->ctx_refs++;
 		if (err) {
-			for (j = bufs; j < i; j++)
-				fastrpc_mmap_free(ctx->maps[j], 0);
 			mutex_unlock(&ctx->fl->map_mutex);
 			goto bail;
 		}
@@ -1996,14 +1990,14 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	VERIFY(err, cid >= ADSP_DOMAIN_ID && cid < NUM_CHANNELS);
 	if (err) {
 		err = -ECHRNG;
-		return err;
+		goto bail;
 	}
 
 	VERIFY(err, fl->sctx != NULL);
 
 	if (err) {
 		err = -EBADR;
-		return err;
+		goto bail;
 	}
 
 	perf_counter = getperfcounter(fl, PERF_COUNT);
@@ -2211,15 +2205,6 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 			int siglen;
 		} inbuf;
 
-		spin_lock(&fl->hlock);
-		if (fl->in_process_create) {
-			err = -EALREADY;
-			pr_err("Already in create init process\n");
-			spin_unlock(&fl->hlock);
-			return err;
-		}
-		fl->in_process_create = true;
-		spin_unlock(&fl->hlock);
 		inbuf.pgid = fl->tgid;
 		inbuf.namelen = strlen(current->comm) + 1;
 		inbuf.filelen = init->filelen;
@@ -2321,7 +2306,7 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 		if (!init->filelen)
 			goto bail;
 
-		proc_name = kzalloc(init->filelen + 1, GFP_KERNEL);
+		proc_name = kzalloc(init->filelen, GFP_KERNEL);
 		VERIFY(err, !IS_ERR_OR_NULL(proc_name));
 		if (err)
 			goto bail;
@@ -2423,11 +2408,6 @@ bail:
 		mutex_lock(&fl->map_mutex);
 		fastrpc_mmap_free(file, 0);
 		mutex_unlock(&fl->map_mutex);
-	}
-	if (init->flags == FASTRPC_INIT_CREATE) {
-		spin_lock(&fl->hlock);
-		fl->in_process_create = false;
-		spin_unlock(&fl->hlock);
 	}
 	return err;
 }
@@ -3236,7 +3216,6 @@ static int fastrpc_file_free(struct fastrpc_file *fl)
 	hlist_del_init(&fl->hn);
 	spin_unlock(&fl->apps->hlock);
 	kfree(fl->debug_buf);
-	fl->debug_buf_alloced_attempted = 0;
 
 	if (!fl->sctx) {
 		kfree(fl);
@@ -3244,7 +3223,6 @@ static int fastrpc_file_free(struct fastrpc_file *fl)
 	}
 	spin_lock(&fl->hlock);
 	fl->file_close = 1;
-	fl->in_process_create = false;
 	spin_unlock(&fl->hlock);
 	if (!IS_ERR_OR_NULL(fl->init_mem))
 		fastrpc_buf_free(fl->init_mem, 0);
@@ -3325,8 +3303,6 @@ static ssize_t fastrpc_debugfs_read(struct file *filp, char __user *buffer,
 	char *fileinfo = NULL;
 	char single_line[UL_SIZE] = "----------------";
 	char title[UL_SIZE] = "=========================";
-	single_line[UL_SIZE-1]='\0';
-	title[UL_SIZE-1]='\0';
 
 	fileinfo = kzalloc(DEBUGFS_SIZE, GFP_KERNEL);
 	if (!fileinfo)
@@ -3634,7 +3610,6 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	fl->cid = -1;
 	fl->dev_minor = dev_minor;
 	fl->init_mem = NULL;
-	fl->in_process_create = false;
 	memset(&fl->perf, 0, sizeof(fl->perf));
 	fl->qos_request = 0;
 	fl->dsp_proc_init = 0;
@@ -3684,7 +3659,6 @@ static int fastrpc_set_process_info(struct fastrpc_file *fl)
 				cur_comm, __func__, fl->debug_buf);
 			fl->debugfs_file = NULL;
 			kfree(fl->debug_buf);
-			fl->debug_buf_alloced_attempted = 0;
 			fl->debug_buf = NULL;
 		}
 	}
@@ -3807,7 +3781,7 @@ static int fastrpc_setmode(unsigned long ioctl_param,
 		fl->tgid |= (1 << SESSION_ID_INDEX);
 		break;
 	default:
-		err = -EBADRQC;
+		err = -ENOTTY;
 		break;
 	}
 	return err;
@@ -4532,7 +4506,6 @@ static void configure_secure_channels(uint32_t secure_domains)
 		int secure = (secure_domains >> ii) & 0x01;
 
 		me->channel[ii].secure = secure;
-		printk("adsprpc: domain %d configured as secure %d\n", ii, secure);
 	}
 }
 
