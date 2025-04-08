@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019,2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -30,7 +30,7 @@
 #define WEST	0x00100000
 #define DUMMY	0x0
 #define REG_SIZE 0x1000
-#define PINGROUP(id, base, f1, f2, f3, f4, f5, f6, f7, f8, f9, wake_off, bit)	\
+#define PINGROUP(id, base, f1, f2, f3, f4, f5, f6, f7, f8, f9, wake_off, bit) \
 	{						\
 		.name = "gpio" #id,			\
 		.pins = gpio##id##_pins,		\
@@ -1241,11 +1241,11 @@ static const struct msm_pingroup atoll_groups[] = {
 	[3] = PINGROUP(3, SOUTH, qup01, sp_cmu, dbg_out, qdss_cti, NA, NA, NA,
 		       NA, NA, 0x77000, 6),
 	[4] = PINGROUP(4, NORTH, sdc1_tb, NA, qdss_cti, NA, NA, NA, NA, NA, NA,
-		       0x77000, 0),
+			0x77000, 0),
 	[5] = PINGROUP(5, NORTH, sdc2_tb, NA, NA, NA, NA, NA, NA, NA, NA,
-		       0x77000, 1),
+			0x77000, 1),
 	[6] = PINGROUP(6, NORTH, qup11, qup11, NA, NA, NA, NA, NA, NA, NA,
-		       0x77000, 2),
+			0x77000, 2),
 	[7] = PINGROUP(7, NORTH, qup11, qup11, ddr_bist, NA, NA, NA, NA, NA,
 		       NA, 0, -1),
 	[8] = PINGROUP(8, NORTH, GP_PDM1, ddr_bist, NA, phase_flag6, qdss_cti,
@@ -1295,7 +1295,7 @@ static const struct msm_pingroup atoll_groups[] = {
 	[29] = PINGROUP(29, NORTH, NA, qdss_gpio14, NA, NA, NA, NA, NA, NA, NA,
 			0, -1),
 	[30] = PINGROUP(30, SOUTH, qdss_gpio, NA, NA, NA, NA, NA, NA, NA, NA,
-		        0x77000, 12),
+			0x77000, 12),
 	[31] = PINGROUP(31, NORTH, NA, qdss_gpio12, NA, NA, NA, NA, NA, NA, NA,
 			0x77000, 8),
 	[32] = PINGROUP(32, NORTH, NA, phase_flag12, NA, NA, NA, NA, NA, NA,
@@ -1349,7 +1349,8 @@ static const struct msm_pingroup atoll_groups[] = {
 	[56] = PINGROUP(56, WEST, mi2s_0, qup15, gcc_gp1, NA, phase_flag26,
 			qdss_gpio13, NA, NA, NA, 0x77000, 4),
 	[57] = PINGROUP(57, WEST, lpass_ext, audio_ref, JITTER_BIST, GP_PDM2,
-			NA, phase_flag25, qdss_gpio11, NA, NA, 0x77000, 5),
+			NA, phase_flag25, qdss_gpio11, NA, NA,
+			0x77000, 5),
 	[58] = PINGROUP(58, WEST, lpass_ext, NA, phase_flag11, NA, NA, NA, NA,
 			NA, NA, 0x77000, 6),
 	[59] = PINGROUP(59, NORTH, qup10, NA, NA, NA, NA, NA, NA, NA, NA,
@@ -1435,16 +1436,20 @@ static const struct msm_pingroup atoll_groups[] = {
 			0x77000, 16),
 	[99] = PINGROUP(99, WEST, NA, pa_indicator, NA, NA, NA, NA, NA, NA, NA,
 			0, -1),
-	[100] = PINGROUP(100, WEST, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
+	[100] = PINGROUP(100, WEST, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
 	[101] = PINGROUP(101, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77004, 1),
-	[102] = PINGROUP(102, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
-	[103] = PINGROUP(103, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
+			0x77004, 1),
+	[102] = PINGROUP(102, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
+	[103] = PINGROUP(103, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
 	[104] = PINGROUP(104, WEST, usb_phy, NA, qdss_gpio, NA, NA, NA, NA, NA,
 			 NA, 0x77000, 17),
-	[105] = PINGROUP(105, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
+	[105] = PINGROUP(105, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
 	[106] = PINGROUP(106, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77004, 2),
+			0x77004, 2),
 	[107] = PINGROUP(107, WEST, NA, NAV_GPIO, NAV_PPS_IN, NAV_PPS_OUT,
 			GPS_TX, NA, NA, NA, NA, 0x77000, 18),
 	[108] = PINGROUP(108, SOUTH, mss_lte, NA, phase_flag5, ddr_pxi3, NA,
@@ -1452,21 +1457,23 @@ static const struct msm_pingroup atoll_groups[] = {
 	[109] = PINGROUP(109, SOUTH, mss_lte, GPS_TX, NA, phase_flag13, NA, NA,
 			 NA, NA, NA, 0x77000, 20),
 	[110] = PINGROUP(110, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77004, 3),
-	[111] = PINGROUP(111, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
-	[112] = PINGROUP(112, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA, 0, -1),
+			0x77004, 3),
+	[111] = PINGROUP(111, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
+	[112] = PINGROUP(112, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
+			0, -1),
 	[113] = PINGROUP(113, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77004, 4),
+			0x77004, 4),
 	[114] = PINGROUP(114, NORTH, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77004, 5),
+			0x77004, 5),
 	[115] = PINGROUP(115, WEST, qup04, qup04, NA, NA, NA, NA, NA, NA, NA,
-			 0x77000, 19),
+			0x77000, 19),
 	[116] = PINGROUP(116, WEST, qup04, qup04, NA, NA, NA, NA, NA, NA, NA,
-			 0x77000, 20),
+			0x77000, 20),
 	[117] = PINGROUP(117, WEST, dp_hot, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77000, 21),
+			0x77000, 21),
 	[118] = PINGROUP(118, WEST, NA, NA, NA, NA, NA, NA, NA, NA, NA,
-			 0x77000, 22),
+			0x77000, 22),
 	[119] = SDC_QDSD_PINGROUP(sdc1_rclk, 0x97a000, 15, 0),
 	[120] = SDC_QDSD_PINGROUP(sdc1_clk, 0x97a000, 13, 6),
 	[121] = SDC_QDSD_PINGROUP(sdc1_cmd, 0x97a000, 11, 3),
@@ -1574,9 +1581,32 @@ static const struct msm_pinctrl_soc_data atoll_pinctrl = {
 	.dir_conn_irq_base = 216,
 };
 
+/* By default, all the gpios that are mpm wake capable are enabled.
+ * The following list disables the gpios explicitly
+ */
+static const unsigned int config_mpm_wake_disable_gpios[] = { };
+
+static void atoll_pinctrl_config_mpm_wake_disable_gpios(void)
+{
+	unsigned int i;
+	unsigned int n_gpios = ARRAY_SIZE(config_mpm_wake_disable_gpios);
+
+	for (i = 0; i < n_gpios; i++)
+		msm_gpio_mpm_wake_set(config_mpm_wake_disable_gpios[i], false);
+}
+
+
 static int atoll_pinctrl_probe(struct platform_device *pdev)
 {
-	return msm_pinctrl_probe(pdev, &atoll_pinctrl);
+	int ret;
+
+	ret = msm_pinctrl_probe(pdev, &atoll_pinctrl);
+	if (ret)
+		return ret;
+
+	atoll_pinctrl_config_mpm_wake_disable_gpios();
+
+	return 0;
 }
 
 static const struct of_device_id atoll_pinctrl_of_match[] = {

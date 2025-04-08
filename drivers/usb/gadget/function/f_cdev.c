@@ -1893,7 +1893,7 @@ static struct f_cdev *f_cdev_alloc(char *func_name, int portno)
 	port->dev.parent = NULL;
 	port->dev.release = cdev_device_release;
 	port->dev.devt = MKDEV(major, port->minor);
-	dev_set_name(&port->dev, "%s", port->name);
+	dev_set_name(&port->dev, port->name);
 	ret = cdev_device_add(&port->fcdev_cdev, &port->dev);
 	if (ret) {
 		pr_err("Failed to add cdev for port(%s)\n", port->name);
