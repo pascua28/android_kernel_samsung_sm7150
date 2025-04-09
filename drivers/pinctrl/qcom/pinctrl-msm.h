@@ -14,6 +14,8 @@
 #ifndef __PINCTRL_MSM_H__
 #define __PINCTRL_MSM_H__
 
+#include <linux/pinctrl/qcom-pinctrl.h>
+
 struct pinctrl_pin_desc;
 
 /**
@@ -107,7 +109,6 @@ struct msm_pingroup {
 	unsigned intr_detection_bit:5;
 	unsigned intr_detection_width:5;
 	unsigned dir_conn_en_bit:8;
-
 	u32 wake_reg;
 	unsigned int wake_bit;
 };

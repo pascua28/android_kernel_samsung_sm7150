@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -849,6 +849,17 @@ static void cam_jpeg_mgr_stop_deinit_dev(struct cam_jpeg_hw_mgr *hw_mgr,
 			CAM_ERR(CAM_JPEG, "stop fail %d", rc);
 	} else {
 		CAM_ERR(CAM_JPEG, "op stop null %d", dev_type);
+	}
+
+	if (hw_mgr->devices[dev_type][0]->hw_ops.reset) {
+		rc = hw_mgr->devices[dev_type][0]->hw_ops.reset(
+			hw_mgr->devices[dev_type][0]->hw_priv,
+			NULL, 0);
+		if (rc)
+			CAM_ERR(CAM_JPEG, "jpeg hw reset failed %d:%d",
+				dev_type, rc);
+	} else {
+		CAM_ERR(CAM_JPEG, "op hw reset null %d", dev_type);
 	}
 
 	if (hw_mgr->devices[dev_type][0]->hw_ops.deinit) {

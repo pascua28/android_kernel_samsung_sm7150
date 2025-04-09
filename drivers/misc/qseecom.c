@@ -1,7 +1,7 @@
 /*
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
  *
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -99,7 +99,7 @@ unsigned long long notrace sched_clock(void);
 #define TWO 2
 #define QSEECOM_UFS_ICE_CE_NUM 10
 #define QSEECOM_SDCC_ICE_CE_NUM 20
-#define QSEECOM_ICE_FDE_KEY_INDEX 0
+#define QSEECOM_ICE_FDE_KEY_INDEX 31
 
 #define PHY_ADDR_4G	(1ULL<<32)
 
@@ -379,7 +379,7 @@ struct qseecom_client_handle {
 
 struct qseecom_listener_handle {
 	u32               id;
-	bool              unregister_pending;
+	bool              register_pending;
 	bool              release_called;
 };
 
@@ -532,6 +532,10 @@ static int get_qseecom_keymaster_status(char *str)
 }
 __setup("androidboot.keymaster=", get_qseecom_keymaster_status);
 
+static int __qseecom_alloc_coherent_buf(
+			uint32_t size, u8 **vaddr, phys_addr_t *paddr);
+static void __qseecom_free_coherent_buf(uint32_t size,
+				u8 *vaddr, phys_addr_t paddr);
 
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
@@ -1468,6 +1472,11 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	struct qseecom_registered_listener_list *new_entry;
 	struct qseecom_registered_listener_list *ptr_svc;
 
+	if (data->listener.register_pending) {
+		pr_err("Already a listner registration is in process on this FD\n");
+		return -EINVAL;
+	}
+
 	ret = copy_from_user(&rcvd_lstnr, argp, sizeof(rcvd_lstnr));
 	if (ret) {
 		pr_err("copy_from_user failed\n");
@@ -1476,6 +1485,13 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	if (!access_ok(VERIFY_WRITE, (void __user *)rcvd_lstnr.virt_sb_base,
 			rcvd_lstnr.sb_size))
 		return -EFAULT;
+
+	ptr_svc = __qseecom_find_svc(data->listener.id);
+	if (ptr_svc) {
+		pr_err("Already a listener registered on this data: lid=%d\n",
+			data->listener.id);
+		return -EINVAL;
+	}
 
 	ptr_svc = __qseecom_find_svc(rcvd_lstnr.listener_id);
 	if (ptr_svc) {
@@ -1511,12 +1527,15 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 	new_entry->svc.listener_id = rcvd_lstnr.listener_id;
 	new_entry->sb_length = rcvd_lstnr.sb_size;
 	new_entry->user_virt_sb_base = rcvd_lstnr.virt_sb_base;
+	data->listener.register_pending = true;
 	if (__qseecom_set_sb_memory(new_entry, data, &rcvd_lstnr)) {
 		pr_err("qseecom_set_sb_memory failed for listener %d, size %d\n",
 				rcvd_lstnr.listener_id, rcvd_lstnr.sb_size);
 		kzfree(new_entry);
+		data->listener.register_pending = false;
 		return -ENOMEM;
 	}
+	data->listener.register_pending = false;
 
 	init_waitqueue_head(&new_entry->rcv_req_wq);
 	init_waitqueue_head(&new_entry->listener_block_app_wq);
@@ -3664,7 +3683,8 @@ int __qseecom_process_reentrancy(struct qseecom_command_scm_resp *resp,
 }
 
 static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
-				struct qseecom_send_cmd_req *req)
+			struct qseecom_send_cmd_req *req,
+			bool is_phys_adr)
 {
 	int ret = 0;
 	u32 reqd_len_sb_in = 0;
@@ -3706,11 +3726,20 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 
 	if (qseecom.qsee_version < QSEE_VERSION_40) {
 		send_data_req.app_id = data->client.app_id;
-		send_data_req.req_ptr = (uint32_t)(__qseecom_uvirt_to_kphys(
-					data, (uintptr_t)req->cmd_req_buf));
+
+		if (!is_phys_adr) {
+			send_data_req.req_ptr =
+				(uint32_t)(__qseecom_uvirt_to_kphys
+				(data, (uintptr_t)req->cmd_req_buf));
+			send_data_req.rsp_ptr =
+				(uint32_t)(__qseecom_uvirt_to_kphys(
+				data, (uintptr_t)req->resp_buf));
+		} else {
+			send_data_req.req_ptr = (uint32_t)req->cmd_req_buf;
+			send_data_req.rsp_ptr = (uint32_t)req->resp_buf;
+		}
+
 		send_data_req.req_len = req->cmd_req_len;
-		send_data_req.rsp_ptr = (uint32_t)(__qseecom_uvirt_to_kphys(
-					data, (uintptr_t)req->resp_buf));
 		send_data_req.rsp_len = req->resp_len;
 		send_data_req.sglistinfo_ptr =
 				(uint32_t)virt_to_phys(table);
@@ -3721,11 +3750,21 @@ static int __qseecom_send_cmd(struct qseecom_dev_handle *data,
 		cmd_len = sizeof(struct qseecom_client_send_data_ireq);
 	} else {
 		send_data_req_64bit.app_id = data->client.app_id;
-		send_data_req_64bit.req_ptr = __qseecom_uvirt_to_kphys(data,
-					(uintptr_t)req->cmd_req_buf);
+
+		if (!is_phys_adr) {
+			send_data_req_64bit.req_ptr =
+				 __qseecom_uvirt_to_kphys(data,
+				(uintptr_t)req->cmd_req_buf);
+			send_data_req_64bit.rsp_ptr =
+				__qseecom_uvirt_to_kphys(data,
+				(uintptr_t)req->resp_buf);
+		} else {
+			send_data_req_64bit.req_ptr =
+				(uintptr_t)req->cmd_req_buf;
+			send_data_req_64bit.rsp_ptr =
+				(uintptr_t)req->resp_buf;
+		}
 		send_data_req_64bit.req_len = req->cmd_req_len;
-		send_data_req_64bit.rsp_ptr = __qseecom_uvirt_to_kphys(data,
-					(uintptr_t)req->resp_buf);
 		send_data_req_64bit.rsp_len = req->resp_len;
 		/* check if 32bit app's phys_addr region is under 4GB.*/
 		if ((data->client.app_arch == ELFCLASS32) &&
@@ -3822,7 +3861,7 @@ static int qseecom_send_cmd(struct qseecom_dev_handle *data, void __user *argp)
 	if (__validate_send_cmd_inputs(data, &req))
 		return -EINVAL;
 
-	ret = __qseecom_send_cmd(data, &req);
+	ret = __qseecom_send_cmd(data, &req, false);
 
 	if (ret)
 		return ret;
@@ -4312,6 +4351,9 @@ static int __qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 	int i;
 	struct qseecom_send_modfd_cmd_req req;
 	struct qseecom_send_cmd_req send_cmd_req;
+	void *origin_req_buf_kvirt, *origin_rsp_buf_kvirt;
+	phys_addr_t pa;
+	u8 *va = NULL;
 
 	ret = copy_from_user(&req, argp, sizeof(req));
 	if (ret) {
@@ -4335,32 +4377,56 @@ static int __qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 			return -EINVAL;
 		}
 	}
-	req.cmd_req_buf = (void *)__qseecom_uvirt_to_kvirt(data,
-						(uintptr_t)req.cmd_req_buf);
-	req.resp_buf = (void *)__qseecom_uvirt_to_kvirt(data,
-						(uintptr_t)req.resp_buf);
+
+	/*Back up original address */
+	origin_req_buf_kvirt = (void *)__qseecom_uvirt_to_kvirt(data,
+				(uintptr_t)req.cmd_req_buf);
+	origin_rsp_buf_kvirt = (void *)__qseecom_uvirt_to_kvirt(data,
+				(uintptr_t)req.resp_buf);
+
+	/* Allocate kernel buffer for request and response*/
+	ret = __qseecom_alloc_coherent_buf(req.cmd_req_len + req.resp_len,
+					&va, &pa);
+	req.cmd_req_buf = va;
+	send_cmd_req.cmd_req_buf = (void *)pa;
+
+	req.resp_buf = va + req.cmd_req_len;
+	send_cmd_req.resp_buf = (void *)pa + req.cmd_req_len;
+
+	/* Copy the data to kernel request and response buffers*/
+	memcpy(req.cmd_req_buf, origin_req_buf_kvirt, req.cmd_req_len);
+	memcpy(req.resp_buf, origin_rsp_buf_kvirt, req.resp_len);
 
 	if (!is_64bit_addr) {
 		ret = __qseecom_update_cmd_buf(&req, false, data);
 		if (ret)
-			return ret;
-		ret = __qseecom_send_cmd(data, &send_cmd_req);
+			goto out;
+		ret = __qseecom_send_cmd(data, &send_cmd_req, true);
 		if (ret)
-			return ret;
+			goto out;
 		ret = __qseecom_update_cmd_buf(&req, true, data);
 		if (ret)
-			return ret;
+			goto out;
 	} else {
 		ret = __qseecom_update_cmd_buf_64(&req, false, data);
 		if (ret)
-			return ret;
-		ret = __qseecom_send_cmd(data, &send_cmd_req);
+			goto out;
+		ret = __qseecom_send_cmd(data, &send_cmd_req, true);
 		if (ret)
-			return ret;
+			goto out;
 		ret = __qseecom_update_cmd_buf_64(&req, true, data);
 		if (ret)
-			return ret;
+			goto out;
 	}
+
+	/*Copy the response back to the userspace buffer*/
+	memcpy(origin_rsp_buf_kvirt, req.resp_buf, req.resp_len);
+	memcpy(origin_req_buf_kvirt, req.cmd_req_buf, req.cmd_req_len);
+
+out:
+	if (req.cmd_req_buf)
+		__qseecom_free_coherent_buf(req.cmd_req_len + req.resp_len,
+			req.cmd_req_buf, (phys_addr_t)send_cmd_req.cmd_req_buf);
 
 	return ret;
 }
@@ -5234,7 +5300,7 @@ int qseecom_send_command(struct qseecom_handle *handle, void *send_buf,
 
 	dmac_flush_range(req.cmd_req_buf, req.cmd_req_buf + req.cmd_req_len);
 
-	ret = __qseecom_send_cmd(data, &req);
+	ret = __qseecom_send_cmd(data, &req, false);
 
 	dmac_flush_range(req.resp_buf, req.resp_buf + req.resp_len);
 

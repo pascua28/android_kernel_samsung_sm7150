@@ -1173,6 +1173,13 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 			"inst(%pK) setting turbo mode ");
 	}
 
+	if (inst->session_type == MSM_VIDC_DECODER &&
+		!inst->operating_rate_set && !is_realtime_session(inst)) {
+		inst->clk_data.turbo_mode = true;
+		dprintk(VIDC_INFO,
+			"inst(%pK) setting turbo mode ");
+	}
+
 	/* Assign Core and LP mode for current session */
 	rc = msm_vidc_decide_core_and_power_mode(inst);
 	if (rc) {
