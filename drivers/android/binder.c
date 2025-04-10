@@ -82,8 +82,6 @@
 #include <linux/freecess.h>
 #endif
 
-int system_server_pid = 0;
-
 static HLIST_HEAD(binder_deferred_list);
 static DEFINE_MUTEX(binder_deferred_lock);
 
@@ -5467,14 +5465,6 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		if (copy_to_user(ubuf, &info, sizeof(info))) {
 			ret = -EFAULT;
-			goto err;
-		}
-		break;
-	}
-	case BINDER_SET_SYSTEM_SERVER_PID: {
-		if (copy_from_user(&system_server_pid, ubuf,
-					sizeof(system_server_pid))) {
-			ret = -EINVAL;
 			goto err;
 		}
 		break;
