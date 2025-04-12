@@ -187,7 +187,7 @@ static void afc_workq(struct work_struct *work)
 		gafc->afc_cnt++;
 		if (gafc->vol == SET_5V) 
 			ret = afc_transfer(gafc, 0x07);	/* 5V, 1.8A */
-		else
+		else {
 			ret = afc_transfer(gafc, 0x46);	/* 9V, 1.65A */
 
 			if (ret < 0) {
@@ -195,6 +195,7 @@ static void afc_workq(struct work_struct *work)
 				send_afc_result(AFC_FAIL);
 				end_afc();
 			}
+		}
 	} else {
 		while (vbus < 7500 && check_vbus_cnt++ < 5){
 			usleep_range(18000, 20000);
