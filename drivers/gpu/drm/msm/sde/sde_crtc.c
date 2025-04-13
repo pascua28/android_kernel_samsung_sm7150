@@ -5362,32 +5362,27 @@ static void sde_crtc_fod_atomic_check(struct sde_crtc_state *cstate,
 				dim_layer_stage);
 	}
 
-
-	if (is_aosp) {
-		if (!cstate->fod_dim_layer) {
-			// Samsung fingerprint HBM
-			if (vdd->finger_mask && vdd->br.finger_mask_bl_level != 0) {
-				vdd->br.finger_mask_bl_level = 0;
-				vdd->finger_mask = 0;
-				vdd->finger_mask_updated = true;
-				SDE_DEBUG("[FINGER_MASK] disabled mask");
-			}
+	if (!cstate->fod_dim_layer) {
+		// Samsung fingerprint HBM
+		if (vdd->finger_mask && vdd->br.finger_mask_bl_level != 0) {
+			vdd->br.finger_mask_bl_level = 0;
+			vdd->finger_mask = 0;
+			vdd->finger_mask_updated = true;
+			SDE_DEBUG("[FINGER_MASK] disabled mask");
 		}
-		return;
 	}
+	return;
 
 	for (plane_idx = 0; plane_idx < cnt; plane_idx++)
 		if (pstates[plane_idx].stage >= dim_layer_stage)
 			pstates[plane_idx].stage++;
 
-	if (is_aosp) {
-		// Samsung fingerprint HBM
-		if (!vdd->finger_mask && vdd->br.finger_mask_bl_level == 0) {
-			vdd->br.finger_mask_bl_level = 331;
-			vdd->finger_mask = 1;
-			vdd->finger_mask_updated = true;
-			SDE_DEBUG("[FINGER_MASK] enabled mask");
-		}
+	// Samsung fingerprint HBM
+	if (!vdd->finger_mask && vdd->br.finger_mask_bl_level == 0) {
+		vdd->br.finger_mask_bl_level = 331;
+		vdd->finger_mask = 1;
+		vdd->finger_mask_updated = true;
+		SDE_DEBUG("[FINGER_MASK] enabled mask");
 	}
 }
 
