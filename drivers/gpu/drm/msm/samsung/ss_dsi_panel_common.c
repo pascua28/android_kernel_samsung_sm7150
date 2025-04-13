@@ -2218,11 +2218,15 @@ int ss_panel_off_post(struct samsung_display_driver_data *vdd)
 
 	LCD_INFO("+\n");
 
-	if (vdd->finger_mask)
-		vdd->finger_mask = 0;
+#ifdef CONFIG_SEC_A70Q_PROJECT
+	if (is_aosp) {
+		if (vdd->finger_mask)
+			vdd->finger_mask = 0;
 
-	if (vdd->br.finger_mask_bl_level)
-		vdd->br.finger_mask_bl_level = 0;
+		if (vdd->br.finger_mask_bl_level)
+			vdd->br.finger_mask_bl_level = 0;
+	}
+#endif
 
 	if (vdd->mdnie.support_trans_dimming)
 		vdd->mdnie.disable_trans_dimming = true;
