@@ -48,7 +48,7 @@
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
-static int fp_mask_bl = 331;
+static int fp_mask_bl = 337;
 module_param(fp_mask_bl, int, 0660);
 
 struct sde_crtc_custom_events {
