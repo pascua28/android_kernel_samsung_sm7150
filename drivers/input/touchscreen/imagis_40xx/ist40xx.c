@@ -847,7 +847,7 @@ irqreturn_t ist40xx_irq_thread(int irq, void *ptr)
 	int offset = 1;
 	u32 msg[IST40XX_MAX_FINGER_ID * IST40XX_TOUCH_FRAME_CNT + offset];
 	u32 *buf32;
-	u32 ms;
+	u32 ms, hover_data;
 	bool idle = false;
 	struct ist40xx_data *data = (struct ist40xx_data *)ptr;
 
@@ -1008,15 +1008,10 @@ irqreturn_t ist40xx_irq_thread(int irq, void *ptr)
 	if (PARSE_HOVER_NOTI(*msg)) {
 		if (data->hover != PARSE_HOVER_VAL(*msg))
 			data->hover = PARSE_HOVER_VAL(*msg);
-		if (is_aosp)
-			input_report_abs(data->input_dev_proximity, ABS_MT_CUSTOM, !data->hover);
-		else
-			input_report_abs(data->input_dev_proximity, ABS_MT_CUSTOM, data->hover);
+		hover_data = is_aosp ? data->hover : !data->hover;
+		input_report_abs(data->input_dev_proximity, ABS_MT_CUSTOM, hover_data);
 		input_sync(data->input_dev_proximity);
-		if (is_aosp)
-			input_info(true, &data->client->dev, "Hover Level %d\n", !data->hover);
-		else
-			input_info(true, &data->client->dev, "Hover Level %d\n", data->hover);
+		input_info(true, &data->client->dev, "Hover Level %d\n", hover_data);
 
 		if (read_cnt <= 0)
 			goto irq_event;
