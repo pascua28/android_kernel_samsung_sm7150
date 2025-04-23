@@ -5370,8 +5370,8 @@ static void sde_crtc_fod_atomic_check(struct sde_crtc_state *cstate,
 			vdd->finger_mask_updated = true;
 			SDE_DEBUG("[FINGER_MASK] disabled mask");
 		}
+		return;
 	}
-	return;
 
 	for (plane_idx = 0; plane_idx < cnt; plane_idx++)
 		if (pstates[plane_idx].stage >= dim_layer_stage)
