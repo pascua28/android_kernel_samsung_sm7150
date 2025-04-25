@@ -215,25 +215,25 @@ struct pci_controller;
  * \param fmt printf() like format string.
  * \param arg arguments
  */
-#define DRM_DEV_DEBUG(dev, fmt, args...) (0)
-#define DRM_DEBUG(fmt, ...) (0)
+#define DRM_DEV_DEBUG(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG(fmt, ...) ((void)0)
 
-#define DRM_DEV_DEBUG_DRIVER(dev, fmt, args...) (0)
-#define DRM_DEBUG_DRIVER(fmt, ...) (0)
+#define DRM_DEV_DEBUG_DRIVER(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG_DRIVER(fmt, ...) ((void)0)
 
-#define DRM_DEV_DEBUG_KMS(dev, fmt, args...) (0)
-#define DRM_DEBUG_KMS(fmt, ...) (0)
+#define DRM_DEV_DEBUG_KMS(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG_KMS(fmt, ...) ((void)0)
 
-#define DRM_DEV_DEBUG_PRIME(dev, fmt, args...) (0)
-#define DRM_DEBUG_PRIME(fmt, ...) (0)
+#define DRM_DEV_DEBUG_PRIME(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG_PRIME(fmt, ...) ((void)0)
 
-#define DRM_DEV_DEBUG_ATOMIC(dev, fmt, args...) (0)
-#define DRM_DEBUG_ATOMIC(fmt, ...) (0)
+#define DRM_DEV_DEBUG_ATOMIC(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG_ATOMIC(fmt, ...) ((void)0)
 
-#define DRM_DEV_DEBUG_VBL(dev, fmt, args...) (0)
-#define DRM_DEBUG_VBL(fmt, ...) (0)
+#define DRM_DEV_DEBUG_VBL(dev, fmt, args...) ((void)0)
+#define DRM_DEBUG_VBL(fmt, ...) ((void)0)
 
-#define DRM_DEBUG_LEASE(fmt, ...) (0)
+#define DRM_DEBUG_LEASE(fmt, ...) ((void)0)
 
 #define _DRM_DEV_DEFINE_DEBUG_RATELIMITED(dev, level, fmt, args...)	\
 ({									\
