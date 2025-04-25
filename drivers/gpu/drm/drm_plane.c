@@ -618,13 +618,8 @@ static int __setplane_internal(struct drm_plane *plane,
 
 	/* Check whether this plane supports the fb pixel format. */
 	ret = drm_plane_check_pixel_format(plane, fb->format->format);
-	if (ret) {
-		struct drm_format_name_buf format_name;
-		DRM_DEBUG_KMS("Invalid pixel format %s\n",
-		              drm_get_format_name(fb->format->format,
-		                                  &format_name));
+	if (ret)
 		goto out;
-	}
 
 	/* Give drivers some help against integer overflows */
 	if (crtc_w > INT_MAX ||

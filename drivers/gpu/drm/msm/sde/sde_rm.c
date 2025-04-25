@@ -1532,7 +1532,6 @@ static int _sde_rm_populate_requirements(
 		struct drm_connector_state *conn_state,
 		struct sde_rm_requirements *reqs)
 {
-	const struct drm_display_mode *mode = &crtc_state->mode;
 	int i, num_lm;
 
 	memset(reqs, 0, sizeof(*reqs));
