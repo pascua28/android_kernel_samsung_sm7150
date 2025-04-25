@@ -1283,7 +1283,7 @@ void subsys_set_reset_reason(const char *name, int val)
 			silent_ssr_bit &= ~BIT(dev->desc->stop_reason_0_bit);
 			silent_ssr_bit &= ~BIT(dev->desc->stop_reason_1_bit);
 		}
-		pr_err("set restart reason .. to 0x%x\n", silent_ssr_bit);
+		pr_err("set restart reason .. to 0x%lx\n", silent_ssr_bit);
 	}
 }
 
