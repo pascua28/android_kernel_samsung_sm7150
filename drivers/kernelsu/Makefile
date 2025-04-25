@@ -16,6 +16,7 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
 
 obj-$(CONFIG_KSU) += kernelsu.o
 
+# KSU Version
 $(eval KSU_VERSION=12998)
 $(info -- KernelSU version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
@@ -27,16 +28,6 @@ else
 $(info -- Your kernel does not have get_cred_rcu, please backport it.)
 $(info -- How to backport: https://github.com/tiann/KernelSU/pull/2320#issuecomment-2564232958)
 $(info -- Fallback to old changes.)
-endif
-
-ifeq ($(shell grep -q "strncpy_from_user_nofault" $(srctree)/include/linux/uaccess.h; echo $$?),0)
-ccflags-y += -DKSU_STRNCPY_FROM_USER_NOFAULT
-endif
-ifeq ($(shell grep -q "ssize_t kernel_read" $(srctree)/fs/read_write.c; echo $$?),0)
-ccflags-y += -DKSU_KERNEL_READ
-endif
-ifeq ($(shell grep "ssize_t kernel_write" $(srctree)/fs/read_write.c | grep -q "const void" ; echo $$?),0)
-ccflags-y += -DKSU_KERNEL_WRITE
 endif
 
 ifndef KSU_NEXT_EXPECTED_SIZE
