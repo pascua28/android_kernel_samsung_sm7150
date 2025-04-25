@@ -17,6 +17,18 @@
 #include "msm_vidc_debug.h"
 #include "vidc_hfi_api.h"
 
+#ifndef CONFIG_DEBUG_FS
+int msm_vidc_debug = 0;
+int msm_vidc_debug_out = 0;
+int msm_vidc_fw_debug = 0x00;
+int msm_vidc_fw_debug_mode = 0;
+int msm_vidc_fw_low_power_mode = 1;
+bool msm_vidc_fw_coverage = false;
+bool msm_vidc_thermal_mitigation_disabled = false;
+int msm_vidc_clock_voting = 0;
+bool msm_vidc_syscache_disable = false;
+#else
+
 int msm_vidc_debug = VIDC_ERR | VIDC_WARN | VIDC_FW;
 EXPORT_SYMBOL(msm_vidc_debug);
 
@@ -603,4 +615,4 @@ int msm_vidc_check_ratelimit(void)
 				VIDC_DBG_SESSION_RATELIMIT_BURST);
 	return __ratelimit(&_rs);
 }
-
+#endif /* CONFIG_DEBUG_FS */
