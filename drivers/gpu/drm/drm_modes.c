@@ -1231,16 +1231,6 @@ static const char * const drm_mode_status_names[] = {
 
 #undef MODE_STATUS
 
-static const char *drm_get_mode_status_name(enum drm_mode_status status)
-{
-	int index = status + 3;
-
-	if (WARN_ON(index < 0 || index >= ARRAY_SIZE(drm_mode_status_names)))
-		return "";
-
-	return drm_mode_status_names[index];
-}
-
 /**
  * drm_mode_prune_invalid - remove invalid modes from mode list
  * @dev: DRM device
@@ -1260,12 +1250,8 @@ void drm_mode_prune_invalid(struct drm_device *dev,
 	list_for_each_entry_safe(mode, t, mode_list, head) {
 		if (mode->status != MODE_OK) {
 			list_del(&mode->head);
-			if (verbose) {
+			if (verbose)
 				drm_mode_debug_printmodeline(mode);
-				DRM_DEBUG_KMS("Not using %s mode: %s\n",
-					      mode->name,
-					      drm_get_mode_status_name(mode->status));
-			}
 			drm_mode_destroy(dev, mode);
 		}
 	}

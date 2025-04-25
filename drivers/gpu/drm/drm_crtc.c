@@ -625,13 +625,8 @@ retry:
 		if (!crtc->primary->format_default) {
 			ret = drm_plane_check_pixel_format(crtc->primary,
 							   fb->format->format);
-			if (ret) {
-				struct drm_format_name_buf format_name;
-				DRM_DEBUG_KMS("Invalid pixel format %s\n",
-				              drm_get_format_name(fb->format->format,
-				                                  &format_name));
+			if (ret)
 				goto out;
-			}
 		}
 
 		ret = drm_crtc_check_viewport(crtc, crtc_req->x, crtc_req->y,

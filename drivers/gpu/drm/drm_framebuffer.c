@@ -162,13 +162,8 @@ static int framebuffer_check(struct drm_device *dev,
 
 	/* check if the format is supported at all */
 	info = __drm_format_info(r->pixel_format & ~DRM_FORMAT_BIG_ENDIAN);
-	if (!info) {
-		struct drm_format_name_buf format_name;
-		DRM_DEBUG_KMS("bad framebuffer format %s\n",
-		              drm_get_format_name(r->pixel_format,
-		                                  &format_name));
+	if (!info)
 		return -EINVAL;
-	}
 
 	/* now let the driver pick its own format info */
 	info = drm_get_format_info(dev, r);
