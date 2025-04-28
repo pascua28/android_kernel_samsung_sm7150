@@ -746,6 +746,12 @@ endif
 
 ifeq ($(cc-name),clang)
 KBUILD_CFLAGS	+= -mcpu=cortex-a55 -mtune=cortex-a55
+# Enable hot cold split optimization
+KBUILD_CFLAGS	+= -mllvm -hot-cold-split=true
+# Enable MLGO optimizations for register allocation
+KBUILD_CFLAGS	+= -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS	+= -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS	+= -mllvm -enable-ml-inliner=release
 else
 KBUILD_CFLAGS	+= -mcpu=cortex-a76.cortex-a55 -mtune=cortex-a76.cortex-a55
 endif
