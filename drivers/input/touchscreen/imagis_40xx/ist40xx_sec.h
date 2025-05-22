@@ -16,6 +16,8 @@
 #ifndef __IST40XX_SEC_H__
 #define __IST40XX_SEC_H__
 
+#include <linux/rom_notifier.h>
+
 #define SEC_MISCAL_SPEC		50
 
 /* Factory Test for Reliability Test Group */

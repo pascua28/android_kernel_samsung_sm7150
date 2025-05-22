@@ -37,8 +37,6 @@
 #include <linux/t-base-tui.h>
 #endif
 
-#include <linux/rom_notifier.h>
-
 struct ist40xx_data *ts_data;
 
 #ifdef CONFIG_DISPLAY_SAMSUNG
