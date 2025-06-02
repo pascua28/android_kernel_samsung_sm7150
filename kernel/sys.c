@@ -1194,6 +1194,8 @@ static int override_release(char __user *release, size_t len)
 extern void susfs_spoof_uname(struct new_utsname* tmp);
 #endif
 
+extern bool legacy_ebpf __read_mostly;
+
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
 	struct new_utsname tmp;
@@ -1205,7 +1207,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 	    !strncmp(current->comm, "netbpfload", 10) ||
 	    !strncmp(current->comm, "netd", 4) ||
 	    !strncmp(current->comm, "uprobestats", 11)) {
-		if (current_uid().val == 0) {
+		if (current_uid().val == 0 && !legacy_ebpf) {
 #if defined(CONFIG_FAKE_UNAME_5_4)
 			strcpy(tmp.release, "5.4.200");
 #elif defined(CONFIG_FAKE_UNAME_5_10)
