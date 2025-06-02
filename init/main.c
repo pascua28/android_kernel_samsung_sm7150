@@ -162,6 +162,16 @@ static int __init parse_aosp(char *str)
 }
 __setup("android.is_aosp=", parse_aosp);
 
+bool legacy_ebpf __read_mostly = false;
+EXPORT_SYMBOL(legacy_ebpf);
+
+static int __init parse_legacy_ebpf(char *str)
+{
+    strtobool(str, &legacy_ebpf);
+    return 1;
+}
+__setup("android.legacy_ebpf=", parse_legacy_ebpf);
+
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
  * where only the boot processor is running with IRQ disabled.  This means
