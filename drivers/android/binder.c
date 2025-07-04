@@ -7399,7 +7399,7 @@ static int __init binder_create_pools(void)
 	if (!binder_node_pool)
 		goto err_node_pool;
 
-	binder_eproc_pool = KMEM_CACHE(binder_proc_wrap, SLAB_HWCACHE_ALIGN);
+	binder_eproc_pool = KMEM_CACHE(binder_proc_ext, SLAB_HWCACHE_ALIGN);
 	if (!binder_eproc_pool)
 		goto err_proc_wrap_pool;
 
