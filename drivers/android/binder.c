@@ -1205,7 +1205,7 @@ static int get_ref_desc_olocked(struct binder_proc *proc,
 				struct binder_node *node,
 				u32 *desc)
 {
-	struct dbitmap *dmap = &binder_proc_ext_entry(proc)->dmap;
+	struct dbitmap *dmap = &proc_wrapper(proc)->dmap;
 	unsigned int nbits, offset;
 	unsigned long *new, bit;
 
@@ -1320,7 +1320,7 @@ retry:
 
 static void binder_cleanup_ref_olocked(struct binder_ref *ref)
 {
-	struct dbitmap *dmap = &binder_proc_ext_entry(ref->proc)->dmap;
+	struct dbitmap *dmap = &proc_wrapper(ref->proc)->dmap;
 	bool delete_node = false;
 
 	binder_debug(BINDER_DEBUG_INTERNAL_REFS,
@@ -1498,7 +1498,7 @@ static void binder_free_ref(struct binder_ref *ref)
 /* shrink descriptor bitmap if needed */
 static void try_shrink_dmap(struct binder_proc *proc)
 {
-	struct dbitmap *dmap = &binder_proc_ext_entry(proc)->dmap;
+	struct dbitmap *dmap = &proc_wrapper(proc)->dmap;
 	unsigned long *new;
 	int nbits;
 
