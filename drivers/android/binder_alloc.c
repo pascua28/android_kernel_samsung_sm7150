@@ -28,6 +28,7 @@
 
 #ifdef CONFIG_SAMSUNG_FREECESS
 #include <linux/freecess.h>
+#include <linux/sched/jobctl.h>
 #endif
 
 struct list_lru binder_alloc_lru;
