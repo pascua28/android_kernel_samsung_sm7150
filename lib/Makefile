@@ -273,3 +273,6 @@ obj-$(CONFIG_SBITMAP) += sbitmap.o
 obj-$(CONFIG_PARMAN) += parman.o
 
 obj-y += crypto/
+
+CFLAGS_string.o += -O3
+CFLAGS_crc32.o += -O3

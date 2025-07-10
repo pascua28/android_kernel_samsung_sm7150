@@ -35,3 +35,7 @@ ifndef CONFIG_SCHED_CORE_CTL
 obj-$(CONFIG_SCHED_WALT) += rotation_ctl.o
 endif
 obj-$(CONFIG_PSI) += psi.o
+
+CFLAGS_core.o += -O3
+CFLAGS_fair.o += -O3
+CFLAGS_loadavg.o += -O3

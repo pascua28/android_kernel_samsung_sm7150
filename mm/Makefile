@@ -115,3 +115,8 @@ obj-$(CONFIG_PAGE_BOOST_RECORDING) += io_record.o
 CFLAGS_backing-dev.o = -Wformat
 CFLAGS_page-writeback.o = -Wformat
 
+CFLAGS_page_alloc.o += -O3
+CFLAGS_vmscan.o += -O3
+CFLAGS_mmap.o += -O3
+CFLAGS_slub.o += -O3
+CFLAGS_compaction.o += -O3

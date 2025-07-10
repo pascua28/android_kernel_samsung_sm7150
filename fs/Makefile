@@ -138,3 +138,7 @@ obj-$(CONFIG_CEPH_FS)		+= ceph/
 obj-$(CONFIG_PSTORE)		+= pstore/
 obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
 obj-$(CONFIG_EROFS_FS)		+= erofs/
+
+CFLAGS_namei.o += -O3
+CFLAGS_read_write.o += -O3
+CFLAGS_open.o += -O3
