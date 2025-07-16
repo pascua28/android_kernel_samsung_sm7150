@@ -355,34 +355,18 @@ static int cpufreq_limit_hmp_boost(int enable)
 	return ret;
 }
 
-static int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
-		unsigned long *min, unsigned long *max)
+static int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy, unsigned long *max)
 {
 	unsigned int hmp_boost_active = 0;
 
-	pr_debug("%s+: cpu=%d, min=%ld, max=%ld\n", __func__, policy->cpu, *min, *max);
+	pr_debug("%s+: cpu=%d, max=%ld\n", __func__, policy->cpu, *max);
 
 	if (is_little(policy->cpu)) {
-		if (*min==0)
-			*min = policy->cpuinfo.min_freq;
-		else if (*min >= hmp_param.big_min_freq)
-			*min = hmp_param.little_min_lock * hmp_param.little_divider;
-		else
-			*min *= hmp_param.little_divider;
-
 		if (*max >= hmp_param.big_min_freq || *max==ULONG_MAX)
 			*max = policy->cpuinfo.max_freq;
 		else
 			*max *= hmp_param.little_divider;
 	} else {
-		if (*min >= hmp_param.big_min_freq) {
-			hmp_boost_active = 1;
-			hmp_param.hmp_boost_type = CONSERVATIVE_BOOST;
-		} else {
-			*min = policy->cpuinfo.min_freq;
-			hmp_boost_active = 0;
-		}
-
 		if (*max==ULONG_MAX) {
 			*max = policy->cpuinfo.max_freq;
 		} else if (*max >= hmp_param.big_min_freq) {
@@ -396,14 +380,13 @@ static int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
 		cpufreq_limit_hmp_boost(hmp_boost_active);
 	}
 
-	pr_debug("%s-: cpu=%d, min=%ld, max=%ld\n", __func__, policy->cpu, *min, *max);
+	pr_debug("%s-: cpu=%d, max=%ld\n", __func__, policy->cpu, *max);
 
 	return 0;
 }
 #else
 void cpufreq_limit_corectl(int freq) { }
-static inline int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy,
-		unsigned long *min, unsigned long *max) { return 0; }
+static inline int cpufreq_limit_adjust_freq(struct cpufreq_policy *policy, unsigned long *max) { return 0; }
 static inline int cpufreq_limit_hmp_boost(int enable) { return 0; }
 
 void cpufreq_limit_set_table(int cpu, struct cpufreq_frequency_table * ftbl)
@@ -451,15 +434,13 @@ static int cpufreq_limit_notifier_policy(struct notifier_block *nb,
 {
 	struct cpufreq_policy *policy = data;
 	struct cpufreq_limit_handle *handle;
-	unsigned long min = 0, max = ULONG_MAX;
+	unsigned long max = ULONG_MAX;
 
 	if (val != CPUFREQ_ADJUST)
 		goto done;
 
 	mutex_lock(&cpufreq_limit_lock);
 	list_for_each_entry(handle, &cpufreq_limit_requests, node) {
-		if (handle->min > min)
-			min = handle->min;
 		if (handle->max && handle->max < max)
 			max = handle->max;
 	}
@@ -479,7 +460,7 @@ static int cpufreq_limit_notifier_policy(struct notifier_block *nb,
 
 	mutex_unlock(&cpufreq_limit_lock);
 
-	if (!min && max == ULONG_MAX) {
+	if (max == ULONG_MAX) {
 		cpufreq_limit_hmp_boost(0);
 		goto done;
 	}
@@ -490,21 +471,15 @@ static int cpufreq_limit_notifier_policy(struct notifier_block *nb,
 	 * e.g. MSM8996 silver and gold
 	 */
 	if (hmp_param.little_divider == 1) {
-		if (is_big(policy->cpu)) {
-			/* sched_boost scenario */
-			if (min > hmp_param.little_max_freq)
-				cpufreq_limit_hmp_boost(1);
-			else
-				cpufreq_limit_hmp_boost(0);
-		}
-	} else {
-		cpufreq_limit_adjust_freq(policy, &min, &max);
-	}
+		if (is_big(policy->cpu))
+			cpufreq_limit_hmp_boost(0);
+	} else
+		cpufreq_limit_adjust_freq(policy, &max);
 
-	pr_debug("%s: limiting cpu%d cpufreq to %lu-%lu\n", __func__,
-			policy->cpu, min, max);
+	pr_debug("%s: limiting cpu%d cpufreq to %lu\n", __func__,
+			policy->cpu, max);
 
-	cpufreq_verify_within_limits(policy, min, max);
+	cpufreq_verify_within_limits(policy, 0, max);
 
 	pr_debug("%s: limited cpu%d cpufreq to %u-%u\n", __func__,
 			policy->cpu, policy->min, policy->max);
