@@ -155,7 +155,6 @@
 
             /* Frequency table */
             /* for level    :   1_Head */
-            input_booster,cpu_freqs = <1363200>;
             input_booster,hmp_boost = <2>;
             input_booster,lpm_bias = <0>;
 
@@ -171,7 +170,6 @@
 
             /* Frequency table */
             /* for level    :   1_Head, 2_Head, 2_Tail */
-            input_booster,cpu_freqs = <1363200 1363200 1132800>;
             input_booster,hmp_boost = <2 2 2>;
             input_booster,lpm_bias = <5 5 5>;
 
