@@ -756,13 +756,13 @@ KBUILD_LDFLAGS	+= -mllvm -regalloc-enable-advisor=release
 KBUILD_LDFLAGS	+= -mllvm -enable-ml-inliner=release
 
 ifdef CONFIG_POLLY_CLANG
-KBUILD_CFLAGS	+= -mllvm -polly \
+POLLY_CFLAGS	:= -mllvm -polly \
 		   -mllvm -polly-parallel \
 		   -mllvm -polly-ast-use-context \
 		   -mllvm -polly-invariant-load-hoisting \
 		   -mllvm -polly-run-inliner \
-		   -mllvm -polly-vectorizer=stripmine
-KBUILD_CFLAGS	+= -mllvm -polly-loopfusion-greedy=1 \
+		   -mllvm -polly-vectorizer=stripmine \
+		   -mllvm -polly-loopfusion-greedy=1 \
 		   -mllvm -polly-reschedule=1 \
 		   -mllvm -polly-postopts=1 \
 		   -mllvm -polly-omp-backend=LLVM \
@@ -774,8 +774,11 @@ KBUILD_CFLAGS	+= -mllvm -polly-loopfusion-greedy=1 \
 # so we tell Polly to perfom proven DCE on the loops it optimises
 # in order to preserve the overall effect of the linker's DCE.
 ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
-KBUILD_CFLAGS	+= -mllvm -polly-run-dce
+POLLY_CFLAGS	+= -mllvm -polly-run-dce
 endif
+
+KBUILD_CFLAGS	+= $(POLLY_CFLAGS)
+export POLLY_CFLAGS
 endif
 
 else
