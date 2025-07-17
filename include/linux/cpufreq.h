@@ -229,7 +229,6 @@ enum {
 	DVFS_NO_ID			= 0,
 
 	/* need to update now */
-	DVFS_TOUCH_ID			= 0x00000001,
 	DVFS_FINGER_ID			= 0x00000002,
 	DVFS_ARGOS_ID			= 0x00000004,
 
