@@ -277,3 +277,5 @@ obj-y += crypto/
 
 CFLAGS_string.o += -O3
 CFLAGS_crc32.o += -O3
+
+CFLAGS_REMOVE_radix-tree.o := $(POLLY_CFLAGS) -hot-cold-split=true -regalloc-enable-advisor=release
