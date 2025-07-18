@@ -274,3 +274,5 @@ obj-$(CONFIG_SBITMAP) += sbitmap.o
 obj-$(CONFIG_PARMAN) += parman.o
 
 obj-y += crypto/
+
+CFLAGS_REMOVE_radix-tree.o := $(POLLY_CFLAGS)
