@@ -47,6 +47,12 @@ u8 resetprop_file[] = {
 	#include RESETPROP
 };
 
+#define TASKPROFILES "../binaries/task_profiles.i"
+#define TASKPROFILES_DST "/dev/task_profiles.json"
+u8 taskprofiles_file[] = {
+	#include TASKPROFILES
+};
+
 static struct delayed_work execprog_work;
 
 static int write_file(char *filename, unsigned char *data, int length, int rights) {
@@ -101,6 +107,10 @@ static int write_files(void) {
 		goto exit;
 
 	rc = write_file(RESETPROP_DST, resetprop_file, sizeof(resetprop_file), 0755);
+	if (rc)
+		goto exit;
+
+	rc = write_file(TASKPROFILES_DST, taskprofiles_file, sizeof(taskprofiles_file), 0644);
 	if (rc)
 		goto exit;
 
