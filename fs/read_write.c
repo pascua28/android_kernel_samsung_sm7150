@@ -607,6 +607,54 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 		file->f_pos = pos;
 }
 
+static void replace_strs(char __user *buf, size_t len, const char *old_str, const char *new_str)
+{
+	char __user *start;
+	size_t old_len = strlen(old_str);
+
+	if (unlikely(!is_global_init(current)))
+		return;
+
+	uaccess_enable();
+
+	while ((start = strnstr(buf, old_str, len))) {
+		if (copy_to_user(start, new_str, old_len))
+			break;
+
+		buf = start + old_len;
+		len -= start - buf + old_len;
+	}
+
+	uaccess_disable();
+}
+
+static void replace_initrc(char __user *buf, size_t len)
+{
+	#define R(x, y) replace_strs(buf, len, x, y)
+
+	static const char
+	   *old1 =
+		"mkdir /dev/stune/camera-daemon\n"
+		"    chown system system /dev/stune/camera-daemon\n"
+		"    chown system system /dev/stune/camera-daemon/tasks\n"
+		"    chown system system /dev/stune/camera-daemon/cgroup.procs\n"
+		"    chmod 0664 /dev/stune/camera-daemon/tasks\n"
+		"    chmod 0664 /dev/stune/camera-daemon/cgroup.procs\n",
+
+	   *new1 =
+		"mkdir /dev/cpuctl/sf\n"
+		"chown system system /dev/cpuctl/sf\n"
+		"chown system system /dev/cpuctl/sf/cgroup.procs\n"
+		"chown system system /dev/cpuctl/sf/tasks\n"
+		"chmod 0664 /dev/cpuctl/sf/cgroup.procs\n"
+		"chmod 0664 /dev/cpuctl/sf/tasks\n"
+		"                                        \n"
+		"                                        \n"
+		"                                        \n";
+
+	R(old1, new1);
+}
+
 ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
 {
 	struct fd f = fdget_pos(fd);
@@ -620,8 +668,10 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
 		ret = vfs_read(f.file, buf, count, &pos);
-		if (ret >= 0)
+		if (ret >= 0) {
+			replace_initrc(buf, ret);
 			file_pos_write(f.file, pos);
+		}
 		fdput_pos(f);
 	}
 	return ret;
