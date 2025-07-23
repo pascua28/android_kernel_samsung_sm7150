@@ -650,9 +650,16 @@ static void replace_initrc(char __user *buf, size_t len)
 		"chmod 0664 /dev/cpuctl/sf/tasks\n"
 		"                                        \n"
 		"                                        \n"
-		"                                        \n";
+		"                                        \n",
+
+	/* Remove pcm dump */
+	   *old2 =
+		"group audio camera drmrpc media mediadrm net_bt net_bt_admin net_bw_acct log wakelock",
+	   *new2 =
+		"group audio camera drmrpc media mediadrm net_bt net_bt_admin net_bw_acct wakelock    ";
 
 	R(old1, new1);
+	R(old2, new2);
 }
 
 ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
