@@ -601,7 +601,7 @@ err_alloc:
 
 	return ret;
 }
-subsys_initcall(sec_audio_sysfs_init);
+module_init(sec_audio_sysfs_init);
 
 static void __exit sec_audio_sysfs_exit(void)
 {
