@@ -605,6 +605,7 @@ static int __init audio_notifier_subsys_init(void)
 
 	return 0;
 }
+subsys_initcall(audio_notifier_subsys_init);
 
 static int __init audio_notifier_late_init(void)
 {
@@ -623,8 +624,6 @@ static int __init audio_notifier_late_init(void)
 static int __init audio_notifier_init(void)
 {
 	int ret;
-
-	audio_notifier_subsys_init();
 
 	ret = audio_pdr_register(&pdr_nb);
 	if (ret < 0) {
