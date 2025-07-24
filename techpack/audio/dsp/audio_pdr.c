@@ -151,12 +151,11 @@ static int __init audio_pdr_subsys_init(void)
 	srcu_init_notifier_head(&audio_pdr_cb_list);
 	return 0;
 }
+subsys_initcall(audio_pdr_subsys_init);
 
 static int __init audio_pdr_late_init(void)
 {
 	int ret;
-
-	audio_pdr_subsys_init();
 
 	ret = get_service_location(
 		audio_pdr_services[AUDIO_PDR_DOMAIN_ADSP].client_name,
@@ -171,7 +170,7 @@ static int __init audio_pdr_late_init(void)
 
 	return ret;
 }
-postcore_initcall(audio_pdr_late_init);
+module_init(audio_pdr_late_init);
 
 static void __exit audio_pdr_late_exit(void)
 {
