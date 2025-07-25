@@ -9,6 +9,10 @@ cat /vendor/bin/init.qcom.post_boot.sh > /dev/ep/init.qcom.post_boot.sh
 echo '
 /dev/resetprop persist.sys.fuse.passthrough.enable true
 
+# UClamp boost
+echo 20 > /dev/cpuctl/sf/cpu.uclamp.min
+echo 10 > /dev/cpuctl/foreground/cpu.uclamp.min
+
 # Re-enable SELinux
 echo "97" > /sys/fs/selinux/enforce
 ' >> /dev/ep/init.qcom.post_boot.sh
