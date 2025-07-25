@@ -12,6 +12,7 @@ echo '
 # UClamp boost
 echo 20 > /dev/cpuctl/sf/cpu.uclamp.min
 echo 10 > /dev/cpuctl/foreground/cpu.uclamp.min
+echo 10 > /dev/cpuctl/top-app/cpu.uclamp.min
 
 if [ -d "/dev/cpuset/sf" ]; then
     echo $(pidof vendor.qti.hardware.display.allocator-service) > /dev/cpuset/sf/cgroup.procs
