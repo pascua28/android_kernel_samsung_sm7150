@@ -13,6 +13,18 @@ echo '
 echo 20 > /dev/cpuctl/sf/cpu.uclamp.min
 echo 10 > /dev/cpuctl/foreground/cpu.uclamp.min
 
+if [ -d "/dev/cpuset/sf" ]; then
+    echo $(pidof vendor.qti.hardware.display.allocator-service) > /dev/cpuset/sf/cgroup.procs
+else
+    echo $(pidof vendor.qti.hardware.display.allocator-service) > /dev/cpuset/foreground/cgroup.procs
+fi
+
+if [ -d "/dev/cpuctl/sf" ]; then
+    echo $(pidof vendor.qti.hardware.display.allocator-service) > /dev/cpuctl/sf/cgroup.procs
+else
+    echo $(pidof vendor.qti.hardware.display.allocator-service) > /dev/cpuctl/foreground/cgroup.procs
+fi
+
 # Re-enable SELinux
 echo "97" > /sys/fs/selinux/enforce
 ' >> /dev/ep/init.qcom.post_boot.sh
