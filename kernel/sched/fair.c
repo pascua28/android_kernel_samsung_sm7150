@@ -3112,9 +3112,10 @@ accumulate_sum(u64 delta, int cpu, struct sched_avg *sa,
 static __always_inline int
 ___update_load_avg(u64 now, int cpu, struct sched_avg *sa,
 		  unsigned long weight, int running, struct cfs_rq *cfs_rq,
-		  struct rt_rq *rt_rq)
+		  int irq, int last_accum)
 {
 	u64 delta;
+	u32 ret;
 
 	delta = now - sa->last_update_time;
 	/*
@@ -3155,8 +3156,12 @@ ___update_load_avg(u64 now, int cpu, struct sched_avg *sa,
 	 * Step 1: accumulate *_sum since last_update_time. If we haven't
 	 * crossed period boundaries, finish.
 	 */
-	if (!accumulate_sum(delta, cpu, sa, weight, running, cfs_rq))
-		return 0;
+	ret = accumulate_sum(delta, cpu, sa, weight, running, cfs_rq);
+	if (!ret) {
+		if (!irq || (irq && !last_accum))
+			return 0;
+	} else if (irq == 1)
+		return 1;
 
 	/*
 	 * Step 2: update *_avg.
@@ -3167,15 +3172,6 @@ ___update_load_avg(u64 now, int cpu, struct sched_avg *sa,
 			div_u64(cfs_rq->runnable_load_sum, LOAD_AVG_MAX - 1024 + sa->period_contrib);
 	}
 	sa->util_avg = sa->util_sum / (LOAD_AVG_MAX - 1024 + sa->period_contrib);
-
-	if (cfs_rq)
-		trace_sched_load_cfs_rq(cfs_rq);
-	else {
-		if (likely(!rt_rq))
-			trace_sched_load_se(container_of(sa, struct sched_entity, avg));
-		else
-			trace_sched_load_rt_rq(cpu, rt_rq);
-	}
 
 	return 1;
 }
@@ -3209,7 +3205,7 @@ static inline void cfs_se_util_change(struct sched_avg *avg)
 static int
 __update_load_avg_blocked_se(u64 now, int cpu, struct sched_entity *se)
 {
-	return ___update_load_avg(now, cpu, &se->avg, 0, 0, NULL, NULL);
+	return ___update_load_avg(now, cpu, &se->avg, 0, 0, NULL, 0, 0);
 }
 
 static int
@@ -3217,7 +3213,7 @@ __update_load_avg_se(u64 now, int cpu, struct cfs_rq *cfs_rq, struct sched_entit
 {
 	if (___update_load_avg(now, cpu, &se->avg,
 			       se->on_rq * scale_load_down(se->load.weight),
-			       cfs_rq->curr == se, NULL, NULL)) {
+			       cfs_rq->curr == se, NULL, 0, 0)) {
 		cfs_se_util_change(&se->avg);
 
 #ifdef UTIL_EST_DEBUG
@@ -3252,7 +3248,7 @@ __update_load_avg_cfs_rq(u64 now, int cpu, struct cfs_rq *cfs_rq)
 {
 	return ___update_load_avg(now, cpu, &cfs_rq->avg,
 			scale_load_down(cfs_rq->load.weight),
-			cfs_rq->curr != NULL, cfs_rq, NULL);
+			cfs_rq->curr != NULL, cfs_rq, 0, 0);
 }
 
 /*
@@ -3603,23 +3599,50 @@ update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq)
 	return decayed || removed_load;
 }
 
-int update_irq_load_avg(u64 now, int cpu, struct rq *rq, int running)
+#if defined(CONFIG_IRQ_TIME_ACCOUNTING) || \
+	defined(CONFIG_PARAVIRT_TIME_ACCOUNTING)
+int update_irq_load_avg(struct rq *rq, u64 running)
 {
 	int ret;
-	ret = ___update_load_avg(now - running, cpu, &rq->avg_irq, 0, 0, NULL, NULL);
-	ret += ___update_load_avg(now, cpu, &rq->avg_irq, 1, 1, NULL, NULL);
 
-	if (ret)
-		___update_load_avg(now, cpu, &rq->avg_irq, 1, 1, NULL, NULL);
+	/*
+	 * We know the time that has been used by interrupt since last update
+	 * but we don't when. Let be pessimistic and assume that interrupt has
+	 * happened just before the update. This is not so far from reality
+	 * because interrupt will most probably wake up task and trig an update
+	 * of rq clock during which the metric si updated.
+	 * We start to decay with normal context time and then we add the
+	 * interrupt context time.
+	 * We can safely remove running from rq->clock because
+	 * rq->clock += delta with delta >= running
+	 */
+	if (!running) {
+		ret = ___update_load_avg(rq->clock, rq->cpu,
+					 &rq->avg_irq, 0, 0, NULL,
+					 2, 0);
+	} else {
+		ret = ___update_load_avg(rq->clock - running, rq->cpu,
+					 &rq->avg_irq, 0, 0, NULL,
+					 1, 0);
+		ret = ___update_load_avg(rq->clock, rq->cpu,
+					 &rq->avg_irq, 1, 1, NULL,
+					 2, ret);
+	}
 
 	return ret;
 }
+#else
+int update_irq_load_avg(struct rq *rq, u64 running)
+{
+	return 0;
+}
+#endif
 
 int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, int running)
 {
 	int ret;
 
-	ret = ___update_load_avg(now, cpu, &rt_rq->avg, running, running, NULL, rt_rq);
+	ret = ___update_load_avg(now, cpu, &rt_rq->avg, running, running, NULL, 0, 0);
 
 	return ret;
 }
@@ -9734,6 +9757,7 @@ static void update_blocked_averages(int cpu)
 			update_load_avg(se, 0);
 	}
 	update_rt_rq_load_avg(rq_clock_task(rq), cpu, &rq->rt, 0);
+	update_irq_load_avg(rq, 0);
 #ifdef CONFIG_NO_HZ_COMMON
 	rq->last_blocked_load_update_tick = jiffies;
 #endif
@@ -9797,6 +9821,7 @@ static inline void update_blocked_averages(int cpu)
 	update_rq_clock(rq);
 	update_cfs_rq_load_avg(cfs_rq_clock_task(cfs_rq), cfs_rq);
 	update_rt_rq_load_avg(rq_clock_task(rq), cpu, &rq->rt, 0);
+	update_irq_load_avg(rq, 0);
 #ifdef CONFIG_NO_HZ_COMMON
 	rq->last_blocked_load_update_tick = jiffies;
 #endif
