@@ -257,23 +257,6 @@ static void devfreq_boost_input_disconnect(struct input_handle *handle)
 }
 
 static const struct input_device_id devfreq_boost_ids[] = {
-	/* Multi-touch touchscreen */
-	{
-		.flags = INPUT_DEVICE_ID_MATCH_EVBIT |
-			INPUT_DEVICE_ID_MATCH_ABSBIT,
-		.evbit = { BIT_MASK(EV_ABS) },
-		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
-			BIT_MASK(ABS_MT_POSITION_X) |
-			BIT_MASK(ABS_MT_POSITION_Y) }
-	},
-	/* Touchpad */
-	{
-		.flags = INPUT_DEVICE_ID_MATCH_KEYBIT |
-			INPUT_DEVICE_ID_MATCH_ABSBIT,
-		.keybit = { [BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH) },
-		.absbit = { [BIT_WORD(ABS_X)] =
-			BIT_MASK(ABS_X) | BIT_MASK(ABS_Y) }
-	},
 	/* Keypad */
 	{
 		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
