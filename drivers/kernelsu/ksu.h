@@ -4,7 +4,6 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-// KSU Version
 #define KERNEL_SU_VERSION KSU_VERSION
 #define KERNEL_SU_OPTION 0xDEADBEEF
 
@@ -24,6 +23,7 @@
 #define CMD_UID_SHOULD_UMOUNT 13
 #define CMD_IS_SU_ENABLED 14
 #define CMD_ENABLE_SU 15
+#define CMD_GET_MANAGER_UID 16
 
 #define EVENT_POST_FS_DATA 1
 #define EVENT_BOOT_COMPLETED 2

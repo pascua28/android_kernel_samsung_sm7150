@@ -17,7 +17,7 @@
 #include "apk_sign.h"
 #include "klog.h" // IWYU pragma: keep
 #include "kernel_compat.h"
-
+#include "manager_sign.h"
 
 struct sdesc {
 	struct shash_desc shash;
@@ -28,13 +28,13 @@ static struct apk_sign_key {
 	unsigned size;
 	const char *sha256;
 } apk_sign_keys[] = {
-	{EXPECTED_SIZE, EXPECTED_HASH}, // Official
-	{EXPECTED_NEXT_SIZE, EXPECTED_NEXT_HASH}, // KSU-Next/rifsxd
-	{0x363, "4359c171f32543394cbc23ef908c4bb94cad7c8087002ba164c8230948c21549"}, // backslashxx
-	{384, "7e0c6d7278a3bb8e364e0fcba95afaf3666cf5ff3c245a3b63c8833bd0445cc4"}, // 5ec1cff
-	{0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b"}, // rsuntk
-	{0x29c, "bfddf83a559355b053187177775c39c639d2d2695163baa77253746dbf18098d"} // sidex15
-/*	{custom_size, custom_hash},  // add more as you like 	*/
+	{EXPECTED_SIZE_OFFICIAL, EXPECTED_HASH_OFFICIAL}, // Official
+	{EXPECTED_SIZE_RSUNTK, EXPECTED_HASH_RSUNTK}, // RKSU
+	{EXPECTED_SIZE_5EC1CFF, EXPECTED_HASH_5EC1CFF}, // MKSU
+	{EXPECTED_SIZE_NEXT, EXPECTED_HASH_NEXT}, // ksu-next
+#ifdef EXPECTED_SIZE
+	{EXPECTED_SIZE, EXPECTED_HASH}, // Custom
+#endif
 };
 
 static struct sdesc *init_sdesc(struct crypto_shash *alg)
