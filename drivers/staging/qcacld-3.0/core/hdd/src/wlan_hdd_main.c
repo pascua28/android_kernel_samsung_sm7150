@@ -3524,13 +3524,14 @@ static int hdd_wlan_register_pm_qos_notifier(struct hdd_context *hdd_ctx)
 {
 	int ret;
 
+	qdf_spinlock_create(&hdd_ctx->pm_qos_lock);
+
 	/* if gRuntimePM is 1 then feature is enabled without CXPC */
 	if (hdd_ctx->config->runtime_pm != hdd_runtime_pm_dynamic) {
 		hdd_debug("Dynamic Runtime PM disabled");
 		return 0;
 	}
 
-	qdf_spinlock_create(&hdd_ctx->pm_qos_lock);
 	hdd_ctx->pm_qos_notifier.notifier_call = wlan_hdd_pm_qos_notify;
 	ret = pm_qos_add_notifier(PM_QOS_CPU_DMA_LATENCY,
 				  &hdd_ctx->pm_qos_notifier);
@@ -3556,6 +3557,7 @@ static void hdd_wlan_unregister_pm_qos_notifier(struct hdd_context *hdd_ctx)
 
 	if (hdd_ctx->config->runtime_pm != hdd_runtime_pm_dynamic) {
 		hdd_debug("Dynamic Runtime PM disabled");
+		qdf_spinlock_destroy(&hdd_ctx->pm_qos_lock);
 		return;
 	}
 
@@ -9906,6 +9908,7 @@ static uint8_t *convert_level_to_string(uint32_t level)
  */
 void wlan_hdd_display_tx_rx_histogram(struct hdd_context *hdd_ctx)
 {
+#ifdef WLAN_DEBUG
 	int i;
 
 #ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
@@ -9951,6 +9954,7 @@ void wlan_hdd_display_tx_rx_histogram(struct hdd_context *hdd_ctx)
 				hdd_ctx->hdd_txrx_hist[i].is_tx_pm_qos_high ?
 				"HIGH" : "LOW");
 	}
+#endif
 }
 
 /**
