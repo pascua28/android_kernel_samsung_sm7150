@@ -152,16 +152,6 @@ static void __ref do_deferred_initcalls(struct work_struct *work)
 static DECLARE_WORK(deferred_initcall_work, do_deferred_initcalls);
 #endif
 
-bool is_aosp __read_mostly = false;
-EXPORT_SYMBOL(is_aosp);
-
-static int __init parse_aosp(char *str)
-{
-	strtobool(str, &is_aosp);
-	return 1;
-}
-__setup("android.is_aosp=", parse_aosp);
-
 bool legacy_ebpf __read_mostly = false;
 EXPORT_SYMBOL(legacy_ebpf);
 
