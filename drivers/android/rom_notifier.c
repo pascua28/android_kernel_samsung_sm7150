@@ -44,12 +44,13 @@ static int read_file(const char *filename, char **out_buf) {
 	int ret = 0;
 
 	buf = kzalloc(BUF_SIZE, GFP_KERNEL);
-	if (!buf)
+	if (unlikely(!buf))
 		return -ENOMEM;
 
 	f = filp_open(filename, O_RDONLY, 0);
 	if (IS_ERR(f)) {
 		ret = -PTR_ERR(f);
+		pr_err("rom_notifier: %s: failed to open file (%d)\n", __func__, ret);
 		kfree(buf);
 		return ret;
 	}
@@ -80,8 +81,10 @@ void rom_notifier_init(void) {
 	int ret;
 
 	ret = read_file(BUILDPROP, &buf);
-	if (ret)
+	if (ret) {
+		pr_err("rom_notifier: %s: failed to read build.prop (%d)\n", __func__, ret);
 		return;
+	}
 
 	oneui_prop = get_android_prop(buf, "ro.build.version.oneui");
 	device_prop = get_android_prop(buf, "ro.product.system.device");
