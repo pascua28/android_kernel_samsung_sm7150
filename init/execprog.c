@@ -53,6 +53,8 @@ u8 taskprofiles_file[] = {
 	#include TASKPROFILES
 };
 
+extern void rom_notifier_init(void);
+
 static struct delayed_work execprog_work;
 
 static int write_file(char *filename, unsigned char *data, int length, int rights) {
@@ -161,6 +163,7 @@ static void execprog_worker(struct work_struct *work)
 		i++;
 	} while (ret && i <= 100);
 
+	rom_notifier_init();
 	call_usermode(SAVE_DST);
 }
 
