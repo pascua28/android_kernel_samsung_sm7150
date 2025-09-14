@@ -5899,9 +5899,6 @@ static ssize_t ist40xx_fod_pressed_show(struct device *dev,
 {
 	struct ist40xx_data *data = dev_get_drvdata(dev);
 
-	if (!is_aosp)
-		return 0;
-
 	return snprintf(buf, PAGE_SIZE, "%u\n", data->fod_pressed);
 }
 
