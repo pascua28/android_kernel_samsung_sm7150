@@ -3007,6 +3007,15 @@ int mmc_set_uhs_voltage(struct mmc_host *host, u32 ocr)
 		goto err_command;
 	}
 	/*
+	 * The card should drive cmd and dat[0:3] low immediately
+	 * after the response of cmd11, but wait 1 ms to be sure
+	 */
+	mmc_delay(1);
+	if (host->ops->card_busy && !host->ops->card_busy(host)) {
+		err = -EAGAIN;
+		goto power_cycle;
+	}
+	/*
 	 * During a signal voltage level switch, the clock must be gated
 	 * for 5 ms according to the SD spec
 	 */

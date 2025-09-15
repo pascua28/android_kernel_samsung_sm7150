@@ -177,8 +177,6 @@ struct gadget_config_name {
 	struct list_head list;
 };
 
-#define MAX_USB_STRING_LEN	126
-#define MAX_USB_STRING_WITH_NULL_LEN	(MAX_USB_STRING_LEN+1)
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
 int dwc3_gadget_get_cmply_link_state_wrapper(void)
 {
@@ -203,6 +201,8 @@ int dwc3_gadget_get_cmply_link_state_wrapper(void)
 EXPORT_SYMBOL(dwc3_gadget_get_cmply_link_state_wrapper);
 #endif
 
+#define USB_MAX_STRING_WITH_NULL_LEN	(USB_MAX_STRING_LEN+1)
+
 static int usb_string_copy(const char *s, char **s_copy)
 {
 	int ret;
@@ -215,7 +215,7 @@ static int usb_string_copy(const char *s, char **s_copy)
 	if (copy) {
 		str = copy;
 	} else {
-		str = kmalloc(MAX_USB_STRING_WITH_NULL_LEN, GFP_KERNEL);
+		str = kmalloc(USB_MAX_STRING_WITH_NULL_LEN, GFP_KERNEL);
 		if (!str)
 			return -ENOMEM;
 	}
