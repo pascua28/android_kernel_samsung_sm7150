@@ -1344,10 +1344,6 @@ out:
 #endif
 		goto failure;
 	}
-	if (!err && strstr(rt->dst.dev->name, "rmnet_data"))
-		net_log("fib6_add(): %s : Prefix: %pI6/%u, GW: %pI6, table: %u, proto: %u\n",
-			rt->dst.dev->name, &rt->rt6i_dst.addr, rt->rt6i_dst.plen, &rt->rt6i_gateway,
-			rt->rt6i_table->tb6_id, rt->rt6i_protocol);
 	return err;
 
 failure:
