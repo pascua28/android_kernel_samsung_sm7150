@@ -1377,8 +1377,8 @@ cc38c596e648575ce58bfc31623a6506eda4b94a:
 9fb9703cd43ee20a6de8ccdef991677b7274cec0:
   title: 'mm: shmem: fix data-race in shmem_getattr()'
   mainline: d949d1d14fa281ace388b1de978e8f2cd52875cf
-  skipped: commit did not cherry-pick cleanly
+  backport: 333934aaaf3e00133e73e9b01d985a49a3724b3f
 efc67cee700b89ffbdb74a0603a083ec1290ae31:
   title: 'vt: prevent kernel-infoleak in con_font_get()'
   mainline: f956052e00de211b5c9ebaa1958366c23f82ee9e
-  skipped: fixes patch not in branch
+  backport: bae493e6028e2f7ebbfaa40170f52e3244506930
