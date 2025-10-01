@@ -1571,17 +1571,8 @@ static void css_clear_dir(struct cgroup_subsys_state *css)
 
 	css->flags &= ~CSS_VISIBLE;
 
-	if (!css->ss) {
-		if (cgroup_on_dfl(cgrp))
-			cfts = cgroup_base_files;
-		else
-			cfts = cgroup1_base_files;
-
+	list_for_each_entry(cfts, &css->ss->cfts, node)
 		cgroup_addrm_files(css, cgrp, cfts, false);
-	} else {
-		list_for_each_entry(cfts, &css->ss->cfts, node)
-			cgroup_addrm_files(css, cgrp, cfts, false);
-	}
 }
 
 /**
@@ -1605,16 +1596,14 @@ static int css_populate_dir(struct cgroup_subsys_state *css)
 		else
 			cfts = cgroup1_base_files;
 
-		ret = cgroup_addrm_files(&cgrp->self, cgrp, cfts, true);
-		if (ret < 0)
-			return ret;
-	} else {
-		list_for_each_entry(cfts, &css->ss->cfts, node) {
-			ret = cgroup_addrm_files(css, cgrp, cfts, true);
-			if (ret < 0) {
-				failed_cfts = cfts;
-				goto err;
-			}
+		return cgroup_addrm_files(&cgrp->self, cgrp, cfts, true);
+	}
+
+	list_for_each_entry(cfts, &css->ss->cfts, node) {
+		ret = cgroup_addrm_files(css, cgrp, cfts, true);
+		if (ret < 0) {
+			failed_cfts = cfts;
+			goto err;
 		}
 	}
 
@@ -5341,8 +5330,10 @@ static int cgroup_destroy_locked(struct cgroup *cgrp)
 	for_each_css(css, ssid, cgrp)
 		kill_css(css);
 
-	/* clear and remove @cgrp dir, @cgrp has an extra ref on its kn */
-	css_clear_dir(&cgrp->self);
+	/*
+	 * Remove @cgrp directory along with the base files.  @cgrp has an
+	 * extra ref on its kn.
+	 */
 	kernfs_remove(cgrp->kn);
 
 	if (parent && cgroup_is_threaded(cgrp))
