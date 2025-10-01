@@ -6171,8 +6171,10 @@ static ssize_t show_delegatable_files(struct cftype *files, char *buf,
 
 		ret += snprintf(buf + ret, size - ret, "%s\n", cft->name);
 
-		if (WARN_ON(ret >= size))
+		if (unlikely(ret >= size)) {
+			WARN_ON(1);
 			break;
+		}
 	}
 
 	return ret;
