@@ -649,20 +649,15 @@ static void htab_elem_free_rcu(struct rcu_head *head)
 	htab_elem_free(htab, l);
 }
 
-static void htab_put_fd_value(struct bpf_htab *htab, struct htab_elem *l)
-{
-	struct bpf_map *map = &htab->map;
-	void *ptr;
-
-	if (map->ops->map_fd_put_ptr) {
-		ptr = fd_htab_map_get_ptr(map, l);
-		map->ops->map_fd_put_ptr(map, ptr, false);
-	}
-}
-
 static void free_htab_elem(struct bpf_htab *htab, struct htab_elem *l)
 {
-	htab_put_fd_value(htab, l);
+	struct bpf_map *map = &htab->map;
+
+	if (map->ops->map_fd_put_ptr) {
+		void *ptr = fd_htab_map_get_ptr(map, l);
+
+		map->ops->map_fd_put_ptr(ptr);
+	}
 
 	if (htab_is_prealloc(htab)) {
 		__pcpu_freelist_push(&htab->freelist, &l->fnode);
@@ -723,7 +718,6 @@ static struct htab_elem *alloc_htab_elem(struct bpf_htab *htab, void *key,
 			 */
 			pl_new = this_cpu_ptr(htab->extra_elems);
 			l_new = *pl_new;
-			htab_put_fd_value(htab, old_elem);
 			*pl_new = old_elem;
 		} else {
 			struct pcpu_freelist_node *l;
@@ -1289,7 +1283,7 @@ static void fd_htab_map_free(struct bpf_map *map)
 		hlist_nulls_for_each_entry_safe(l, n, head, hash_node) {
 			void *ptr = fd_htab_map_get_ptr(map, l);
 
-			map->ops->map_fd_put_ptr(map, ptr, false);
+			map->ops->map_fd_put_ptr(ptr);
 		}
 	}
 
@@ -1330,7 +1324,7 @@ int bpf_fd_htab_map_update_elem(struct bpf_map *map, struct file *map_file,
 
 	ret = htab_map_update_elem(map, key, &ptr, map_flags);
 	if (ret)
-		map->ops->map_fd_put_ptr(map, ptr, false);
+		map->ops->map_fd_put_ptr(ptr);
 
 	return ret;
 }
