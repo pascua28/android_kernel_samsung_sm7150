@@ -501,7 +501,7 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 		rcu_read_lock();
 		p = find_task_by_vpid(alloc->pid);
 		rcu_read_unlock();
-		if (p && (thread_group_is_frozen(p) || p->jobctl & JOBCTL_TRAP_FREEZE))
+		if (p && thread_group_is_frozen(p))
 			binder_report(p, -1, "free_buffer_full", is_async);
 	}
 #endif
