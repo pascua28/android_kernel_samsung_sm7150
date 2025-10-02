@@ -438,6 +438,7 @@ bool tcp_peer_is_proven(struct request_sock *req, struct dst_entry *dst);
 void tcp_disable_fack(struct tcp_sock *tp);
 void tcp_close(struct sock *sk, long timeout);
 void tcp_init_sock(struct sock *sk);
+void tcp_init_transfer(struct sock *sk, int bpf_op);
 unsigned int tcp_poll(struct file *file, struct socket *sock,
 		      struct poll_table_struct *wait);
 int tcp_getsockopt(struct sock *sk, int level, int optname,
@@ -457,6 +458,16 @@ void tcp_parse_options(const struct net *net, const struct sk_buff *skb,
 		       int estab, struct tcp_fastopen_cookie *foc);
 const u8 *tcp_parse_md5sig_option(const struct tcphdr *th);
 
+/*
+ *	BPF SKB-less helpers
+ */
+u16 tcp_v4_get_syncookie(struct sock *sk, struct iphdr *iph,
+			 struct tcphdr *th, u32 *cookie);
+u16 tcp_v6_get_syncookie(struct sock *sk, struct ipv6hdr *iph,
+			 struct tcphdr *th, u32 *cookie);
+u16 tcp_get_syncookie_mss(struct request_sock_ops *rsk_ops,
+			  const struct tcp_request_sock_ops *af_ops,
+			  struct sock *sk, struct tcphdr *th);
 /*
  *	TCP v4 functions exported for the inet6 API
  */
@@ -770,17 +781,7 @@ static inline u32 tcp_time_stamp_raw(void)
 	return div_u64(tcp_clock_ns(), NSEC_PER_SEC / TCP_TS_HZ);
 }
 
-
-/* Refresh 1us clock of a TCP socket,
- * ensuring monotically increasing values.
- */
-static inline void tcp_mstamp_refresh(struct tcp_sock *tp)
-{
-	u64 val = tcp_clock_us();
-
-	if (val > tp->tcp_mstamp)
-		tp->tcp_mstamp = val;
-}
+void tcp_mstamp_refresh(struct tcp_sock *tp);
 
 static inline u32 tcp_stamp_us_delta(u64 t1, u64 t0)
 {
@@ -1606,8 +1607,7 @@ int tcp_md5_hash_key(struct tcp_md5sig_pool *hp,
 
 /* From tcp_fastopen.c */
 void tcp_fastopen_cache_get(struct sock *sk, u16 *mss,
-			    struct tcp_fastopen_cookie *cookie, int *syn_loss,
-			    unsigned long *last_syn_loss);
+			    struct tcp_fastopen_cookie *cookie);
 void tcp_fastopen_cache_set(struct sock *sk, u16 mss,
 			    struct tcp_fastopen_cookie *cookie, bool syn_lost,
 			    u16 try_exp);
@@ -1642,7 +1642,7 @@ struct tcp_fastopen_context {
 void tcp_fastopen_active_disable(struct sock *sk);
 bool tcp_fastopen_active_should_disable(struct sock *sk);
 void tcp_fastopen_active_disable_ofo_check(struct sock *sk);
-void tcp_fastopen_active_timeout_reset(void);
+void tcp_fastopen_active_detect_blackhole(struct sock *sk, bool expired);
 
 /* Latencies incurred by various limits for a sender. They are
  * chronograph-like stats that are mutually exclusive.
@@ -2146,7 +2146,6 @@ struct tcp_ulp_ops {
 int tcp_register_ulp(struct tcp_ulp_ops *type);
 void tcp_unregister_ulp(struct tcp_ulp_ops *type);
 int tcp_set_ulp(struct sock *sk, const char *name);
-int tcp_set_ulp_id(struct sock *sk, const int ulp);
 void tcp_get_available_ulp(char *buf, size_t len);
 void tcp_cleanup_ulp(struct sock *sk);
 
@@ -2159,15 +2158,12 @@ struct sk_psock;
 
 int tcp_bpf_init(struct sock *sk);
 void tcp_bpf_reinit(struct sock *sk);
-
 int tcp_bpf_sendmsg_redir(struct sock *sk, struct sk_msg *msg, u32 bytes,
 			  int flags);
-
 int tcp_bpf_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		    int nonblock, int flags, int *addr_len);
-
 int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
-		      struct msghdr *msg, int len);
+		      struct msghdr *msg, int len, int flags);
 
 /* Call BPF_SOCK_OPS program that returns an int. If the return value
  * is < 0, then the BPF op failed (for example if the loaded BPF
@@ -2175,17 +2171,21 @@ int __tcp_bpf_recvmsg(struct sock *sk, struct sk_psock *psock,
  * program loaded).
  */
 #ifdef CONFIG_BPF
-static inline int tcp_call_bpf(struct sock *sk, int op)
+static inline int tcp_call_bpf(struct sock *sk, int op, u32 nargs, u32 *args)
 {
 	struct bpf_sock_ops_kern sock_ops;
 	int ret;
 
-	if (sk_fullsock(sk))
+	memset(&sock_ops, 0, offsetof(struct bpf_sock_ops_kern, temp));
+	if (sk_fullsock(sk)) {
+		sock_ops.is_fullsock = 1;
 		sock_owned_by_me(sk);
+	}
 
-	memset(&sock_ops, 0, sizeof(sock_ops));
 	sock_ops.sk = sk;
 	sock_ops.op = op;
+	if (nargs > 0)
+		memcpy(sock_ops.args, args, nargs * sizeof(*args));
 
 	ret = BPF_CGROUP_RUN_PROG_SOCK_OPS(&sock_ops);
 	if (ret == 0)
@@ -2194,18 +2194,46 @@ static inline int tcp_call_bpf(struct sock *sk, int op)
 		ret = -1;
 	return ret;
 }
+
+static inline int tcp_call_bpf_2arg(struct sock *sk, int op, u32 arg1, u32 arg2)
+{
+	u32 args[2] = {arg1, arg2};
+
+	return tcp_call_bpf(sk, op, 2, args);
+}
+
+static inline int tcp_call_bpf_3arg(struct sock *sk, int op, u32 arg1, u32 arg2,
+				    u32 arg3)
+{
+	u32 args[3] = {arg1, arg2, arg3};
+
+	return tcp_call_bpf(sk, op, 3, args);
+}
+
 #else
-static inline int tcp_call_bpf(struct sock *sk, int op)
+static inline int tcp_call_bpf(struct sock *sk, int op, u32 nargs, u32 *args)
 {
 	return -EPERM;
 }
+
+static inline int tcp_call_bpf_2arg(struct sock *sk, int op, u32 arg1, u32 arg2)
+{
+	return -EPERM;
+}
+
+static inline int tcp_call_bpf_3arg(struct sock *sk, int op, u32 arg1, u32 arg2,
+				    u32 arg3)
+{
+	return -EPERM;
+}
+
 #endif
 
 static inline u32 tcp_timeout_init(struct sock *sk)
 {
 	int timeout;
 
-	timeout = tcp_call_bpf(sk, BPF_SOCK_OPS_TIMEOUT_INIT);
+	timeout = tcp_call_bpf(sk, BPF_SOCK_OPS_TIMEOUT_INIT, 0, NULL);
 
 	if (timeout <= 0)
 		timeout = TCP_TIMEOUT_INIT;
@@ -2216,7 +2244,7 @@ static inline u32 tcp_rwnd_init_bpf(struct sock *sk)
 {
 	int rwnd;
 
-	rwnd = tcp_call_bpf(sk, BPF_SOCK_OPS_RWND_INIT);
+	rwnd = tcp_call_bpf(sk, BPF_SOCK_OPS_RWND_INIT, 0, NULL);
 
 	if (rwnd < 0)
 		rwnd = 0;
@@ -2225,6 +2253,15 @@ static inline u32 tcp_rwnd_init_bpf(struct sock *sk)
 
 static inline bool tcp_bpf_ca_needs_ecn(struct sock *sk)
 {
-	return (tcp_call_bpf(sk, BPF_SOCK_OPS_NEEDS_ECN) == 1);
+	return (tcp_call_bpf(sk, BPF_SOCK_OPS_NEEDS_ECN, 0, NULL) == 1);
 }
+
+static inline void tcp_bpf_rtt(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	if (BPF_SOCK_OPS_TEST_FLAG(tp, BPF_SOCK_OPS_RTT_CB_FLAG))
+		tcp_call_bpf(sk, BPF_SOCK_OPS_RTT_CB, 0, NULL);
+}
+
 #endif	/* _TCP_H */
