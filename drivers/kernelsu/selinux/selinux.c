@@ -2,22 +2,11 @@
 #include "objsec.h"
 #include "linux/version.h"
 #include "../klog.h" // IWYU pragma: keep
-#ifdef SAMSUNG_SELINUX_PORTING
-#include "security.h" // Samsung SELinux Porting
-#endif
 #ifndef KSU_COMPAT_USE_SELINUX_STATE
 #include "avc.h"
 #endif
 
 #define KERNEL_SU_DOMAIN "u:r:su:s0"
-
-#ifdef CONFIG_KSU_SUSFS
-#define KERNEL_INIT_DOMAIN "u:r:init:s0"
-#define KERNEL_ZYGOTE_DOMAIN "u:r:zygote:s0"
-u32 susfs_ksu_sid = 0;
-u32 susfs_init_sid = 0;
-u32 susfs_zygote_sid = 0;
-#endif
 
 static int transive_to_domain(const char *domain)
 {
@@ -48,39 +37,24 @@ static int transive_to_domain(const char *domain)
 	return error;
 }
 
-bool __maybe_unused is_ksu_transition(const struct task_security_struct *old_tsec,
-			const struct task_security_struct *new_tsec)
-{
-	static u32 ksu_sid;
-	char *secdata;
-	u32 seclen;
-	bool allowed = false;
-
-	if (!ksu_sid)
-		security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &ksu_sid);
-
-	if (security_secid_to_secctx(old_tsec->sid, &secdata, &seclen))
-		return false;
-
-	allowed = (!strcmp("u:r:init:s0", secdata) && new_tsec->sid == ksu_sid);
-	security_release_secctx(secdata, seclen);
-	return allowed;
-}
-
-void ksu_setup_selinux(const char *domain)
+void setup_selinux(const char *domain)
 {
 	if (transive_to_domain(domain)) {
 		pr_err("transive domain failed.\n");
 		return;
 	}
+
+	/* we didn't need this now, we have change selinux rules when boot!
+if (!is_domain_permissive) {
+  if (set_domain_permissive() == 0) {
+      is_domain_permissive = true;
+  }
+}*/
 }
 
-void ksu_setenforce(bool enforce)
+void setenforce(bool enforce)
 {
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
-#ifdef SAMSUNG_SELINUX_PORTING
-	selinux_enforcing = enforce;
-#endif
 #ifdef KSU_COMPAT_USE_SELINUX_STATE
 	selinux_state.enforcing = enforce;
 #else
@@ -89,7 +63,7 @@ void ksu_setenforce(bool enforce)
 #endif
 }
 
-bool ksu_getenforce()
+bool getenforce()
 {
 #ifdef CONFIG_SECURITY_SELINUX_DISABLE
 #ifdef KSU_COMPAT_USE_SELINUX_STATE
@@ -102,9 +76,6 @@ bool ksu_getenforce()
 #endif
 
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
-#ifdef SAMSUNG_SELINUX_PORTING
-	return selinux_enforcing;
-#endif
 #ifdef KSU_COMPAT_USE_SELINUX_STATE
 	return selinux_state.enforcing;
 #else
@@ -128,7 +99,7 @@ static inline u32 current_sid(void)
 }
 #endif
 
-bool ksu_is_ksu_domain()
+bool is_ksu_domain()
 {
 	char *domain;
 	u32 seclen;
@@ -142,7 +113,7 @@ bool ksu_is_ksu_domain()
 	return result;
 }
 
-bool ksu_is_zygote(void *sec)
+bool is_zygote(void *sec)
 {
 	struct task_security_struct *tsec = (struct task_security_struct *)sec;
 	if (!tsec) {
@@ -159,83 +130,6 @@ bool ksu_is_zygote(void *sec)
 	security_release_secctx(domain, seclen);
 	return result;
 }
-
-#ifdef CONFIG_KSU_SUSFS
-static inline void susfs_set_sid(const char *secctx_name, u32 *out_sid)
-{
-	int err;
-	
-	if (!secctx_name || !out_sid) {
-		pr_err("secctx_name || out_sid is NULL\n");
-		return;
-	}
-
-	err = security_secctx_to_secid(secctx_name, strlen(secctx_name),
-					   out_sid);
-	if (err) {
-		pr_err("failed setting sid for '%s', err: %d\n", secctx_name, err);
-		return;
-	}
-	pr_info("sid '%u' is set for secctx_name '%s'\n", *out_sid, secctx_name);
-}
-
-bool susfs_is_sid_equal(void *sec, u32 sid2) {
-	struct task_security_struct *tsec = (struct task_security_struct *)sec;
-	if (!tsec) {
-		return false;
-	}
-	return tsec->sid == sid2;
-}
-
-u32 susfs_get_sid_from_name(const char *secctx_name)
-{
-	u32 out_sid = 0;
-	int err;
-	
-	if (!secctx_name) {
-		pr_err("secctx_name is NULL\n");
-		return 0;
-	}
-	err = security_secctx_to_secid(secctx_name, strlen(secctx_name),
-					   &out_sid);
-	if (err) {
-		pr_err("failed getting sid from secctx_name: %s, err: %d\n", secctx_name, err);
-		return 0;
-	}
-	return out_sid;
-}
-
-u32 susfs_get_current_sid(void) {
-	return current_sid();
-}
-
-void susfs_set_zygote_sid(void)
-{
-	susfs_set_sid(KERNEL_ZYGOTE_DOMAIN, &susfs_zygote_sid);
-}
-
-bool susfs_is_current_zygote_domain(void) {
-	return unlikely(current_sid() == susfs_zygote_sid);
-}
-
-void susfs_set_ksu_sid(void)
-{
-	susfs_set_sid(KERNEL_SU_DOMAIN, &susfs_ksu_sid);
-}
-
-bool susfs_is_current_ksu_domain(void) {
-	return unlikely(current_sid() == susfs_ksu_sid);
-}
-
-void susfs_set_init_sid(void)
-{
-	susfs_set_sid(KERNEL_INIT_DOMAIN, &susfs_init_sid);
-}
-
-bool susfs_is_current_init_domain(void) {
-	return unlikely(current_sid() == susfs_init_sid);
-}
-#endif
 
 #define DEVPTS_DOMAIN "u:object_r:ksu_file:s0"
 
