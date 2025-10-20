@@ -22,6 +22,7 @@
 #include <linux/freezer.h>
 #include <linux/ctype.h>
 #include <linux/io_record.h>
+#include <linux/pkeys.h>
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
