@@ -64,7 +64,11 @@ bpf_lsm_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	case BPF_FUNC_sk_storage_delete:
 		return &bpf_sk_storage_delete_proto;
 	default:
+#ifdef CONFIG_BPF_EVENTS
 		return tracing_prog_func_proto(func_id, prog);
+#else
+		return NULL;
+#endif
 	}
 }
 
