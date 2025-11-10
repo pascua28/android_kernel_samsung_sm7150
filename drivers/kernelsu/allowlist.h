@@ -2,7 +2,7 @@
 #define __KSU_H_ALLOWLIST
 
 #include <linux/types.h>
-#include "ksu.h"
+#include "app_profile.h"
 
 void ksu_allowlist_init(void);
 
@@ -12,8 +12,13 @@ bool ksu_load_allow_list(void);
 
 void ksu_show_allow_list(void);
 
+// Check if the uid is in allow list
 bool __ksu_is_allow_uid(uid_t uid);
 #define ksu_is_allow_uid(uid) unlikely(__ksu_is_allow_uid(uid))
+
+// Check if the uid is in allow list, or current is ksu domain root
+bool __ksu_is_allow_uid_for_current(uid_t uid);
+#define ksu_is_allow_uid_for_current(uid) unlikely(__ksu_is_allow_uid_for_current(uid))
 
 bool ksu_get_allow_list(int *array, int *length, bool allow);
 

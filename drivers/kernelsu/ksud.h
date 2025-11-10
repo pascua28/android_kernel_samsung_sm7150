@@ -5,10 +5,21 @@
 
 #define KSUD_PATH "/data/adb/ksud"
 
+void ksu_ksud_init();
+void ksu_ksud_exit();
+
 void on_post_fs_data(void);
+void on_module_mounted(void);
+void on_boot_completed(void);
 
 bool ksu_is_safe_mode(void);
 
-extern u32 ksu_devpts_sid;
+extern bool ksu_execveat_hook __read_mostly;
+extern int ksu_handle_pre_ksud(const char *filename);
+extern int ksu_handle_bprm_ksud(const char *filename, const char *argv1,
+				const char *envp, size_t envp_len);
+
+extern u32 ksu_file_sid;
+extern bool ksu_module_mounted;
 
 #endif

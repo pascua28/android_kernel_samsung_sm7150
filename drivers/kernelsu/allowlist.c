@@ -12,7 +12,6 @@
 #include <linux/compiler_types.h>
 #endif
 
-#include "ksu.h"
 #include "klog.h" // IWYU pragma: keep
 #include "selinux/selinux.h"
 #include "kernel_compat.h"
@@ -264,11 +263,6 @@ bool __ksu_is_allow_uid(uid_t uid)
 {
 	int i;
 
-	if (unlikely(uid == 0)) {
-		// already root, but only allow our domain.
-		return is_ksu_domain();
-	}
-
 	if (forbid_system_uid(uid)) {
 		// do not bother going through the list if it's system
 		return false;
@@ -289,6 +283,15 @@ bool __ksu_is_allow_uid(uid_t uid)
 	}
 
 	return false;
+}
+
+bool __ksu_is_allow_uid_for_current(uid_t uid)
+{
+	if (unlikely(uid == 0)) {
+		// already root, but only allow our domain.
+		return is_ksu_domain();
+	}
+	return __ksu_is_allow_uid(uid);
 }
 
 bool ksu_uid_should_umount(uid_t uid)
