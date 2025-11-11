@@ -1,8 +1,7 @@
-#include <linux/slab.h>
-#include <linux/mutex.h>
-
 #include "feature.h"
 #include "klog.h" // IWYU pragma: keep
+
+#include <linux/mutex.h>
 
 static const struct ksu_feature_handler *feature_handlers[KSU_FEATURE_MAX];
 
@@ -158,7 +157,7 @@ void ksu_feature_init(void)
 		feature_handlers[i] = NULL;
 	}
 
-	pr_info("feature: feature management initialized\n");
+	pr_info("%s: feature management initialized\n", __func__);
 }
 
 void ksu_feature_exit(void)
@@ -173,5 +172,5 @@ void ksu_feature_exit(void)
 
 	mutex_unlock(&feature_mutex);
 
-	pr_info("feature: feature management cleaned up\n");
+	pr_info("%s: feature management cleaned up\n", __func__);
 }

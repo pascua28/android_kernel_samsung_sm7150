@@ -1,10 +1,9 @@
-#include "selinux.h"
-#include "objsec.h"
+#include "linux/cred.h"
+#include "linux/sched.h"
+#include "linux/security.h"
 #include "linux/version.h"
+#include "selinux_defs.h"
 #include "../klog.h" // IWYU pragma: keep
-#ifndef KSU_COMPAT_USE_SELINUX_STATE
-#include "avc.h"
-#endif
 
 #define KERNEL_SU_DOMAIN "u:r:su:s0"
 
@@ -37,53 +36,49 @@ static int transive_to_domain(const char *domain)
 	return error;
 }
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4, 19, 0)
+bool __maybe_unused
+is_ksu_transition(const struct task_security_struct *old_tsec,
+		  const struct task_security_struct *new_tsec)
+{
+	static u32 ksu_sid;
+	char *secdata;
+	u32 seclen;
+	bool allowed = false;
+
+	if (!ksu_sid)
+		security_secctx_to_secid(KERNEL_SU_DOMAIN,
+					 strlen(KERNEL_SU_DOMAIN), &ksu_sid);
+
+	if (security_secid_to_secctx(old_tsec->sid, &secdata, &seclen))
+		return false;
+
+	allowed = (!strcmp("u:r:init:s0", secdata) && new_tsec->sid == ksu_sid);
+	security_release_secctx(secdata, seclen);
+	return allowed;
+}
+#endif
+
 void setup_selinux(const char *domain)
 {
 	if (transive_to_domain(domain)) {
 		pr_err("transive domain failed.\n");
 		return;
 	}
-
-	/* we didn't need this now, we have change selinux rules when boot!
-if (!is_domain_permissive) {
-  if (set_domain_permissive() == 0) {
-      is_domain_permissive = true;
-  }
-}*/
 }
 
 void setenforce(bool enforce)
 {
-#ifdef CONFIG_SECURITY_SELINUX_DEVELOP
-#ifdef KSU_COMPAT_USE_SELINUX_STATE
-	selinux_state.enforcing = enforce;
-#else
-	selinux_enforcing = enforce;
-#endif
-#endif
+	__setenforce(enforce);
 }
 
-bool getenforce()
+bool getenforce(void)
 {
-#ifdef CONFIG_SECURITY_SELINUX_DISABLE
-#ifdef KSU_COMPAT_USE_SELINUX_STATE
-	if (selinux_state.disabled) {
-#else
-	if (selinux_disabled) {
-#endif
+	if (is_selinux_disabled()) {
 		return false;
 	}
-#endif
 
-#ifdef CONFIG_SECURITY_SELINUX_DEVELOP
-#ifdef KSU_COMPAT_USE_SELINUX_STATE
-	return selinux_state.enforcing;
-#else
-	return selinux_enforcing;
-#endif
-#else
-	return true;
-#endif
+	return __is_selinux_enforcing();
 }
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)) &&                         \
@@ -99,70 +94,78 @@ static inline u32 current_sid(void)
 }
 #endif
 
-bool is_ksu_domain()
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
+struct lsm_context {
+	char *context;
+	u32 len;
+};
+
+static int __security_secid_to_secctx(u32 secid, struct lsm_context *cp)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	return security_secid_to_secctx(secid, &cp->context, &cp->len);
+}
+static void __security_release_secctx(struct lsm_context *cp)
+{
+	return security_release_secctx(cp->context, cp->len);
+}
+#else
+#define __security_secid_to_secctx security_secid_to_secctx
+#define __security_release_secctx security_release_secctx
+#endif
+
+bool is_task_ksu_domain(const struct cred *cred)
+{
 	struct lsm_context ctx;
-#else
-	char *domain;
-	u32 seclen;
-#endif
 	bool result;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	int err = security_secid_to_secctx(current_sid(), &ctx);
-#else
-	int err = security_secid_to_secctx(current_sid(), &domain, &seclen);
-#endif
-	if (err) {
+	if (!cred) {
 		return false;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	result = strncmp(KERNEL_SU_DOMAIN, ctx.context, ctx.len) == 0;
-	security_release_secctx(&ctx);
-#else
-	result = strncmp(KERNEL_SU_DOMAIN, domain, seclen) == 0;
-	security_release_secctx(domain, seclen);
-#endif
-	return result;
-}
-
-bool is_zygote(void *sec)
-{
-	struct task_security_struct *tsec = (struct task_security_struct *)sec;
+	const struct task_security_struct *tsec = __selinux_cred(cred);
 	if (!tsec) {
 		return false;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	struct lsm_context ctx;
-#else
-	char *domain;
-	u32 seclen;
-#endif
-	bool result;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
-	int err = security_secid_to_secctx(tsec->sid, &ctx);
-#else
-	int err = security_secid_to_secctx(tsec->sid, &domain, &seclen);
-#endif
+	int err = __security_secid_to_secctx(tsec->sid, &ctx);
 	if (err) {
 		return false;
 	}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
+	result = strncmp(KERNEL_SU_DOMAIN, ctx.context, ctx.len) == 0;
+	__security_release_secctx(&ctx);
+	return result;
+}
+
+bool is_ksu_domain(void)
+{
+	current_sid();
+	return is_task_ksu_domain(current_cred());
+}
+
+bool is_zygote(const struct cred *cred)
+{
+	if (!cred) {
+		return false;
+	}
+	const struct task_security_struct *tsec = __selinux_cred(cred);
+	if (!tsec) {
+		return false;
+	}
+	struct lsm_context ctx;
+	bool result;
+	int err = __security_secid_to_secctx(tsec->sid, &ctx);
+	if (err) {
+		return false;
+	}
 	result = strncmp("u:r:zygote:s0", ctx.context, ctx.len) == 0;
-	security_release_secctx(&ctx);
-#else
-	result = strncmp("u:r:zygote:s0", domain, seclen) == 0;
-	security_release_secctx(domain, seclen);
-#endif
+	__security_release_secctx(&ctx);
 	return result;
 }
 
 #define KSU_FILE_DOMAIN "u:object_r:ksu_file:s0"
 
-u32 ksu_get_ksu_file_sid()
+u32 ksu_get_ksu_file_sid(void)
 {
 	u32 ksu_file_sid = 0;
-	int err = security_secctx_to_secid(KSU_FILE_DOMAIN, strlen(KSU_FILE_DOMAIN), &ksu_file_sid);
+	int err = security_secctx_to_secid(
+		KSU_FILE_DOMAIN, strlen(KSU_FILE_DOMAIN), &ksu_file_sid);
 	if (err) {
 		pr_info("get ksufile sid err %d\n", err);
 	}
