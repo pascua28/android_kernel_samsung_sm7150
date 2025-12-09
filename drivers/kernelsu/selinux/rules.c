@@ -6,16 +6,13 @@
 #include "selinux.h"
 #include "sepolicy.h"
 #include "ss/services.h"
-#include "linux/lsm_audit.h"
+#include "linux/lsm_audit.h" // IWYU pragma: keep
 #include "xfrm.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 #define SELINUX_POLICY_INSTEAD_SELINUX_SS
 #endif
 
-#define KERNEL_SU_DOMAIN "su"
-#define KERNEL_SU_FILE "ksu_file"
-#define KERNEL_EXEC_TYPE "ksu_exec"
 #define ALL NULL
 
 static struct policydb *get_policydb(void)
@@ -34,6 +31,40 @@ static struct policydb *get_policydb(void)
 	db = &policydb;
 #endif
 	return db;
+}
+
+// Reverting https://github.com/tiann/KernelSU/commit/0b243c24ab6640ea1553c08066a2386456985a0d
+static void __maybe_unused apply_rules_for_manual_hook(struct policydb *db)
+{
+	// we need to save allowlist in /data/adb/ksu
+	ksu_allow(db, "kernel", "adb_data_file", "dir", ALL);
+	ksu_allow(db, "kernel", "adb_data_file", "file", ALL);
+	// we need to search /data/app
+	ksu_allow(db, "kernel", "apk_data_file", "file", "open");
+	ksu_allow(db, "kernel", "apk_data_file", "dir", "open");
+	ksu_allow(db, "kernel", "apk_data_file", "dir", "read");
+	ksu_allow(db, "kernel", "apk_data_file", "dir", "search");
+	// we may need to do mount on shell
+	ksu_allow(db, "kernel", "shell_data_file", "file", ALL);
+	// we need to read /data/system/packages.list
+	ksu_allow(db, "kernel", "kernel", "capability", "dac_override");
+	// Android 10+:
+	// http://aospxref.com/android-12.0.0_r3/xref/system/sepolicy/private/file_contexts#512
+	ksu_allow(db, "kernel", "packages_list_file", "file", ALL);
+	// Kernel 4.4
+	ksu_allow(db, "kernel", "packages_list_file", "dir", ALL);
+	// Android 9-:
+	// http://aospxref.com/android-9.0.0_r61/xref/system/sepolicy/private/file_contexts#360
+	ksu_allow(db, "kernel", "system_data_file", "file", ALL);
+	ksu_allow(db, "kernel", "system_data_file", "dir", ALL);
+	// For mounting loop devices, mirrors, tmpfs
+	ksu_allow(db, "kernel", ALL, "file", "read");
+	ksu_allow(db, "kernel", ALL, "file", "write");
+	// For manual hooked init context
+	ksu_allow(db, "init", "adb_data_file", "file", ALL);
+	ksu_allow(db, "init", "adb_data_file", "dir", ALL); // #1289
+	// we need to umount modules in zygote
+	ksu_allow(db, "zygote", "adb_data_file", "dir", "search");
 }
 
 static DEFINE_MUTEX(ksu_rules);
@@ -70,34 +101,8 @@ void apply_kernelsu_rules(void)
 		ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "file", ALL);
 	}
 
-	// we need to save allowlist in /data/adb/ksu
-	ksu_allow(db, "kernel", "adb_data_file", "dir", ALL);
-	ksu_allow(db, "kernel", "adb_data_file", "file", ALL);
-	// we need to search /data/app
-	ksu_allow(db, "kernel", "apk_data_file", "file", "open");
-	ksu_allow(db, "kernel", "apk_data_file", "dir", "open");
-	ksu_allow(db, "kernel", "apk_data_file", "dir", "read");
-	ksu_allow(db, "kernel", "apk_data_file", "dir", "search");
-	// we may need to do mount on shell
-	ksu_allow(db, "kernel", "shell_data_file", "file", ALL);
-	// we need to read /data/system/packages.list
-	ksu_allow(db, "kernel", "kernel", "capability", "dac_override");
-	// Android 10+:
-	// http://aospxref.com/android-12.0.0_r3/xref/system/sepolicy/private/file_contexts#512
-	ksu_allow(db, "kernel", "packages_list_file", "file", ALL);
-	// Kernel 4.4
-	ksu_allow(db, "kernel", "packages_list_file", "dir", ALL);
-	// Android 9-:
-	// http://aospxref.com/android-9.0.0_r61/xref/system/sepolicy/private/file_contexts#360
-	ksu_allow(db, "kernel", "system_data_file", "file", ALL);
-	ksu_allow(db, "kernel", "system_data_file", "dir", ALL);
 	// our ksud triggered by init
-	ksu_allow(db, "init", "adb_data_file", "file", ALL);
-	ksu_allow(db, "init", "adb_data_file", "dir", ALL); // #1289
 	ksu_allow(db, "init", KERNEL_SU_DOMAIN, ALL, ALL);
-
-	// we need to umount modules in zygote
-	ksu_allow(db, "zygote", "adb_data_file", "dir", "search");
 
 	// copied from Magisk rules
 	// suRights
@@ -128,10 +133,6 @@ void apply_kernelsu_rules(void)
 	ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "process",
 		  "getattr");
 
-	// For mounting loop devices, mirrors, tmpfs
-	ksu_allow(db, "kernel", ALL, "file", "read");
-	ksu_allow(db, "kernel", ALL, "file", "write");
-
 	// Allow all binder transactions
 	ksu_allow(db, ALL, KERNEL_SU_DOMAIN, "binder", ALL);
 
@@ -139,8 +140,10 @@ void apply_kernelsu_rules(void)
 	ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "getpgid");
 	ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "sigkill");
 
-	// https://android-review.googlesource.com/c/platform/system/logging/+/3725346
-	ksu_dontaudit(db, "untrusted_app", KERNEL_SU_DOMAIN, "dir", "getattr");
+	// Keep applying rules for manual hook.
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	apply_rules_for_manual_hook(db);
+#endif
 
 	mutex_unlock(&ksu_rules);
 }
@@ -158,15 +161,15 @@ void apply_kernelsu_rules(void)
 #define CMD_GENFSCON 9
 
 struct sepol_data {
-	uint32_t cmd;
-	uint32_t subcmd;
-	uint64_t sepol1;
-	uint64_t sepol2;
-	uint64_t sepol3;
-	uint64_t sepol4;
-	uint64_t sepol5;
-	uint64_t sepol6;
-	uint64_t sepol7;
+	u32 cmd;
+	u32 subcmd;
+	u64 sepol1;
+	u64 sepol2;
+	u64 sepol3;
+	u64 sepol4;
+	u64 sepol5;
+	u64 sepol6;
+	u64 sepol7;
 };
 
 static int get_object(char *buf, char __user *user_object, size_t buf_sz,
@@ -192,7 +195,6 @@ extern int avc_ss_reset(u32 seqno);
 #else
 extern int avc_ss_reset(struct selinux_avc *avc, u32 seqno);
 #endif
-
 // reset avc cache table, otherwise the new rules will not take effect if already denied
 static void reset_avc_cache(void)
 {
@@ -222,7 +224,7 @@ int handle_sepolicy(unsigned long arg3, void __user *arg4)
 		pr_info("SELinux permissive or disabled when handle policy!\n");
 	}
 
-	struct sepol_data data = { 0 };
+	struct sepol_data data;
 	if (copy_from_user(&data, arg4, sizeof(struct sepol_data))) {
 		pr_err("sepol: copy sepol_data failed.\n");
 		return -EINVAL;
@@ -236,7 +238,6 @@ int handle_sepolicy(unsigned long arg3, void __user *arg4)
 	db = get_policydb();
 
 	int ret = -EINVAL;
-
 	switch (cmd) {
 	case CMD_NORMAL_PERM: {
 		char src_buf[MAX_SEPOL_LEN];

@@ -2,7 +2,14 @@
 #define __KSU_H_ALLOWLIST
 
 #include <linux/types.h>
-#include "ksu.h"
+#include <linux/uidgid.h>
+#include "app_profile.h"
+
+#define PER_USER_RANGE 100000
+#define FIRST_APPLICATION_UID 10000
+#define LAST_APPLICATION_UID 19999
+#define FIRST_ISOLATED_UID 99000
+#define LAST_ISOLATED_UID 99999
 
 void ksu_allowlist_init(void);
 
@@ -31,4 +38,16 @@ bool ksu_set_app_profile(struct app_profile *, bool persist);
 
 bool ksu_uid_should_umount(uid_t uid);
 struct root_profile *ksu_get_root_profile(uid_t uid);
+
+static inline bool is_appuid(uid_t uid)
+{
+	uid_t appid = uid % PER_USER_RANGE;
+	return appid >= FIRST_APPLICATION_UID && appid <= LAST_APPLICATION_UID;
+}
+
+static inline bool is_isolated_process(uid_t uid)
+{
+	uid_t appid = uid % PER_USER_RANGE;
+	return appid >= FIRST_ISOLATED_UID && appid <= LAST_ISOLATED_UID;
+}
 #endif

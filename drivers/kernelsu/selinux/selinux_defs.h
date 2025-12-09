@@ -33,10 +33,50 @@
 #define __setenforce(val)
 #endif
 
-#ifdef KSU_OPTIONAL_SELINUX_CRED
-#define __selinux_cred(cred) (selinux_cred(cred))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
+typedef struct task_security_struct taskcred_sec_t;
 #else
-#define __selinux_cred(cred) (cred->security)
+typedef struct cred_security_struct taskcred_sec_t;
+#endif
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0) &&                           \
+     !defined(KSU_OPTIONAL_SELINUX_CRED))
+static inline taskcred_sec_t *selinux_cred(const struct cred *cred)
+{
+	return (taskcred_sec_t *)cred->security;
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
+struct lsm_context {
+	char *context;
+	u32 len;
+};
+
+static inline int __security_secid_to_secctx(u32 secid, struct lsm_context *cp)
+{
+	return security_secid_to_secctx(secid, &cp->context, &cp->len);
+}
+static inline void __security_release_secctx(struct lsm_context *cp)
+{
+	security_release_secctx(cp->context, cp->len);
+}
+#else
+#define __security_secid_to_secctx security_secid_to_secctx
+#define __security_release_secctx security_release_secctx
+#endif
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)) &&                         \
+	!defined(KSU_COMPAT_HAS_CURRENT_SID)
+/*
+ * get the subjective security ID of the current task
+ */
+static inline u32 current_sid(void)
+{
+	const taskcred_sec_t *sec = current_security();
+
+	return sec->sid;
+}
 #endif
 
 #endif

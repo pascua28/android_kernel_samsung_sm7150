@@ -19,18 +19,21 @@
 #include <linux/compiler_types.h>
 #endif
 
-#include "ksu.h"
 #include "klog.h" // IWYU pragma: keep
+#include "ksud.h"
 #include "selinux/selinux.h"
-#include "kernel_compat.h"
 #include "allowlist.h"
 #include "manager.h"
+#include "kernel_compat.h"
+#ifdef CONFIG_KSU_SYSCALL_HOOK
+#include "syscall_handler.h"
+#endif
 
 #define FILE_MAGIC 0x7f4b5355 // ' KSU', u32
 #define FILE_FORMAT_VERSION 3 // u32
 
 #define KSU_APP_PROFILE_PRESERVE_UID 9999 // NOBODY_UID
-#define KSU_DEFAULT_SELINUX_DOMAIN "u:r:su:s0"
+#define KSU_DEFAULT_SELINUX_DOMAIN "u:r:" KERNEL_SU_DOMAIN ":s0"
 
 static DEFINE_MUTEX(allowlist_mutex);
 
@@ -50,7 +53,7 @@ static void remove_uid_from_arr(uid_t uid)
 	if (allow_list_pointer == 0)
 		return;
 
-	temp_arr = kmalloc(sizeof(allow_list_arr), GFP_KERNEL);
+	temp_arr = kzalloc(sizeof(allow_list_arr), GFP_KERNEL);
 	if (temp_arr == NULL) {
 		pr_err("%s: unable to allocate memory\n", __func__);
 		return;
@@ -205,7 +208,7 @@ bool ksu_set_app_profile(struct app_profile *profile, bool persist)
 	}
 
 	// not found, alloc a new node!
-	p = (struct perm_data *)kmalloc(sizeof(struct perm_data), GFP_KERNEL);
+	p = (struct perm_data *)kzalloc(sizeof(struct perm_data), GFP_KERNEL);
 	if (!p) {
 		pr_err("ksu_set_app_profile alloc failed\n");
 		return false;
@@ -264,8 +267,13 @@ out:
 		       sizeof(default_root_profile));
 	}
 
-	if (persist)
+	if (persist) {
 		persistent_allow_list();
+#ifdef CONFIG_KSU_SYSCALL_HOOK
+		// FIXME: use a new flag
+		ksu_mark_running_process();
+#endif
+	}
 
 	return result;
 }
@@ -279,8 +287,8 @@ bool __ksu_is_allow_uid(uid_t uid)
 		return false;
 	}
 
-	if (likely(ksu_is_manager_uid_valid()) &&
-	    unlikely(ksu_get_manager_uid() == uid)) {
+	if (likely(ksu_is_manager_appid_valid()) &&
+	    unlikely(ksu_get_manager_appid() == uid % PER_USER_RANGE)) {
 		// manager is always allowed!
 		return true;
 	}
@@ -310,11 +318,13 @@ bool __ksu_is_allow_uid_for_current(uid_t uid)
 bool ksu_uid_should_umount(uid_t uid)
 {
 	struct app_profile profile = { .current_uid = uid };
-	if (likely(ksu_is_manager_uid_valid()) &&
-	    unlikely(ksu_get_manager_uid() == uid)) {
+
+	if (likely(ksu_is_manager_appid_valid()) &&
+	    unlikely(ksu_get_manager_appid() == uid % PER_USER_RANGE)) {
 		// we should not umount on manager!
 		return false;
 	}
+
 	bool found = ksu_get_app_profile(&profile);
 	if (!found) {
 		// no app profile found, it must be non root app
@@ -432,12 +442,7 @@ void persistent_allow_list(void)
 		goto put_task;
 	}
 	cb->func = do_persistent_allow_list;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 8)
 	task_work_add(tsk, cb, TWA_RESUME);
-#else
-	task_work_add(tsk, cb, true);
-#endif
 
 put_task:
 	put_task_struct(tsk);
@@ -503,8 +508,12 @@ exit:
 void ksu_prune_allowlist(bool (*is_uid_valid)(uid_t, char *, void *),
 			 void *data)
 {
-	struct perm_data *np = NULL;
-	struct perm_data *n = NULL;
+	struct perm_data *np, *n = NULL;
+
+	if (!ksu_boot_completed) {
+		pr_info("boot not completed, skip prune\n");
+		return;
+	}
 
 	bool modified = false;
 	// TODO: use RCU!
@@ -553,8 +562,6 @@ void ksu_allowlist_exit(void)
 {
 	struct perm_data *np = NULL;
 	struct perm_data *n = NULL;
-
-	persistent_allow_list();
 
 	// free allowlist
 	mutex_lock(&allowlist_mutex);
