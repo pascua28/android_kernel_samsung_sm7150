@@ -1061,7 +1061,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			nr_congested++;
 
 		/* page_update_gen() tried to promote this page? */
-		if (lru_gen_enabled() &&
+		if (lru_gen_enabled() && !skip_reference_check &&
 		    page_mapped(page) && PageReferenced(page))
 			goto keep_locked;
 
