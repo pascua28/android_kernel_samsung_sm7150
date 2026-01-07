@@ -49,7 +49,7 @@ static __always_inline void __update_lru_size(struct lruvec *lruvec,
 
 static __always_inline void update_lru_size(struct lruvec *lruvec,
 				enum lru_list lru, enum zone_type zid,
-				long nr_pages)
+				int nr_pages)
 {
 	__update_lru_size(lruvec, lru, zid, nr_pages);
 #ifdef CONFIG_MEMCG
@@ -102,21 +102,18 @@ static __always_inline enum lru_list page_lru(struct page *page)
 
 #ifdef CONFIG_LRU_GEN
 
-#ifdef CONFIG_LRU_GEN_ENABLED
 static inline bool lru_gen_enabled(void)
 {
+#ifdef CONFIG_LRU_GEN_ENABLED
 	DECLARE_STATIC_KEY_TRUE(lru_gen_caps[NR_LRU_GEN_CAPS]);
 
 	return static_branch_likely(&lru_gen_caps[LRU_GEN_CORE]);
-}
 #else
-static inline bool lru_gen_enabled(void)
-{
 	DECLARE_STATIC_KEY_FALSE(lru_gen_caps[NR_LRU_GEN_CAPS]);
 
 	return static_branch_unlikely(&lru_gen_caps[LRU_GEN_CORE]);
-}
 #endif
+}
 
 static inline bool lru_gen_in_fault(void)
 {
@@ -220,8 +217,7 @@ static inline void lru_gen_update_size(struct lruvec *lruvec, struct page *page,
 
 static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
-	unsigned long seq;
-	unsigned long flags;
+	unsigned long mask, flags;
 	int gen = page_lru_gen(page);
 	int type = page_is_file_cache(page);
 	int zone = page_zonenum(page);
@@ -241,17 +237,17 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 	 * 3. Everything else (clean, cold) is added to the oldest generation.
 	 */
 	if (PageActive(page))
-		seq = lrugen->max_seq;
+		gen = lru_gen_from_seq(lrugen->max_seq);
 	else if ((type == LRU_GEN_ANON && !PageSwapCache(page)) ||
 		 (PageReclaim(page) && (PageDirty(page) || PageWriteback(page))))
-		seq = lrugen->min_seq[type] + 1;
+		gen = lru_gen_from_seq(lrugen->min_seq[type] + 1);
 	else
-		seq = lrugen->min_seq[type];
+		gen = lru_gen_from_seq(lrugen->min_seq[type]);
 
-	gen = lru_gen_from_seq(seq);
+	/* see the comment on MIN_NR_GENS */
+	mask = LRU_GEN_MASK | BIT(PG_active);
 	flags = (gen + 1UL) << LRU_GEN_PGOFF;
-	/* see the comment on MIN_NR_GENS about PG_active */
-	set_mask_bits(&page->flags, LRU_GEN_MASK | BIT(PG_active), flags);
+	set_mask_bits(&page->flags, mask, flags);
 
 	lru_gen_update_size(lruvec, page, -1, gen);
 	/* for rotate_reclaimable_page() */
@@ -265,7 +261,7 @@ static inline bool lru_gen_add_page(struct lruvec *lruvec, struct page *page, bo
 
 static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bool reclaiming)
 {
-	unsigned long flags;
+	unsigned long mask, flags;
 	int gen = page_lru_gen(page);
 
 	if (gen < 0)
@@ -274,9 +270,15 @@ static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bo
 	VM_WARN_ON_ONCE_PAGE(PageActive(page), page);
 	VM_WARN_ON_ONCE_PAGE(PageUnevictable(page), page);
 
-	/* for page_migrate_flags() */
-	flags = !reclaiming && lru_gen_is_active(lruvec, gen) ? BIT(PG_active) : 0;
-	flags = set_mask_bits(&page->flags, LRU_GEN_MASK, flags);
+	mask = LRU_GEN_MASK;
+	flags = 0;
+	/* for shrink_page_list() or page_migrate_flags() */
+	if (reclaiming)
+		mask |= BIT(PG_referenced) | BIT(PG_reclaim);
+	else if (lru_gen_is_active(lruvec, gen))
+		flags |= BIT(PG_active);
+
+	flags = set_mask_bits(&page->flags, mask, flags);
 	gen = ((flags & LRU_GEN_MASK) >> LRU_GEN_PGOFF) - 1;
 
 	lru_gen_update_size(lruvec, page, gen, -1);
@@ -285,7 +287,7 @@ static inline bool lru_gen_del_page(struct lruvec *lruvec, struct page *page, bo
 	return true;
 }
 
-#else /* !CONFIG_LRU_GEN */
+#else
 
 static inline bool lru_gen_enabled(void)
 {
