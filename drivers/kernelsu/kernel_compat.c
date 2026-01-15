@@ -39,6 +39,27 @@ static int install_session_keyring(struct key *keyring)
 }
 #endif
 
+// mnt_ns context switch for environment that android_init->nsproxy->mnt_ns != init_task.nsproxy->mnt_ns, such as WSA
+struct ksu_ns_fs_saved {
+        struct nsproxy *ns;
+        struct fs_struct *fs;
+};
+
+static void ksu_save_ns_fs(struct ksu_ns_fs_saved *ns_fs_saved)
+{
+        ns_fs_saved->ns = current->nsproxy;
+        ns_fs_saved->fs = current->fs;
+}
+
+static void ksu_load_ns_fs(struct ksu_ns_fs_saved *ns_fs_saved)
+{
+        current->nsproxy = ns_fs_saved->ns;
+        current->fs = ns_fs_saved->fs;
+}
+
+static bool android_context_saved_enabled = false;
+static struct ksu_ns_fs_saved android_context_saved;
+
 struct file *ksu_filp_open_compat(const char *filename, int flags, umode_t mode)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) ||                           \
@@ -49,7 +70,23 @@ struct file *ksu_filp_open_compat(const char *filename, int flags, umode_t mode)
 		install_session_keyring(init_session_keyring);
 	}
 #endif
-	return filp_open(filename, flags, mode);
+    // switch mnt_ns even if current is not wq_worker, to ensure what we open is the correct file in android mnt_ns, rather than user created mnt_ns
+    struct ksu_ns_fs_saved saved;
+    if (android_context_saved_enabled) {
+            pr_info("start switch current nsproxy and fs to android context\n");
+            task_lock(current);
+            ksu_save_ns_fs(&saved);
+            ksu_load_ns_fs(&android_context_saved);
+            task_unlock(current);
+    }
+    struct file *fp = filp_open(filename, flags, mode);
+	    if (android_context_saved_enabled) {
+            task_lock(current);
+            ksu_load_ns_fs(&saved);
+            task_unlock(current);
+            pr_info("switch current nsproxy and fs back to saved successfully\n");
+    }
+    return fp;
 }
 
 ssize_t ksu_kernel_read_compat(struct file *p, void *buf, size_t count,
@@ -84,13 +121,70 @@ ssize_t ksu_kernel_write_compat(struct file *p, const void *buf, size_t count,
 #endif
 }
 
-static inline long
-do_strncpy_user_nofault(char *dst, const void __user *unsafe_addr, long count)
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0) && !defined(KSU_HAS_PATH_MOUNT))
+extern long do_mount(const char *dev_name, const char __user *dir_name,
+		     const char *type_page, unsigned long flags,
+		     void *data_page);
+
+int path_mount(const char *dev_name, struct path *path, const char *type_page,
+	       unsigned long flags, void *data_page)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0) ||                           \
-	defined(KSU_OPTIONAL_STRNCPY)
-	return strncpy_from_user_nofault(dst, unsafe_addr, count);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+	mm_segment_t old_fs;
+	long ret = 0;
+	char buf[384];
+
+	char *realpath = d_path(path, buf, 384);
+	if (IS_ERR(realpath)) {
+		pr_err("ksu_mount: d_path failed, err: %lu\n",
+		       PTR_ERR(realpath));
+		return PTR_ERR(realpath);
+	}
+
+	// https://github.com/backslashxx/KernelSU/blob/e02c2771b106c68f0b8a17234b5b1846664852f0/kernel/kernel_compat.c#L123
+	// This check is handy.
+	if (!(realpath && realpath != buf))
+		return -ENOENT;
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+	ret = do_mount(dev_name, (const char __user *)realpath, type_page,
+		       flags, data_page);
+	set_fs(old_fs);
+	return ret;
+}
+#endif
+
+long ksu_copy_from_user_nofault(void *dst, const void __user *src, size_t size)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+    return copy_from_user_nofault(dst, src, size);
+#else
+    // https://elixir.bootlin.com/linux/v5.8/source/mm/maccess.c#L205
+    long ret = -EFAULT;
+    mm_segment_t old_fs = get_fs();
+
+    set_fs(USER_DS);
+    // tweaked to use ksu_access_ok
+    if (ksu_access_ok(src, size)) {
+        pagefault_disable();
+        ret = __copy_from_user_inatomic(dst, src, size);
+        pagefault_enable();
+    }
+    set_fs(old_fs);
+
+    if (ret)
+        return -EFAULT;
+    return 0;
+#endif
+}
+
+#ifndef KSU_OPTIONAL_STRNCPY
+inline long
+strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
+				   long count)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
 	return strncpy_from_unsafe_user(dst, unsafe_addr, count);
 #else
 	mm_segment_t old_fs = get_fs();
@@ -115,40 +209,46 @@ do_strncpy_user_nofault(char *dst, const void __user *unsafe_addr, long count)
 	return ret;
 #endif
 }
+#endif // #ifndef KSU_OPTIONAL_STRNCPY
 
-long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
-				   long count)
+static void *__kvmalloc(size_t size, gfp_t flags)
 {
-#ifdef CONFIG_KSU_MANUAL_HOOK
-	long ret;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+// https://elixir.bootlin.com/linux/v4.4.302/source/security/apparmor/lib.c#L79
+	void *buffer = NULL;
 
-	ret = do_strncpy_user_nofault(dst, unsafe_addr, count);
-	if (likely(ret >= 0))
-		return ret;
+	if (size == 0)
+		return NULL;
 
-	// we faulted! fallback to slow path
-	if (unlikely(!ksu_access_ok(unsafe_addr, count)))
-		return -EFAULT;
-
-	ret = strncpy_from_user(dst, unsafe_addr, count);
-	if (ret >= count) {
-		ret = count;
-		dst[ret - 1] = '\0';
-	} else if (ret >= 0) {
-		ret++;
+	/* do not attempt kmalloc if we need more than 16 pages at once */
+	if (size <= (16 * PAGE_SIZE))
+		buffer = kmalloc(size, flags | GFP_NOIO | __GFP_NOWARN);
+	if (!buffer) {
+		if (flags & __GFP_ZERO)
+			buffer = vzalloc(size);
+		else
+			buffer = vmalloc(size);
 	}
-
-	return ret;
+	return buffer;
 #else
-	return do_strncpy_user_nofault(dst, unsafe_addr, count);
+	return kvmalloc(size, flags);
 #endif
 }
 
-int do_close_fd(unsigned int fd)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
+// https://elixir.bootlin.com/linux/v5.10.247/source/mm/util.c#L664
+void *ksu_compat_kvrealloc(const void *p, size_t oldsize, size_t newsize,
+			   gfp_t flags)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
-	return close_fd(fd);
-#else
-	return __close_fd(current->files, fd);
-#endif
+	void *newp;
+
+	if (oldsize >= newsize)
+		return (void *)p;
+	newp = __kvmalloc(newsize, flags);
+	if (!newp)
+		return NULL;
+	memcpy(newp, p, oldsize);
+	kvfree(p);
+	return newp;
 }
+#endif
