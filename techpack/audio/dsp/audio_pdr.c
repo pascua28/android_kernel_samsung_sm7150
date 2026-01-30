@@ -171,7 +171,7 @@ static int __init audio_pdr_late_init(void)
 
 	return ret;
 }
-module_init(audio_pdr_late_init);
+postcore_initcall(audio_pdr_late_init);
 
 static void __exit audio_pdr_late_exit(void)
 {

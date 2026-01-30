@@ -55,6 +55,7 @@
 #define SWRM_ROW_64    64
 #define SWRM_COL_02    02
 #define SWRM_COL_16    16
+#define SWR_OVERFLOW_RETRY_COUNT 30
 
 /* pm runtime auto suspend timer in msecs */
 static int auto_suspend_timer = SWR_AUTO_SUSPEND_DELAY * 1000;
@@ -77,6 +78,11 @@ enum {
 enum {
 	ENABLE_PENDING,
 	DISABLE_PENDING
+};
+
+enum {
+	SWRM_WR_CHECK_AVAIL,
+	SWRM_RD_CHECK_AVAIL,
 };
 #define TRUE 1
 #define FALSE 0
@@ -102,6 +108,7 @@ static unsigned int read_data;
 
 static bool swrm_lock_sleep(struct swr_mstr_ctrl *swrm);
 static void swrm_unlock_sleep(struct swr_mstr_ctrl *swrm);
+static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr);
 
 static bool swrm_is_msm_variant(int val)
 {
@@ -369,6 +376,9 @@ static int swr_master_bulk_write(struct swr_mstr_ctrl *swrm, u32 *reg_addr,
 		for (i = 0; i < length; i++) {
 		/* wait for FIFO WR command to complete to avoid overflow */
 			usleep_range(100, 105);
+			if (reg_addr[i] == SWRM_CMD_FIFO_WR_CMD)
+				swrm_wait_for_fifo_avail(swrm,
+							 SWRM_WR_CHECK_AVAIL);
 			swr_master_write(swrm, reg_addr[i], val[i]);
 		}
 		mutex_unlock(&swrm->iolock);
@@ -480,6 +490,49 @@ static u32 swrm_get_packed_reg_val(u8 *cmd_id, u8 cmd_data,
 	return val;
 }
 
+static void swrm_wait_for_fifo_avail(struct swr_mstr_ctrl *swrm, int swrm_rd_wr)
+{
+		u32 fifo_outstanding_cmd;
+
+		u8 fifo_retry_count = SWR_OVERFLOW_RETRY_COUNT;
+
+		if (swrm_rd_wr) {
+			/* Check for fifo underflow during read */
+			/* Check no of outstanding commands in fifo before read */
+			fifo_outstanding_cmd = ((swr_master_read(swrm,
+				SWRM_CMD_FIFO_STATUS) & 0x001F0000) >> 16);
+			if (fifo_outstanding_cmd == 0) {
+				while (fifo_retry_count) {
+					usleep_range(500, 510);
+					fifo_outstanding_cmd = ((swr_master_read(swrm,
+						SWRM_CMD_FIFO_STATUS) & 0x001F0000) >> 16);
+					fifo_retry_count--;
+					if (fifo_outstanding_cmd > 0)
+						break;
+				}
+			}
+			if (fifo_outstanding_cmd == 0)
+				dev_err_ratelimited(swrm->dev, "%s err read underflow\n", __func__);
+		} else {
+			/* Check for fifo overflow during write */
+			/* Check no of outstanding commands in fifo before write */
+			fifo_outstanding_cmd = ((swr_master_read(swrm,
+				SWRM_CMD_FIFO_STATUS) & 0x00001F00) >> 8);
+			if (fifo_outstanding_cmd == swrm->wr_fifo_depth) {
+				while (fifo_retry_count) {
+					usleep_range(500, 510);
+					fifo_outstanding_cmd = ((swr_master_read(swrm,
+						SWRM_CMD_FIFO_STATUS) & 0x00001F00) >> 8);
+					fifo_retry_count--;
+					if (fifo_outstanding_cmd < swrm->wr_fifo_depth)
+						break;
+				}
+			}
+			if (fifo_outstanding_cmd == swrm->wr_fifo_depth)
+				dev_err_ratelimited(swrm->dev, "%s err write overflow\n", __func__);
+		}
+}
+
 static int swrm_cmd_fifo_rd_cmd(struct swr_mstr_ctrl *swrm, int *cmd_data,
 				 u8 dev_addr, u8 cmd_id, u16 reg_addr,
 				 u32 len)
@@ -493,12 +546,17 @@ static int swrm_cmd_fifo_rd_cmd(struct swr_mstr_ctrl *swrm, int *cmd_data,
 		/* skip delay if read is handled in platform driver */
 		swr_master_write(swrm, SWRM_CMD_FIFO_RD_CMD, val);
 	} else {
+		/* Check for outstanding cmd wrt. write fifo depth to avoid */
+		/* overflow as read will also increase write fifo cnt. */
+		swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL);
 		/* wait for FIFO RD to complete to avoid overflow */
 		usleep_range(100, 105);
 		swr_master_write(swrm, SWRM_CMD_FIFO_RD_CMD, val);
 		/* wait for FIFO RD CMD complete to avoid overflow */
 		usleep_range(250, 255);
 	}
+	/* Check if slave responds properly after FIFO RD is complete */
+	swrm_wait_for_fifo_avail(swrm, SWRM_RD_CHECK_AVAIL);
 retry_read:
 	*cmd_data = swr_master_read(swrm, SWRM_CMD_FIFO_RD_FIFO_ADDR);
 	dev_dbg(swrm->dev, "%s: reg: 0x%x, cmd_id: 0x%x, rcmd_id: 0x%x, \
@@ -545,11 +603,11 @@ static int swrm_cmd_fifo_wr_cmd(struct swr_mstr_ctrl *swrm, u8 cmd_data,
 	dev_dbg(swrm->dev, "%s: reg: 0x%x, cmd_id: 0x%x,wcmd_id: 0x%x, \
 			dev_num: 0x%x, cmd_data: 0x%x\n", __func__,
 			reg_addr, cmd_id, swrm->wcmd_id,dev_addr, cmd_data);
+	/* Check for outstanding cmd wrt. write fifo depth to avoid overflow. */
+	swrm_wait_for_fifo_avail(swrm, SWRM_WR_CHECK_AVAIL);
 	swr_master_write(swrm, SWRM_CMD_FIFO_WR_CMD, val);
-	/*
-	 * wait for FIFO WR command to complete to avoid overflow
-	 * skip delay if write is handled in platform driver.
-	 */
+	/* wait for FIFO WR command to complete to avoid overflow */
+	/* skip delay if write is handled in platform driver. */
 	if(!swrm->write)
 		usleep_range(250, 255);
 	if (cmd_id == 0xF) {
@@ -1015,12 +1073,12 @@ static int swrm_slvdev_datapath_control(struct swr_master *master, bool enable)
 	u32 value, n_row, n_col;
 	u32 row = 0, col = 0;
 	int ret;
-	u8 ssp_period = 0;
 	struct swr_mstr_ctrl *swrm = swr_get_ctrl_data(master);
 	int mask = (SWRM_MCP_FRAME_CTRL_BANK_ROW_CTRL_BMSK |
 		    SWRM_MCP_FRAME_CTRL_BANK_COL_CTRL_BMSK |
 		    SWRM_MCP_FRAME_CTRL_BANK_SSP_PERIOD_BMSK);
 	u8 inactive_bank;
+	u8 ssp_period = 5;
 
 	if (!swrm) {
 		pr_err("%s: swrm is null\n", __func__);
@@ -1148,8 +1206,7 @@ static int swrm_connect_port(struct swr_master *master,
 	if (!swrm->dev_up) {
 		mutex_unlock(&swrm->devlock);
 		mutex_unlock(&swrm->mlock);
-		ret = -EINVAL;
-		goto fail;
+		return -EINVAL;
 	}
 	mutex_unlock(&swrm->devlock);
 	if (!swrm_is_port_en(master))
@@ -1213,8 +1270,6 @@ mem_fail:
 	/* cleanup  port reqs in error condition */
 	swrm_cleanup_disabled_port_reqs(master);
 	mutex_unlock(&swrm->mlock);
-fail:
-	swr_port_response(master, portinfo->tid);
 	return ret;
 }
 
@@ -1321,11 +1376,9 @@ static void swrm_new_slave_config(struct swr_mstr_ctrl *swrm)
 	int i;
 
 	for (i = 0; i < (swrm->master.num_dev + 1); i++) {
-		if ((swrm->slave_status & SWRM_MCP_SLV_STATUS_MASK)
-			== SWR_ATTACHED_OK) {
+		if ((swrm->slave_status & SWRM_MCP_SLV_STATUS_MASK) == SWR_ATTACHED_OK) {
 			/* enable host irq on slave device*/
-			swrm_cmd_fifo_wr_cmd(swrm, 0x4, i, 0x0,
-				SWRS_SCP_INT_STATUS_MASK_1);
+			swrm_cmd_fifo_wr_cmd(swrm, 0x4, i, 0x0, SWRS_SCP_INT_STATUS_MASK_1);
 		}
 		swrm->slave_status >>= 2;
 	}
@@ -1640,7 +1693,6 @@ static int swrm_get_logical_dev_num(struct swr_master *mstr, u64 dev_id,
 	if (ret)
 		dev_err(swrm->dev, "%s: device 0x%llx is not ready\n",
 			__func__, dev_id);
-
 	swrm_new_slave_config(swrm);
 	pm_runtime_mark_last_busy(swrm->dev);
 	pm_runtime_put_autosuspend(swrm->dev);
@@ -1950,7 +2002,6 @@ static int swrm_probe(struct platform_device *pdev)
 	swrm->slave_status = 0;
 	swrm->num_rx_chs = 0;
 	swrm->clk_ref_count = 0;
-	swrm->swr_irq_wakeup_capable = 0;
 	swrm->mclk_freq = MCLK_FREQ;
 	swrm->bus_clk = MCLK_FREQ;
 	swrm->dev_up = true;
@@ -2005,15 +2056,7 @@ static int swrm_probe(struct platform_device *pdev)
 		}
 
 	}
-	/* Make inband tx interrupts as wakeup capable for slave irq */
-	ret = of_property_read_u32(pdev->dev.of_node,
-				   "qcom,swr-mstr-irq-wakeup-capable",
-				   &swrm->swr_irq_wakeup_capable);
-	if (ret)
-		dev_dbg(swrm->dev, "%s: swrm irq wakeup capable not defined\n",
-			__func__);
-	if (swrm->swr_irq_wakeup_capable)
-		irq_set_irq_wake(swrm->irq, 1);
+
 	ret = swr_register_master(&swrm->master);
 	if (ret) {
 		dev_err(&pdev->dev, "%s: error adding swr master\n", __func__);
@@ -2041,7 +2084,10 @@ static int swrm_probe(struct platform_device *pdev)
 
 	if (pdev->dev.of_node)
 		of_register_swr_devices(&swrm->master);
-
+	swrm->rd_fifo_depth = ((swr_master_read(swrm, SWRM_COMP_PARAMS)
+							& SWRM_COMP_PARAMS_RD_FIFO_DEPTH) >> 15);
+	swrm->wr_fifo_depth = ((swr_master_read(swrm, SWRM_COMP_PARAMS)
+							& SWRM_COMP_PARAMS_WR_FIFO_DEPTH) >> 10);
 	dbgswrm = swrm;
 	debugfs_swrm_dent = debugfs_create_dir(dev_name(&pdev->dev), 0);
 	if (!IS_ERR(debugfs_swrm_dent)) {
@@ -2058,13 +2104,14 @@ static int swrm_probe(struct platform_device *pdev)
 				   (void *) "swrm_reg_dump",
 				   &swrm_debug_ops);
 	}
-
+	/* Make inband tx interrupts as wakeup capable for slave irq */
+	if (swrm->master_id == MASTER_ID_TX)
+		irq_set_irq_wake(swrm->irq, 1);
 	ret = device_init_wakeup(swrm->dev, true);
 	if (ret) {
 		dev_err(swrm->dev, "Device wakeup init failed: %d\n", ret);
-		goto err_irq_wakeup_fail;
+		goto err_irq_fail;
 	}
-
 	pm_runtime_set_autosuspend_delay(&pdev->dev, auto_suspend_timer);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_set_active(&pdev->dev);
@@ -2076,8 +2123,6 @@ static int swrm_probe(struct platform_device *pdev)
 	msm_aud_evt_register_client(&swrm->event_notifier);
 
 	return 0;
-err_irq_wakeup_fail:
-	device_init_wakeup(swrm->dev, false);
 err_mstr_fail:
 	if (swrm->reg_irq)
 		swrm->reg_irq(swrm->handle, swr_mstr_interrupt,
@@ -2085,6 +2130,7 @@ err_mstr_fail:
 	else if (swrm->irq)
 		free_irq(swrm->irq, swrm);
 err_irq_fail:
+	device_init_wakeup(swrm->dev, false);
 	mutex_destroy(&swrm->irq_lock);
 	mutex_destroy(&swrm->mlock);
 	mutex_destroy(&swrm->reslock);
@@ -2110,8 +2156,6 @@ static int swrm_remove(struct platform_device *pdev)
 		free_irq(swrm->irq, swrm);
 	else if (swrm->wake_irq > 0)
 		free_irq(swrm->wake_irq, swrm);
-	if (swrm->swr_irq_wakeup_capable)
-		irq_set_irq_wake(swrm->irq, 0);
 	cancel_work_sync(&swrm->wakeup_work);
 	pm_runtime_disable(&pdev->dev);
 	pm_runtime_set_suspended(&pdev->dev);
@@ -2299,11 +2343,9 @@ static int swrm_device_down(struct device *dev)
 	struct swr_mstr_ctrl *swrm = platform_get_drvdata(pdev);
 
 	dev_dbg(dev, "%s: swrm state: %d\n", __func__, swrm->state);
-
 	mutex_lock(&swrm->force_down_lock);
 	swrm->state = SWR_MSTR_SSR;
 	mutex_unlock(&swrm->force_down_lock);
-
 	swrm_device_suspend(dev);
 	return 0;
 }

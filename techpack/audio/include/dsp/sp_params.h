@@ -14,6 +14,14 @@
 
 #ifndef __SP_PARAMS_H__
 #define __SP_PARAMS_H__
+#include <dsp/apr_audio-v2.h>
+
+struct afe_spk_ctl {
+	struct class *p_class;
+	struct device *p_dev;
+	struct afe_sp_rx_tmax_xmax_logging_param xt_logging;
+	int32_t max_temperature_rd[SP_V2_NUM_MAX_SPKR];
+};
 
 #if IS_ENABLED(CONFIG_XT_LOGGING)
 int afe_get_sp_xt_logging_data(u16 port_id);
@@ -24,5 +32,8 @@ static inline int afe_get_sp_xt_logging_data(u16 port_id)
 }
 #endif
 
+#ifdef CONFIG_SND_SOC_WSA881X
+struct afe_spk_ctl *get_wsa_sysfs_ptr(void);
+#endif
 #endif /* __SP_PARAMS_H__ */
 

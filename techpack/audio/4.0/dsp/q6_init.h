@@ -43,6 +43,11 @@ static inline void spk_params_exit(void)
 }
 #endif
 
+#ifdef CONFIG_SEC_SND_ADAPTATION
+int sec_soc_platform_init(void);
+void sec_soc_platform_exit(void);
+#endif /* CONFIG_SEC_SND_ADAPTATION */
+
 void avtimer_exit(void);
 void msm_audio_ion_exit(void);
 void rtac_exit(void);

@@ -638,7 +638,7 @@ static int __init audio_notifier_init(void)
 
 	return 0;
 }
-module_init(audio_notifier_init);
+fs_initcall(audio_notifier_init);
 
 static void __exit audio_notifier_exit(void)
 {
