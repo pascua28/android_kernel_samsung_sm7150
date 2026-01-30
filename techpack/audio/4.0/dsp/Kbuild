@@ -138,6 +138,10 @@ ifdef CONFIG_XT_LOGGING
 	Q6_OBJS += sp_params.o
 endif
 
+ifdef CONFIG_SEC_SND_ADAPTATION
+	Q6_OBJS += q6audio_adaptation.o
+endif
+
 ifdef CONFIG_WCD9XXX_CODEC_CORE
 	Q6_OBJS += audio_slimslave.o
 endif

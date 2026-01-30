@@ -695,6 +695,9 @@ static int msm_qti_pp_set_slimbus_8_lb_vol_mixer(struct snd_kcontrol *kcontrol,
 {
 	int ret = 0;
 
+	pr_info("%s: Volume = %ld\n", __func__,
+		ucontrol->value.integer.value[0]);
+
 	ret = afe_loopback_gain(SLIMBUS_8_TX,
 				ucontrol->value.integer.value[0]);
 
@@ -1284,6 +1287,13 @@ int msm_adsp_stream_callback_get(struct snd_kcontrol *kcontrol,
 
 	oldest_event = list_first_entry(&kctl_prtd->event_queue,
 			struct dsp_stream_callback_list, list);
+	if (oldest_event == NULL) {
+		pr_debug("%s: ASM Stream oldest event is NULL\n",
+			__func__);
+		ret = -EINVAL;
+		spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);
+		goto done;
+	}
 	list_del(&oldest_event->list);
 	kctl_prtd->event_count--;
 	spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);

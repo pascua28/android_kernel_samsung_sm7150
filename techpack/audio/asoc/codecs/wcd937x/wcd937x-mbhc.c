@@ -37,7 +37,7 @@
 /* Z floating defined in ohms */
 #define WCD937X_ZDET_FLOATING_IMPEDANCE 0x0FFFFFFE
 
-#define WCD937X_ZDET_NUM_MEASUREMENTS   900
+#define WCD937X_ZDET_NUM_MEASUREMENTS   250
 #define WCD937X_MBHC_GET_C1(c)          ((c & 0xC000) >> 14)
 #define WCD937X_MBHC_GET_X1(x)          (x & 0x3FFF)
 /* Z value compared in milliOhm */
@@ -144,6 +144,10 @@ static struct wcd_mbhc_register
 			  WCD937X_MBHC_NEW_CTL_1, 0x04, 2, 0),
 	WCD_MBHC_REGISTER("WCD_MBHC_ELECT_ISRC_EN",
 			  WCD937X_ANA_MBHC_ZDET, 0x02, 1, 0),
+	WCD_MBHC_REGISTER("WCD_MBHC_EN_SURGE_PROTECTION_HPHL",
+	WCD937X_HPH_SURGE_HPHLR_SURGE_EN, 0x80, 7, 0),
+	WCD_MBHC_REGISTER("WCD_MBHC_EN_SURGE_PROTECTION_HPHR",
+	WCD937X_HPH_SURGE_HPHLR_SURGE_EN, 0x40, 6, 0),
 };
 
 static const struct wcd_mbhc_intr intr_ids = {
@@ -503,6 +507,10 @@ static void wcd937x_wcd_mbhc_calc_impedance(struct wcd_mbhc *mbhc, uint32_t *zl,
 {
 	struct snd_soc_codec *codec = mbhc->codec;
 	struct wcd937x_priv *wcd937x = dev_get_drvdata(codec->dev);
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	struct wcd937x_pdata *pdata = dev_get_platdata(wcd937x->dev);
+	int i;
+#endif
 	s16 reg0, reg1, reg2, reg3, reg4;
 	int32_t z1L, z1R, z1Ls;
 	int zMono, z_diff1, z_diff2;
@@ -586,6 +594,24 @@ left_ch_impedance:
 	}
 	dev_dbg(codec->dev, "%s: impedance on HPH_L = %d(ohms)\n",
 		__func__, *zl);
+
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	/* Samsung impedance detection and additional digital gain */
+	for (i = 0; i < ARRAY_SIZE(pdata->imp_table); i++) {
+		if (*zl >= pdata->imp_table[i].min &&
+			*zl <= pdata->imp_table[i].max) {
+			mbhc->impedance_offset =
+				pdata->imp_table[i].gain;
+			dev_info(codec->dev, "%s: zl = %d, imped offset = %d\n",
+				__func__, *zl, mbhc->impedance_offset);
+			break;
+		}
+	}
+	if (wcd937x->update_wcd_event)
+		wcd937x->update_wcd_event(wcd937x->handle,
+					SEC_WCD_BOLERO_EVT_IMPED_TRUE,
+					mbhc->impedance_offset);
+#endif
 
 	/* Start of right impedance ramp and calculation */
 	wcd937x_mbhc_zdet_ramp(codec, zdet_param_ptr, NULL, &z1R, d1);

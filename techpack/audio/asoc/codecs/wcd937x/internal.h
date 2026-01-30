@@ -63,6 +63,7 @@ struct wcd937x_priv {
 	u32 hph_mode;
 	bool comp1_enable;
 	bool comp2_enable;
+	bool allow_buck_disable;
 
 	struct irq_domain *virq;
 	struct wcd_irq_info irq_info;
@@ -105,6 +106,16 @@ struct wcd937x_micbias_setting {
 	u8 bias1_cfilt_sel;
 };
 
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+#define MAX_IMPEDANCE_TABLE 8
+
+struct wcd937x_gain_table {
+	uint32_t min;      /* Min impedance */
+	uint32_t max;      /* Max impedance */
+	int gain;   /* additional gain */
+};
+#endif
+
 struct wcd937x_pdata {
 	struct device_node *rst_np;
 	struct device_node *rx_slave;
@@ -113,6 +124,9 @@ struct wcd937x_pdata {
 
 	struct cdc_regulator *regulator;
 	int num_supplies;
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	struct wcd937x_gain_table imp_table[MAX_IMPEDANCE_TABLE];
+#endif
 };
 
 struct wcd_ctrl_platform_data {
@@ -140,6 +154,9 @@ enum {
 	WCD_BOLERO_EVT_RX_MUTE = 1,	/* for RX mute/unmute */
 	WCD_BOLERO_EVT_IMPED_TRUE,	/* for imped true */
 	WCD_BOLERO_EVT_IMPED_FALSE,	/* for imped false */
+#ifdef CONFIG_SND_SOC_IMPED_SENSING
+	SEC_WCD_BOLERO_EVT_IMPED_TRUE,	/* for SEC imped true */
+#endif
 	WCD_BOLERO_EVT_BCS_CLK_OFF,
 };
 
@@ -173,10 +190,9 @@ enum {
 };
 
 extern void wcd937x_disable_bcs_before_slow_insert(
-				struct snd_soc_codec *codec,
-				bool bcs_disable);
-extern struct wcd937x_mbhc *wcd937x_soc_get_mbhc(
-				struct snd_soc_codec *codec);
+					struct snd_soc_codec *codec,
+					bool bcs_disable);
+extern struct wcd937x_mbhc *wcd937x_soc_get_mbhc(struct snd_soc_codec *codec);
 extern int wcd937x_mbhc_micb_adjust_voltage(struct snd_soc_codec *codec,
 					int volt, int micb_num);
 extern int wcd937x_get_micb_vout_ctl_val(u32 micb_mv);
