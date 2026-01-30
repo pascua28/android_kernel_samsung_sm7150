@@ -259,6 +259,13 @@ static int is_adsp_raise_event(uint32_t cmd)
 	return -EINVAL;
 }
 
+#ifdef CONFIG_SEC_SND_ADAPTATION
+struct audio_session *q6asm_get_audio_session(void)
+{
+	return session;
+}
+#endif /* CONFIG_SEC_SND_ADAPTATION */
+
 #ifdef CONFIG_DEBUG_FS
 #define OUT_BUFFER_SIZE 56
 #define IN_BUFFER_SIZE 24
@@ -3173,7 +3180,7 @@ static int __q6asm_open_read(struct audio_client *ac,
 		pr_err("%s: AC APR handle NULL\n", __func__);
 		return -EINVAL;
 	}
-	pr_debug("%s: session[%d]\n", __func__, ac->session);
+	pr_info("%s: session[%d]\n", __func__, ac->session);
 
 	q6asm_add_hdr(ac, &open.hdr, sizeof(open), TRUE);
 	atomic_set(&ac->cmd_state, -1);
@@ -3490,7 +3497,7 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 		return -EINVAL;
 	}
 
-	dev_vdbg(ac->dev, "%s: session[%d] wr_format[0x%x]\n",
+	pr_info("%s: session[%d] wr_format[0x%x]\n",
 		__func__, ac->session, format);
 
 	q6asm_stream_add_hdr(ac, &open.hdr, sizeof(open), TRUE, stream_id);

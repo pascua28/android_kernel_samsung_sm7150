@@ -122,6 +122,7 @@ ifdef CONFIG_SND_SOC_WSA881X
 	WSA881X_OBJS += wsa881x-tables.o
 	WSA881X_OBJS += wsa881x-regmap.o
 	WSA881X_OBJS += wsa881x-temp-sensor.o
+	WSA881X_OBJS += bigdata_wsa_sysfs_cb.o
 endif
 
 ifdef CONFIG_SND_SOC_WSA881X_ANALOG
@@ -210,6 +211,9 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= wcd9360/
 	obj-y	+= wcd937x/
 	obj-y	+= bolero/
+endif
+ifdef CONFIG_SND_SOC_TAS2562
+	obj-y	 += tas2562/
 endif
 
 ifeq ($(CONFIG_SND_SOC_GCOV), y)

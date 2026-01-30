@@ -214,6 +214,13 @@ exit:
 }
 EXPORT_SYMBOL(snd_event_client_register);
 
+bool is_snd_event_fwk_enabled(void)
+{
+	return 1;
+
+}
+EXPORT_SYMBOL(is_snd_event_fwk_enabled);
+
 /*
  * snd_event_client_deregister - Remove a client from the SND event FW
  *
