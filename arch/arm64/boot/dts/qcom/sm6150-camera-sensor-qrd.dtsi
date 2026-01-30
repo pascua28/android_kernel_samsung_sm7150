@@ -71,9 +71,6 @@
 		regulator-max-microvolt = <2850000>;
 		regulator-enable-ramp-delay = <233>;
 		enable-active-high;
-		gpio = <&pm6150l_gpios 9 0>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&cam_sensor_0_vana>;
 		vin-supply = <&pm6150l_bob>;
 	};
 

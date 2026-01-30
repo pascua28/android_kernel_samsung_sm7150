@@ -426,6 +426,8 @@ int cmdq_crypto_qti_prep_desc(struct cmdq_host *host, struct mmc_request *mrq,
 	if (!(atomic_read(&keycache) & (1 << bc->bc_keyslot)))  {
 		if (bc->is_ext4)
 			cmdq_use_default_du_size = true;
+		else
+			cmdq_use_default_du_size = false;
 
 		ret = cmdq_crypto_qti_keyslot_program(host->ksm, bc->bc_key,
 						      bc->bc_keyslot);

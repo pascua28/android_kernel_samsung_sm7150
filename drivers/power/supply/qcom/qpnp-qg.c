@@ -41,8 +41,23 @@
 #include "qg-soc.h"
 #include "qg-battery-profile.h"
 #include "qg-defs.h"
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#include "../../../battery_qc/include/sec_battery_qc.h"
+#include "../../../battery_qc/include/sec_battery_ttf.h"
+#include "step-chg-jeita.h"
+#endif
 
-static int qg_debug_mask;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+int can_shipmode;
+extern int get_rid_type(void);
+#endif
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+static int qg_debug_mask = QG_DEBUG_PON|QG_DEBUG_STATUS|QG_DEBUG_IRQ|QG_DEBUG_SOC;
+#else
+static int qg_debug_mask = 0xCFF;
+#endif
+
 module_param_named(
 	debug_mask, qg_debug_mask, int, 0600
 );
@@ -252,6 +267,19 @@ static bool is_batt_available(struct qpnp_qg *chip)
 
 	return true;
 }
+
+static bool is_usb_available(struct qpnp_qg *chip)
+{
+	if (chip->usb_psy)
+		return true;
+
+	chip->usb_psy = power_supply_get_by_name("usb");
+	if (!chip->usb_psy)
+		return false;
+
+	return true;
+}
+
 
 static int qg_store_soc_params(struct qpnp_qg *chip)
 {
@@ -1203,6 +1231,9 @@ static irqreturn_t qg_fifo_update_done_handler(int irq, void *data)
 	u32 fifo_length = 0;
 	s64 time_delta_ms = 0;
 	struct qpnp_qg *chip = data;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	union power_supply_propval prop = {0, };
+#endif
 
 	time_delta_ms = ktime_ms_delta(now, chip->last_fifo_update_time);
 	chip->last_fifo_update_time = now;
@@ -1239,10 +1270,22 @@ static irqreturn_t qg_fifo_update_done_handler(int irq, void *data)
 		goto done;
 	}
 
-	rc = qg_esr_estimate(chip);
-	if (rc < 0) {
-		pr_err("Failed to estimate ESR, rc=%d\n", rc);
-		goto done;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+	rc = power_supply_get_property(chip->usb_psy,
+			POWER_SUPPLY_PROP_REAL_TYPE, &prop);
+	if (rc < 0)
+			pr_err("Failed to get real charge type, rc=%d\n", rc);
+
+	if (!is_nocharge_type(prop.intval) && chip->charging_test_mode)
+		pr_info("%s: skip esr estimation during charging test\n", __func__);
+	else
+#endif
+	{
+		rc = qg_esr_estimate(chip);
+		if (rc < 0) {
+			pr_err("Failed to estimate ESR, rc=%d\n", rc);
+			goto done;
+		}
 	}
 
 	rc = get_fifo_done_time(chip, false, &hw_delta_ms);
@@ -1264,6 +1307,17 @@ static irqreturn_t qg_fifo_update_done_handler(int irq, void *data)
 
 	/* vote to stay awake until userspace reads data */
 	vote(chip->awake_votable, FIFO_DONE_VOTER, true, 0);
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	rc = power_supply_get_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_STATUS, &prop);
+	if (rc < 0)
+		pr_err("%s: Failed to get charger status, rc=%d\n", __func__, rc);
+	else {
+		if (prop.intval != POWER_SUPPLY_STATUS_CHARGING)
+			sec_bat_run_monitor_work();
+	}
+#endif
 
 done:
 	mutex_unlock(&chip->data_lock);
@@ -1674,6 +1728,36 @@ static const char *qg_get_battery_type(struct qpnp_qg *chip)
 	return DEFAULT_BATT_TYPE;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+static int qg_get_smd_status(struct qpnp_qg *chip)
+{
+#if defined(CONFIG_SEC_A90Q_PROJECT)
+	int temp = 0;
+#else
+	struct sec_battery_info *battery = get_sec_battery();
+	int sub_pcb_det = 0;
+#endif
+
+#if defined(CONFIG_SEC_A90Q_PROJECT)
+	/* RID_ADC_255K || RID_ADC_301K || RID_ADC_523K */
+	if ((get_rid_type() == 3) || (get_rid_type() == 4) || (get_rid_type() == 5)) {
+		qg_get_battery_temp(chip, &temp);
+		/* No batt therm */
+		if ((temp <= (-400)))
+			chip->is_smd = true;
+	}
+#else
+	/* No Sub PCB */
+	if (battery != NULL) {
+		sub_pcb_det = gpio_get_value(battery->gpio_sub_pcb_detect);
+		if (sub_pcb_det)
+			chip->is_smd = true;
+	}
+#endif
+	return 0;
+}
+#endif
+
 #define DEBUG_BATT_SOC		67
 #define BATT_MISSING_SOC	50
 #define EMPTY_SOC		0
@@ -1685,7 +1769,15 @@ static int qg_get_battery_capacity(struct qpnp_qg *chip, int *soc)
 		return 0;
 	}
 
-	if (chip->battery_missing || !chip->profile_loaded) {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+	qg_get_smd_status(chip);
+#endif
+
+	if (chip->battery_missing || !chip->profile_loaded
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+		|| chip->is_smd
+#endif
+	) {
 		*soc = BATT_MISSING_SOC;
 		return 0;
 	}
@@ -1875,6 +1967,26 @@ static int qg_ttf_awake_voter(void *data, bool val)
 	return 0;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+void qg_set_sdam_prifile_version(u8 ver)
+{
+	int rc;
+
+	pr_info("[%s] ver=0x%x\n", __func__, ver);
+
+	rc = qg_sdam_multibyte_write(QG_SDAM_PROFILE_VERSION_OFFSET, &ver, 1);
+
+	if (rc < 0)
+		pr_err("%s : Failed to write SDAM rc=%d\n", __func__, rc);
+
+	if (ver == 0xfa) {
+		sec_bat_set_current_event(SEC_BAT_CURRENT_EVENT_FG_RESET,
+			SEC_BAT_CURRENT_EVENT_FG_RESET);
+	}
+}
+EXPORT_SYMBOL(qg_set_sdam_prifile_version);
+#endif
+
 #define MAX_QG_OK_RETRIES	20
 static int qg_reset(struct qpnp_qg *chip)
 {
@@ -1886,6 +1998,9 @@ static int qg_reset(struct qpnp_qg *chip)
 
 	mutex_lock(&chip->data_lock);
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	can_shipmode = 0;
+#endif
 	/* hold and release master to clear FIFO's */
 	rc = qg_master_hold(chip, true);
 	if (rc < 0) {
@@ -1944,6 +2059,21 @@ static int qg_reset(struct qpnp_qg *chip)
 		goto done;
 	}
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+	if (get_rid_type() == 5){ 
+	/*RID_ADC_523K*/
+		if (is_usb_available(chip)){
+		union power_supply_propval prop = {0, };
+		rc = power_supply_get_property(chip->usb_psy,
+					   POWER_SUPPLY_PROP_VPH_VOLTAGE, &prop);
+
+			if (rc < 0)
+				  pr_err("Failed to get VOLTAGE_VPH, rc=%d\n", rc);
+			else
+				  ocv_uv = prop.intval;
+		}
+	}
+#endif	
 	qg_dbg(chip, QG_DEBUG_STATUS, "S7_OCV = %duV\n", ocv_uv);
 
 	chip->kdata.param[QG_GOOD_OCV_UV].data = ocv_uv;
@@ -1959,6 +2089,10 @@ static int qg_reset(struct qpnp_qg *chip)
 	wake_up_interruptible(&chip->qg_wait_q);
 
 done:
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	qg_set_sdam_prifile_version(0xfc);
+	can_shipmode = 1;
+#endif
 	mutex_unlock(&chip->data_lock);
 	return rc;
 }
@@ -2010,6 +2144,9 @@ static int qg_psy_set_property(struct power_supply *psy,
 {
 	struct qpnp_qg *chip = power_supply_get_drvdata(psy);
 	int rc = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property)psp;
+#endif
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
@@ -2050,6 +2187,33 @@ static int qg_psy_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_BATT_AGE_LEVEL:
 		rc = qg_setprop_batt_age_level(chip, pval->intval);
 		break;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_SS_FACTORY_MODE:
+		chip->charging_test_mode = pval->intval;
+		break;
+	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
+		switch (ext_psp) {
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+		case POWER_SUPPLY_EXT_PROP_BATT_TEMP_TEST:
+			chip->batt_test_batt_temp = pval->intval;
+			break;
+#endif
+		case POWER_SUPPLY_EXT_PROP_BATT_CYCLE:
+			chip->batt_cycle = pval->intval;
+			break;
+		case POWER_SUPPLY_EXT_PROP_SOC_RESCALE:
+			pr_info("%s: ss_rescale_soc = %d\n", __func__, pval->intval);
+			chip->ss_rescale_soc = pval->intval;
+			break;
+		case POWER_SUPPLY_EXT_PROP_CHARGE_FULL:
+			pr_info("%s: charge_full = %d\n", __func__, pval->intval);
+			chip->charge_full = pval->intval;
+			break;
+		default:
+			rc = -EINVAL;
+		}
+		break;
+#endif
 	default:
 		break;
 	}
@@ -2063,12 +2227,24 @@ static int qg_psy_get_property(struct power_supply *psy,
 	struct qpnp_qg *chip = power_supply_get_drvdata(psy);
 	int rc = 0;
 	int64_t temp = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	enum power_supply_ext_property ext_psp = (enum power_supply_ext_property)psp;
+	u32 ocv_uv = 0, ocv_raw = 0;
+#endif
 
 	pval->intval = 0;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CAPACITY:
 		rc = qg_get_battery_capacity(chip, &pval->intval);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		/* vph_power from 4.4 to 3.8V -> disableship mode -> AT:FUELGAIC=0(reset qg) -> AT:FUELGAIC=1(read qg) -> enable shipmode */
+		if (get_rid_type() == 5 /* RID_ADC_523K */ && !sec_bat_get_ship_mode() && can_shipmode) {
+			qg_set_sdam_prifile_version(0xfa);	// fg_reset in next booting
+			sec_bat_set_ship_mode(1);
+			sec_bat_set_fet_control(0);
+		}
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		pval->intval = chip->sys_soc;
@@ -2188,6 +2364,31 @@ static int qg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_BATT_AGE_LEVEL:
 		pval->intval = chip->batt_age_level;
 		break;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	case POWER_SUPPLY_PROP_MAX ... POWER_SUPPLY_EXT_PROP_MAX:
+		switch (ext_psp) {
+		case POWER_SUPPLY_EXT_PROP_BATT_TEMP_ADC:
+			iio_read_channel_raw(chip->batt_therm_chan, &pval->intval);
+			break;
+		case POWER_SUPPLY_EXT_PROP_PON_OCV:
+			rc = qg_read_ocv(chip, &ocv_uv, &ocv_raw, S7_PON_OCV);
+			pval->intval = ocv_uv;
+			break;
+		case POWER_SUPPLY_EXT_PROP_FULL_CONDITION_SOC:
+			pval->intval = chip->full_condition_soc;
+			break;
+		case POWER_SUPPLY_EXT_PROP_RAW_CAP:
+			if (chip->udata.param[QG_SYS_SOC].valid)
+				pval->intval = chip->udata.param[QG_SYS_SOC].data / 10;
+			else
+				pval->intval = chip->udata.param[QG_SOC].data * 10;
+			break;
+
+		default:
+			rc = -EINVAL;
+		}
+		break;
+#endif
 	default:
 		pr_debug("Unsupported property %d\n", psp);
 		break;
@@ -2279,6 +2480,10 @@ static int qg_charge_full_update(struct qpnp_qg *chip)
 {
 	union power_supply_propval prop = {0, };
 	int rc, recharge_soc, health;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	struct sec_battery_info *battery = get_sec_battery();
+	int charge_status, voltage_now, recharge_vbat, fixed_recharge_vbat;
+#endif
 
 	if (!chip->dt.hold_soc_while_full)
 		goto out;
@@ -2290,6 +2495,19 @@ static int qg_charge_full_update(struct qpnp_qg *chip)
 		goto out;
 	}
 	health = prop.intval;
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if ((battery != NULL) && (battery->current_event & SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING))
+		health = POWER_SUPPLY_HEALTH_WARM;
+
+	power_supply_get_property(chip->batt_psy,
+		POWER_SUPPLY_PROP_VOLTAGE_NOW, &prop);
+	voltage_now = prop.intval;
+
+	power_supply_get_property(chip->usb_psy,
+		(enum power_supply_property)POWER_SUPPLY_EXT_FIXED_RECHARGE_VBAT, &prop);
+	fixed_recharge_vbat = prop.intval * 1000;
+#endif
 
 	rc = power_supply_get_property(chip->batt_psy,
 			POWER_SUPPLY_PROP_RECHARGE_SOC, &prop);
@@ -2305,7 +2523,11 @@ static int qg_charge_full_update(struct qpnp_qg *chip)
 				chip->msoc, health, chip->charge_full,
 				chip->charge_done);
 	if (chip->charge_done && !chip->charge_full) {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		if (chip->msoc >= 99 && health == POWER_SUPPLY_HEALTH_GOOD && voltage_now > fixed_recharge_vbat) {
+#else
 		if (chip->msoc >= 99 && health == POWER_SUPPLY_HEALTH_GOOD) {
+#endif
 			chip->charge_full = true;
 			qg_dbg(chip, QG_DEBUG_STATUS, "Setting charge_full (0->1) @ msoc=%d\n",
 					chip->msoc);
@@ -2323,9 +2545,23 @@ static int qg_charge_full_update(struct qpnp_qg *chip)
 		 * force a recharge only if SOC <= recharge SOC and
 		 * we have not started charging.
 		 */
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		rc = power_supply_get_property(chip->batt_psy,
+				POWER_SUPPLY_PROP_CHARGE_TYPE, &prop);
+		charge_status = prop.intval;
+		
+		rc = power_supply_get_property(chip->batt_psy,
+				POWER_SUPPLY_PROP_RECHARGE_VBAT, &prop);
+		recharge_vbat = prop.intval;
+#endif
 		if ((chip->wa_flags & QG_RECHARGE_SOC_WA) &&
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			input_present && voltage_now < recharge_vbat &&
+			charge_status == POWER_SUPPLY_CHARGE_TYPE_NONE) {
+#else
 			input_present && chip->msoc <= recharge_soc &&
 			chip->charge_status != POWER_SUPPLY_STATUS_CHARGING) {
+#endif
 			/* Force recharge */
 			prop.intval = 0;
 			rc = power_supply_set_property(chip->batt_psy,
@@ -2481,6 +2717,90 @@ static int qg_handle_battery_insertion(struct qpnp_qg *chip)
 	return 0;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+static int qg_battery_aging_update(struct qpnp_qg *chip)
+{
+	int rc, cycle_count = 0, vbat = 0, full_condi_soc = 0;
+	union power_supply_propval prop = {0, };
+/*
+	rc = get_cycle_count(chip->counter, &cycle_count);
+
+	if (rc < 0) {
+		pr_err("Failed to get cycle count, rc=%d\n", rc);
+		return 0;
+	}
+	*/
+	cycle_count = chip->batt_cycle;
+
+//	if (cycle_count % 50) 
+//		return 0;
+
+	rc = get_val(chip->vfloat_data, cycle_count, &vbat);
+	if (rc < 0) {
+		pr_err("Failed to get vfloat, rc=%d\n", rc);
+		return 0;
+	}
+	if (chip->bp.float_volt_uv == vbat)
+		return 0;
+	chip->bp.float_volt_uv = vbat;
+
+	rc = get_val(chip->vbat_rechg_data, cycle_count, &vbat);
+	if (rc < 0) {
+		pr_err("Failed to get vbat-rechg, rc=%d\n", rc);
+		return 0;
+	}
+
+	if (!is_batt_available(chip))
+		return 0;
+
+	prop.intval = chip->bp.float_volt_uv;
+	rc = power_supply_set_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_VOLTAGE_MAX, &prop);
+	if (rc < 0) {
+		pr_err("Failed to set voltage_max property on batt_psy, rc=%d\n",
+			rc);
+		return 0;
+	}
+	
+	if (!is_usb_available(chip))
+		return 0;
+	
+	vbat = vbat / 1000;	// mV
+	rc = power_supply_get_property(chip->usb_psy,
+			(enum power_supply_property)POWER_SUPPLY_EXT_FIXED_RECHARGE_VBAT, &prop);
+	if (rc < 0) {
+		pr_err("Failed to get fixed recharge vbat, rc=%d\n", rc);
+		return 0;
+	} else {
+		if (vbat != prop.intval) {
+			prop.intval = vbat;
+			rc = power_supply_set_property(chip->usb_psy,
+					(enum power_supply_property)POWER_SUPPLY_EXT_FIXED_RECHARGE_VBAT, &prop);
+				if (rc < 0) {
+					pr_err("Failed to get vbat-rechg, rc=%d\n", rc);
+					return 0;
+				}
+		}
+	}
+		prop.intval = vbat;
+		rc = power_supply_set_property(chip->batt_psy,
+				(enum power_supply_property) POWER_SUPPLY_EXT_PROP_RECHARGE_VBAT_AGING, &prop);
+		if (rc < 0) {
+			pr_err("Failed to set recharge voltage property on batt_psy, rc=%d\n",
+				rc);
+		}
+
+	rc = get_val(chip->full_condition_soc_data, cycle_count, &full_condi_soc);
+	if (rc < 0) {
+		pr_err("Failed to get full condition soc, rc=%d\n", rc);
+		return 0;
+	}
+	chip->full_condition_soc = full_condi_soc;
+	
+	return 0;
+}
+#endif
+
 static int qg_battery_status_update(struct qpnp_qg *chip)
 {
 	int rc;
@@ -2617,6 +2937,11 @@ static void qg_status_change_work(struct work_struct *work)
 		pr_err("Failed in charge_full_update, rc=%d\n", rc);
 
 	ttf_update(chip->ttf, input_present);
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if (chip->bp.qg_batt_aging_enable)
+		qg_battery_aging_update(chip);
+#endif
 out:
 	pm_relax(chip->dev);
 }
@@ -2896,6 +3221,75 @@ static int get_batt_id_ohm(struct qpnp_qg *chip, u32 *batt_id_ohm)
 	return 0;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+static int read_range_data_from_node_for_aging(struct device_node *node,
+		const char *prop_str, struct range_data *ranges,
+		u32 max_threshold, u32 max_value)
+{
+	int rc = 0, i, length, per_tuple_length, tuples;
+
+	rc = of_property_count_elems_of_size(node, prop_str, sizeof(u32));
+	if (rc < 0) {
+		pr_err("Count %s failed, rc=%d\n", prop_str, rc);
+		return rc;
+	}
+
+	length = rc;
+	per_tuple_length = sizeof(struct range_data) / sizeof(u32);
+	if (length % per_tuple_length) {
+		pr_err("%s length (%d) should be multiple of %d\n",
+				prop_str, length, per_tuple_length);
+		return -EINVAL;
+	}
+	tuples = length / per_tuple_length;
+
+	if (tuples > MAX_VFLOAT_ENTRIES) {
+		pr_err("too many entries(%d), only %d allowed\n",
+				tuples, MAX_VFLOAT_ENTRIES);
+		return -EINVAL;
+	}
+
+	rc = of_property_read_u32_array(node, prop_str,
+			(u32 *)ranges, length);
+	if (rc) {
+		pr_err("Read %s failed, rc=%d", prop_str, rc);
+		return rc;
+	}
+
+	for (i = 0; i < tuples; i++) {
+		if (ranges[i].low_threshold >
+				ranges[i].high_threshold) {
+			pr_err("%s thresholds should be in ascendant ranges\n",
+						prop_str);
+			rc = -EINVAL;
+			goto clean;
+		}
+
+		if (i != 0) {
+			if (ranges[i - 1].high_threshold >
+					ranges[i].low_threshold) {
+				pr_err("%s thresholds should be in ascendant ranges\n",
+							prop_str);
+				rc = -EINVAL;
+				goto clean;
+			}
+		}
+
+		if (ranges[i].low_threshold > max_threshold)
+			ranges[i].low_threshold = max_threshold;
+		if (ranges[i].high_threshold > max_threshold)
+			ranges[i].high_threshold = max_threshold;
+		if (ranges[i].value > max_value)
+			ranges[i].value = max_value;
+	}
+
+	return rc;
+clean:
+	memset(ranges, 0, tuples * sizeof(struct range_data));
+	return rc;
+}
+#endif
+
 static int qg_load_battery_profile(struct qpnp_qg *chip)
 {
 	struct device_node *node = chip->dev->of_node;
@@ -3036,10 +3430,58 @@ static int qg_load_battery_profile(struct qpnp_qg *chip)
 				chip->ttf->step_chg_cfg[i].value);
 		}
 	}
-
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	rc = of_property_read_u32(profile_node, "qcom,fih-batt-profile-ver",
+				&chip->bp.fih_profile_version);
+	if (rc < 0) {
+		pr_err("Failed to read FIH profile version rc:%d\n", rc);
+		chip->bp.fih_profile_version = -EINVAL;
+	}
+#endif
 	qg_dbg(chip, QG_DEBUG_PROFILE, "profile=%s FV=%duV FCC=%dma\n",
 			chip->bp.batt_type_str, chip->bp.float_volt_uv,
 			chip->bp.fastchg_curr_ma);
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	chip->bp.qg_batt_aging_enable = of_property_read_bool(profile_node,
+						 "qcom,qg-batt-aging-enable");
+
+	if (chip->bp.qg_batt_aging_enable) {
+		rc = read_range_data_from_node_for_aging(profile_node,
+				"qcom,vfloat-ranges",
+				chip->vfloat_data,
+				MAX_CYCLE_COUNT,
+				chip->bp.float_volt_uv);
+		if (rc < 0) {
+			pr_err("Read qcom,vfloat-ranges failed from battery profile, rc=%d\n",
+					rc);
+			chip->bp.qg_batt_aging_enable = false;
+			return 0;
+		}
+
+		rc = read_range_data_from_node_for_aging(profile_node,
+				"qcom,vbat-rechg-ranges",
+				chip->vbat_rechg_data,
+				MAX_CYCLE_COUNT,
+				chip->bp.float_volt_uv);
+		if (rc < 0) {
+			pr_err("Read qcom,vbat-rechg-ranges failed from battery profile, rc=%d\n",
+					rc);
+			chip->bp.qg_batt_aging_enable = false;
+		}
+
+		rc = read_range_data_from_node_for_aging(profile_node,
+				"qcom,full-condition-soc-ranges",
+				chip->full_condition_soc_data,
+				MAX_CYCLE_COUNT,
+				93);
+		if (rc < 0) {
+			pr_err("Read qcom,full-condition-soc-ranges failed from battery profile, rc=%d\n",
+					rc);
+			chip->bp.qg_batt_aging_enable = false;
+		}
+	}
+#endif
 
 	return 0;
 }
@@ -3100,6 +3542,10 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 		qg_dbg(chip, QG_DEBUG_PON, "No Profile, skipping PON soc\n");
 		return 0;
 	}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	/* Update the vfloat based on cycle_count*/
+	qg_battery_aging_update(chip);
+#endif
 
 	/* read all OCVs */
 	for (i = S7_PON_OCV; i < PON_OCV_MAX; i++) {
@@ -3130,6 +3576,7 @@ static int qg_determine_pon_soc(struct qpnp_qg *chip)
 		pr_err("Failed to read shutdown params rc=%d\n", rc);
 		goto use_pon_ocv;
 	}
+
 	shutdown_temp = sign_extend32(shutdown[SDAM_TEMP], 15);
 
 	rc = lookup_soc_ocv(&pon_soc, ocv[S7_PON_OCV].ocv_uv, batt_temp, false);
@@ -3593,6 +4040,33 @@ static int qg_soh_batt_profile_init(struct qpnp_qg *chip)
 	return rc;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+static int qg_profile_version_check(struct qpnp_qg *chip)
+{
+	int rc;
+	u8 sdam_profile_version = 0;
+
+	if ((chip->profile_loaded) && (chip->bp.fih_profile_version > 0)) {
+		rc = qg_sdam_multibyte_read(QG_SDAM_PROFILE_VERSION_OFFSET,
+			&sdam_profile_version, 1);
+		pr_info("[%s] dt_ver : 0x%x , sdam_ver : 0x%x\n", __func__, chip->bp.fih_profile_version, sdam_profile_version);
+		if (rc < 0)
+			pr_err("Failed to read SDAM rc=%d\n", rc);
+		else if (chip->bp.fih_profile_version != sdam_profile_version) {
+			rc = qg_handle_battery_removal(chip);
+			if (rc < 0)
+				pr_err("Failed to clear SDAM rc=%d\n", rc);
+			rc = qg_sdam_multibyte_write(QG_SDAM_PROFILE_VERSION_OFFSET,
+				(u8 *)&chip->bp.fih_profile_version, 1);
+			if (rc < 0)
+				pr_err("Failed to write SDAM rc=%d\n", rc);
+		}
+	}
+
+	return rc;
+}
+#endif
+
 static int qg_post_init(struct qpnp_qg *chip)
 {
 	u8 status = 0;
@@ -3877,6 +4351,11 @@ static int qg_parse_dt(struct qpnp_qg *chip)
 		pr_err("QG device node missing\n");
 		return -EINVAL;
 	}
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	chip->dt.fake_temp = of_property_read_bool(node,
+					"qcom,fake_temp");
+#endif
 
 	/* S2 state params */
 	rc = of_property_read_u32(node, "qcom,s2-fifo-length", &temp);
@@ -4515,6 +4994,16 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 	chip->esr_actual = -EINVAL;
 	chip->esr_nominal = -EINVAL;
 	chip->batt_age_level = -EINVAL;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	chip->ss_rescale_soc = 0;
+	chip->full_condition_soc = 93;
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+	chip->batt_test_batt_temp = -900;
+#endif
+#if defined(CONFIG_SEC_FACTORY)
+	chip->is_smd = false;
+#endif
+#endif
 
 	rc = qg_alg_init(chip);
 	if (rc < 0) {
@@ -4557,6 +5046,14 @@ static int qpnp_qg_probe(struct platform_device *pdev)
 		pr_err("Failed to sanitize SDAM, rc=%d\n", rc);
 		return rc;
 	}
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	rc = qg_profile_version_check(chip);
+	if (rc < 0) {
+		pr_err("Failed to claer QG SDAM, rc=%d\n", rc);
+		return rc;
+	}
+#endif
 
 	rc = qg_soc_init(chip);
 	if (rc < 0) {

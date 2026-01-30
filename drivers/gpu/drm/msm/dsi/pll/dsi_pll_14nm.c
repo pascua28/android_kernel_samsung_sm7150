@@ -219,6 +219,10 @@ static bool pll_14nm_poll_for_ready(struct dsi_pll_14nm *pll_14nm,
 	return pll_locked;
 }
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+extern int vdd_pll_ssc_disabled;
+#endif
+
 static void dsi_pll_14nm_input_init(struct dsi_pll_14nm *pll)
 {
 	pll->in.fref = pll->vco_ref_clk_rate;
@@ -261,6 +265,14 @@ static void dsi_pll_14nm_input_init(struct dsi_pll_14nm *pll)
 	pll->in.pll_iptat_trim = 7;
 	pll->in.pll_c3ctrl = 2;
 	pll->in.pll_r3ctrl = 1;
+
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	if (vdd_pll_ssc_disabled) {
+		pr_err_once("[14nm] disable pll ssc %d\n", vdd_pll_ssc_disabled);
+		pll->in.ssc_en = false;
+	}
+#endif
 }
 
 #define CEIL(x, y)		(((x) + ((y) - 1)) / (y))

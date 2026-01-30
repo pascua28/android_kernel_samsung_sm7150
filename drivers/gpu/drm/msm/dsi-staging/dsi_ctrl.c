@@ -33,6 +33,11 @@
 
 #include "sde_dbg.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include "ss_dsi_panel_common.h"
+#include "sde_trace.h"
+#endif
+
 #define DSI_CTRL_DEFAULT_LABEL "MDSS DSI CTRL"
 
 #define DSI_CTRL_TX_TO_MS     200
@@ -1323,7 +1328,6 @@ kickoff:
 							      &cmd,
 							      hw_flags);
 		}
-
 		ret = wait_for_completion_timeout(
 				&dsi_ctrl->irq_info.cmd_dma_done,
 				msecs_to_jiffies(DSI_CTRL_TX_TO_MS));
@@ -1927,7 +1931,7 @@ static struct platform_driver dsi_ctrl_driver = {
 	},
 };
 
-
+#ifdef CONFIG_DEBUG_KERNEL
 void dsi_ctrl_debug_dump(u32 *entries, u32 size)
 {
 	struct list_head *pos, *tmp;
@@ -1947,6 +1951,12 @@ void dsi_ctrl_debug_dump(u32 *entries, u32 size)
 	}
 	mutex_unlock(&dsi_ctrl_list_lock);
 }
+#else
+
+void dsi_ctrl_debug_dump(u32 *entries, u32 size)
+{
+}
+#endif
 
 /**
  * dsi_ctrl_get() - get a dsi_ctrl handle from an of_node
@@ -2422,7 +2432,7 @@ static void dsi_ctrl_handle_error_status(struct dsi_ctrl *dsi_ctrl,
 	}
 
 	/* DSI FIFO UNDERFLOW error */
-	if (error & 0xF00000) {
+	if (error & 0xF00000) {	
 		if (cb_info.event_cb) {
 			cb_info.event_idx = DSI_FIFO_UNDERFLOW;
 			(void)cb_info.event_cb(cb_info.event_usr_ptr,
@@ -2457,6 +2467,11 @@ static void dsi_ctrl_handle_error_status(struct dsi_ctrl *dsi_ctrl,
 	/* enable back DSI interrupts */
 	if (dsi_ctrl->hw.ops.error_intr_ctrl)
 		dsi_ctrl->hw.ops.error_intr_ctrl(&dsi_ctrl->hw, true);
+
+
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	ss_get_vdd(dsi_ctrl->cell_index)->dsi_errors = error;
+#endif
 }
 
 /**

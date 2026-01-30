@@ -196,12 +196,11 @@ int cam_vfe_deinit_soc_resources(struct cam_hw_soc_info *soc_info)
 	if (rc)
 		CAM_ERR(CAM_ISP, "CPAS0 unregistration failed rc=%d", rc);
 
-	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120) {
+	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120)
 		rc = cam_cpas_unregister_client(soc_private->cpas_handle[1]);
 		if (rc)
 			CAM_ERR(CAM_ISP, "CPAS1 unregistration failed rc=%d",
 				rc);
-	}
 
 	rc = cam_vfe_release_platform_resource(soc_info);
 	if (rc < 0)
@@ -236,7 +235,6 @@ int cam_vfe_enable_soc_resources(struct cam_hw_soc_info *soc_info)
 	ahb_vote.vote.level = CAM_SVS_VOTE;
 
 	axi_vote.compressed_bw   = 10640000000L;
-	axi_vote.compressed_bw_ab   = 10640000000L;
 	axi_vote.uncompressed_bw = 10640000000L;
 
 	rc = cam_cpas_start(soc_private->cpas_handle[0], &ahb_vote, &axi_vote);
@@ -246,7 +244,7 @@ int cam_vfe_enable_soc_resources(struct cam_hw_soc_info *soc_info)
 		goto end;
 	}
 
-	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120) {
+	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120)
 		rc = cam_cpas_start(soc_private->cpas_handle[1], &ahb_vote,
 			&axi_vote);
 		if (rc) {
@@ -254,7 +252,6 @@ int cam_vfe_enable_soc_resources(struct cam_hw_soc_info *soc_info)
 			rc = -EFAULT;
 			goto end;
 		}
-	}
 
 	rc = cam_soc_util_enable_platform_resource(soc_info, true,
 		CAM_TURBO_VOTE, true);
@@ -346,13 +343,12 @@ int cam_vfe_disable_soc_resources(struct cam_hw_soc_info *soc_info)
 		return rc;
 	}
 
-	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120) {
+	if (!rc && soc_private->cpas_version == CAM_CPAS_TITAN_175_V120)
 		rc = cam_cpas_stop(soc_private->cpas_handle[1]);
 		if (rc) {
 			CAM_ERR(CAM_ISP, "Error! CPAS stop failed rc=%d", rc);
 			return rc;
 		}
-	}
 
 	return rc;
 }

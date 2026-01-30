@@ -1488,7 +1488,7 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 	u8 val, mask;
 
 	if (snode->enabled == on) {
-		pr_debug("Switch node is already %s!\n",
+		pr_err("Switch node is already %s!\n",
 			on ? "enabled" : "disabled");
 		return 0;
 	}
@@ -1516,8 +1516,10 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 
 	rc = qpnp_flash_led_masked_write(led, FLASH_LED_REG_IRES(led->base),
 						FLASH_LED_CURRENT_MASK, val);
-	if (rc < 0)
+	if (rc < 0) {
+		pr_err("%s %d sertting current failed, rc=%d\n", __func__, __LINE__, rc);
 		return rc;
+	}
 
 	val = 0;
 	for (i = 0; i < led->num_fnodes; i++) {
@@ -1621,8 +1623,11 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 	rc = qpnp_flash_led_masked_write(led,
 					FLASH_LED_EN_LED_CTRL(led->base),
 					snode->led_mask, val);
-	if (rc < 0)
+	if (rc < 0) {
+		pr_err("%s write data to 0x%x failed led_mask=0x%x val=0x%x\n", __func__,
+			FLASH_LED_EN_LED_CTRL(led->base), snode->led_mask, val);
 		return rc;
+	}
 
 	snode->enabled = true;
 	return 0;

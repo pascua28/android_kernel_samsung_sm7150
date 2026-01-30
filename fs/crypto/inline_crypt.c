@@ -356,9 +356,11 @@ void fscrypt_set_bio_crypt_ctx(struct bio *bio, const struct inode *inode,
 	fscrypt_generate_dun(ci, first_lblk, dun);
 	bio_crypt_set_ctx(bio, &ci->ci_key.blk_key->base, dun, gfp_mask);
 	if ((fscrypt_policy_contents_mode(&ci->ci_policy) ==
-	    FSCRYPT_MODE_PRIVATE) &&
-	    (!strcmp(inode->i_sb->s_type->name, "ext4")))
-		bio->bi_crypt_context->is_ext4 = true;
+		FSCRYPT_MODE_PRIVATE) &&
+		(!strcmp(inode->i_sb->s_type->name, "ext4")))
+			bio->bi_crypt_context->is_ext4 = true;
+	else
+			bio->bi_crypt_context->is_ext4 = false;
 }
 EXPORT_SYMBOL_GPL(fscrypt_set_bio_crypt_ctx);
 
