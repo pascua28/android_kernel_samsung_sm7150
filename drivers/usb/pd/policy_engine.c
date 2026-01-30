@@ -28,6 +28,31 @@
 #include <linux/usb/class-dual-role.h>
 #include <linux/usb/usbpd.h>
 #include "usbpd.h"
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+#include <linux/usb/typec/pm6150/pm6150_typec.h>
+#endif
+#if defined(CONFIG_TYPEC)
+#include <linux/usb/typec.h>
+#endif
+#if defined(CONFIG_USB_HOST_NOTIFY)
+#include <linux/usb_notify.h>
+#endif
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#define SEC_PD_VOLT_LIMIT 11000 /* mV */
+/* Number of PDOs having max voltage less than equal to 11V */
+static int pd_count;
+/* Maximum PD power calculated from PDOs having max voltage less than equal to 11V */
+static unsigned int max_pd_power;
+/* ps ready message*/
+static bool ps_ready;
+enum kakao_state {
+	KAKAO_NONE,
+	KAKAO_FIRST_PDO,
+	KAKAO_SECOND_PDO,
+	KAKAO_REQUESTED_9V,
+};
+#endif
 
 enum usbpd_state {
 	PE_UNKNOWN,
@@ -202,7 +227,7 @@ static void *usbpd_ipc_log;
 #define usbpd_dbg(dev, fmt, ...) do { \
 	ipc_log_string(usbpd_ipc_log, "%s: %s: " fmt, dev_name(dev), __func__, \
 			##__VA_ARGS__); \
-	dev_dbg(dev, fmt, ##__VA_ARGS__); \
+	dev_info(dev, fmt, ##__VA_ARGS__); \
 	} while (0)
 
 #define usbpd_info(dev, fmt, ...) do { \
@@ -214,7 +239,7 @@ static void *usbpd_ipc_log;
 #define usbpd_warn(dev, fmt, ...) do { \
 	ipc_log_string(usbpd_ipc_log, "%s: %s: " fmt, dev_name(dev), __func__, \
 			##__VA_ARGS__); \
-	dev_warn(dev, fmt, ##__VA_ARGS__); \
+	dev_info(dev, fmt, ##__VA_ARGS__); \
 	} while (0)
 
 #define usbpd_err(dev, fmt, ...) do { \
@@ -343,6 +368,9 @@ static void *usbpd_ipc_log;
 	(((svid) << 16) | (1 << 15) | ((ver) << 13) \
 	| ((obj) << 8) | ((cmd_type) << 6) | (cmd))
 
+#define UVDM_HDR(vid, vendor_cmd) \
+	(((vid) << 16) | (0 << 15) | (vendor_cmd))
+
 /* discover id response vdo bit fields */
 #define ID_HDR_USB_HOST		BIT(31)
 #define ID_HDR_USB_DEVICE	BIT(30)
@@ -357,7 +385,7 @@ static void *usbpd_ipc_log;
 static bool check_vsafe0v = true;
 module_param(check_vsafe0v, bool, 0600);
 
-static int min_sink_current = 900;
+static int min_sink_current = 500;
 module_param(min_sink_current, int, 0600);
 
 static const u32 default_src_caps[] = { 0x36019096 };	/* VSafe5V @ 1.5A */
@@ -425,6 +453,9 @@ struct usbpd {
 	struct power_supply	*usb_psy;
 	struct power_supply	*bat_psy;
 	struct power_supply	*bms_psy;
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	struct power_supply	*otg_psy;
+#endif
 	struct notifier_block	psy_nb;
 
 	int			bms_charge_full;
@@ -445,14 +476,29 @@ struct usbpd {
 	u8			next_tx_chunk;
 
 	struct mutex		swap_lock;
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	struct dual_role_phy_instance	*dual_role;
 	struct dual_role_phy_desc	dr_desc;
+#elif defined(CONFIG_TYPEC)
+	struct typec_port *port;
+	struct typec_partner *partner;
+	struct usb_pd_identity partner_identity;
+	struct typec_capability typec_cap;
+	struct completion typec_reverse_completion;
+	int typec_power_role;
+	int typec_data_role;
+	int typec_try_state_change;
+	int pwr_opmode;
+#endif
 	bool			send_pr_swap;
 	bool			send_dr_swap;
 
 	struct regulator	*vbus;
 	struct regulator	*vconn;
 	bool			vbus_enabled;
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	bool			need_vbus_force_disable;
+#endif
 	bool			vconn_enabled;
 
 	u8			tx_msgid[SOPII_MSG + 1];
@@ -488,6 +534,12 @@ struct usbpd {
 	u8			get_battery_status_db;
 	bool			send_get_battery_status;
 	u32			battery_sts_dobj;
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)	
+	struct pm6150_phydrv_data *phy_driver_data;
+#endif
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	int			is_kakao;
+#endif
 };
 
 static LIST_HEAD(_usbpd);	/* useful for debugging */
@@ -500,6 +552,15 @@ static const unsigned int usbpd_extcon_cable[] = {
 };
 
 static void handle_vdm_tx(struct usbpd *pd, enum pd_sop_type sop_type);
+
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+extern void pm6150_ccic_event_work(int dest,
+		int id, int attach, int event, int sub);
+extern void pm6150_set_cable(int cable);
+extern int pm6150_usbpd_create(struct device* dev, struct pm6150_phydrv_data **parent_data);
+extern int pm6150_usbpd_destroy(void);
+extern void pm6150_set_pd_state(int state);
+#endif
 
 enum plug_orientation usbpd_get_plug_orientation(struct usbpd *pd)
 {
@@ -515,6 +576,7 @@ enum plug_orientation usbpd_get_plug_orientation(struct usbpd *pd)
 }
 EXPORT_SYMBOL(usbpd_get_plug_orientation);
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 static unsigned int get_connector_type(struct usbpd *pd)
 {
 	int ret;
@@ -529,10 +591,159 @@ static unsigned int get_connector_type(struct usbpd *pd)
 	}
 	return val.intval;
 }
+#endif
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+unsigned int get_pd_max_power()
+{
+	return max_pd_power;
+
+}
+
+int get_pd_cap_count()
+{
+	return pd_count;
+}
+
+bool get_ps_ready_status()
+{
+	return ps_ready;
+}
+#endif
+
+void usbpd_acc_detach(struct device *dev)
+{	
+	struct usbpd *pd = dev_get_drvdata(dev);
+
+	pr_info("%s: acc_type %d\n",
+		__func__, pd->phy_driver_data->acc_type);
+	if (pd->phy_driver_data->acc_type != CCIC_DOCK_DETACHED) {
+		if (pd->phy_driver_data->acc_type == CCIC_DOCK_HMT)
+			schedule_delayed_work(&pd->phy_driver_data->acc_detach_handler,
+				msecs_to_jiffies(GEAR_VR_DETACH_WAIT_MS));
+		else
+			schedule_delayed_work(&pd->phy_driver_data->acc_detach_handler,
+				msecs_to_jiffies(0));
+	}
+}
+
+static void usbpd_acc_detach_handler(struct work_struct *wk)
+{
+
+	struct pm6150_phydrv_data *phy_driver_data =
+		container_of(wk, struct pm6150_phydrv_data,
+				acc_detach_handler.work);
+
+	pr_info("%s: acc_type %d\n",
+		__func__, phy_driver_data->acc_type);
+	if (phy_driver_data->acc_type != CCIC_DOCK_DETACHED) {
+		if (phy_driver_data->acc_type != CCIC_DOCK_NEW)
+			ccic_send_dock_intent(CCIC_DOCK_DETACHED);
+		ccic_send_dock_uevent(phy_driver_data->Vendor_ID,
+				phy_driver_data->Product_ID,
+				CCIC_DOCK_DETACHED);
+		phy_driver_data->acc_type = CCIC_DOCK_DETACHED;
+		phy_driver_data->Vendor_ID = 0;
+		phy_driver_data->Product_ID = 0;
+		phy_driver_data->Device_Version = 0;
+		phy_driver_data->is_samsung_accessory_enter_mode = 0;
+#if 0		
+		pd->alt_sended = 0;
+		pd->SVID_0 = 0;
+		pd->SVID_1 = 0;
+		pd->Standard_Vendor_ID = 0;
+		
+		
+		reinit_completion(&pd->uvdm_out_wait);
+		reinit_completion(&pd->uvdm_in_wait);
+#endif		
+	}
+}
+
+static int process_check_accessory(void * data)
+{
+	struct usbpd *pd = data;
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_USB_HW_PARAM)
+	struct otg_notify *o_notify = get_otg_notify();
+#endif
+	uint16_t vid = pd->phy_driver_data->Vendor_ID;
+	uint16_t pid = pd->phy_driver_data->Product_ID;
+	uint16_t acc_type = CCIC_DOCK_DETACHED;
+
+	/* detect Gear VR */
+	if (pd->phy_driver_data->acc_type == CCIC_DOCK_DETACHED) {
+		if (vid == SAMSUNG_VENDOR_ID) {
+			switch (pid) {
+			/* GearVR: Reserved GearVR PID+6 */
+			case GEARVR_PRODUCT_ID:
+			case GEARVR_PRODUCT_ID_1:
+			case GEARVR_PRODUCT_ID_2:
+			case GEARVR_PRODUCT_ID_3:
+			case GEARVR_PRODUCT_ID_4:
+			case GEARVR_PRODUCT_ID_5:
+				acc_type = CCIC_DOCK_HMT;
+				pr_info("%s : Samsung Gear VR connected.\n", __func__);
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_USB_HW_PARAM)
+				if (o_notify)
+					inc_hw_param(o_notify, USB_CCIC_VR_USE_COUNT);
+#endif
+				break;
+			case DEXDOCK_PRODUCT_ID:
+				acc_type = CCIC_DOCK_DEX;
+				pr_info("%s : Samsung DEX connected.\n", __func__);
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_USB_HW_PARAM)
+				if (o_notify)
+					inc_hw_param(o_notify, USB_CCIC_DEX_USE_COUNT);
+#endif
+				break;
+			case DEXPAD_PRODUCT_ID:
+				acc_type = CCIC_DOCK_DEXPAD;
+				pr_info("%s : Samsung DEX PADconnected.\n", __func__);
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_USB_HW_PARAM)
+				if (o_notify)
+					inc_hw_param(o_notify, USB_CCIC_DEX_USE_COUNT);
+#endif
+				break;
+			case HDMI_PRODUCT_ID:
+				acc_type = CCIC_DOCK_HDMI;
+				pr_info("%s : Samsung HDMI connected.\n", __func__);
+				break;
+			default:
+				acc_type = CCIC_DOCK_NEW;
+				pr_info("%s : default device connected.\n", __func__);
+				break;
+			}
+		} else if (vid == SAMSUNG_MPA_VENDOR_ID) {
+			switch(pid) {
+			case MPA_PRODUCT_ID:
+				acc_type = CCIC_DOCK_MPA;
+				pr_info("%s : Samsung MPA connected.\n", __func__);
+				break;
+			default:
+				acc_type = CCIC_DOCK_NEW;
+				pr_info("%s : default device connected.\n", __func__);
+				break;
+			}
+		}
+		pd->phy_driver_data->acc_type = acc_type;
+	} else
+		acc_type = pd->phy_driver_data->acc_type;
+
+	if (acc_type != CCIC_DOCK_NEW)
+		ccic_send_dock_intent(acc_type);
+
+	ccic_send_dock_uevent(vid, pid, acc_type);
+		return 1;
+}
 
 static inline void stop_usb_host(struct usbpd *pd)
 {
 	extcon_set_state_sync(pd->extcon, EXTCON_USB_HOST, 0);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s\n", __func__);
+	pm6150_ccic_event_work(CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
+		CCIC_NOTIFY_DETACH/*detach*/, USB_STATUS_NOTIFY_DETACH/*drp*/, 0);
+#endif
 }
 
 static inline void start_usb_host(struct usbpd *pd, bool ss)
@@ -549,11 +760,21 @@ static inline void start_usb_host(struct usbpd *pd, bool ss)
 			EXTCON_PROP_USB_SS, val);
 
 	extcon_set_state_sync(pd->extcon, EXTCON_USB_HOST, 1);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: CC orientation: %d\n", __func__, cc);
+	pm6150_ccic_event_work(CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
+		CCIC_NOTIFY_ATTACH/*attach*/, USB_STATUS_NOTIFY_ATTACH_DFP/*drp*/, 0);
+#endif
 }
 
 static inline void stop_usb_peripheral(struct usbpd *pd)
 {
 	extcon_set_state_sync(pd->extcon, EXTCON_USB, 0);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s\n", __func__);
+	pm6150_ccic_event_work(CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
+		CCIC_NOTIFY_DETACH/*detach*/, USB_STATUS_NOTIFY_DETACH/*drp*/, 0);
+#endif
 }
 
 static inline void start_usb_peripheral(struct usbpd *pd)
@@ -573,17 +794,42 @@ static inline void start_usb_peripheral(struct usbpd *pd)
 			EXTCON_PROP_USB_TYPEC_MED_HIGH_CURRENT, val);
 
 	extcon_set_state_sync(pd->extcon, EXTCON_USB, 1);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: CC orientation: %d\n", __func__, cc);
+	pm6150_ccic_event_work(CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
+		CCIC_NOTIFY_ATTACH/*attach*/, USB_STATUS_NOTIFY_ATTACH_UFP/*drp*/, 0);
+#endif
 }
 
 static void start_usb_peripheral_work(struct work_struct *w)
 {
 	struct usbpd *pd = container_of(w, struct usbpd, start_periph_work);
+#if defined(CONFIG_TYPEC)
+	struct typec_partner_desc desc;
+	enum typec_pwr_opmode mode = TYPEC_PWR_MODE_USB;
+#endif
 
 	pd->current_state = PE_SNK_STARTUP;
 	pd->current_pr = PR_SINK;
 	pd->current_dr = DR_UFP;
 	start_usb_peripheral(pd);
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+	if (pd->partner == NULL) {
+		pd->typec_power_role = TYPEC_SINK;
+		pd->typec_data_role = TYPEC_DEVICE;
+		pd->pwr_opmode = TYPEC_PWR_MODE_USB;
+		typec_set_pwr_opmode(pd->port, pd->pwr_opmode);
+		desc.usb_pd = mode == TYPEC_PWR_MODE_PD;
+		desc.accessory = TYPEC_ACCESSORY_NONE; /* XXX: handle accessories */
+		desc.identity = NULL;
+		typec_set_pwr_role(pd->port, pd->typec_power_role);
+		typec_set_data_role(pd->port, pd->typec_data_role);
+		usbpd_info(&pd->dev, "%s: typec_register_partner", __func__);
+		pd->partner = typec_register_partner(pd->port, &desc);
+	}
+#endif
 }
 
 static void restart_usb_host_work(struct work_struct *w)
@@ -643,6 +889,10 @@ static int usbpd_release_ss_lane(struct usbpd *pd,
 		usbpd_err(&pd->dev, "err(%d) stopping host", ret);
 		goto err_exit;
 	}
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: peer_usb_comm(%d)\n",__func__,
+		pd->peer_usb_comm);
+#endif
 
 	if (pd->peer_usb_comm)
 		start_usb_host(pd, false);
@@ -724,6 +974,10 @@ static int pd_send_msg(struct usbpd *pd, u8 msg_type, const u32 *data,
 	int ret;
 	u16 hdr;
 
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "pd_send_msg sending %s\n",
+		msg_to_string(msg_type, num_data, false));
+#endif
 	if (pd->hard_reset_recvd)
 		return -EBUSY;
 
@@ -821,6 +1075,7 @@ static int pd_select_pdo(struct usbpd *pd, int pdo_pos, int uv, int ua)
 	u8 type;
 	u32 pdo = pd->received_pdos[pdo_pos - 1];
 
+	pd->phy_driver_data->pn_flag = false;
 	type = PD_SRC_PDO_TYPE(pdo);
 	if (type == PD_SRC_PDO_TYPE_FIXED) {
 		curr = max_current = PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10;
@@ -881,6 +1136,14 @@ static int pd_eval_src_caps(struct usbpd *pd)
 	val.intval = PD_SRC_PDO_FIXED_USB_SUSP(first_pdo);
 	power_supply_set_property(pd->usb_psy,
 			POWER_SUPPLY_PROP_PD_USB_SUSPEND_SUPPORTED, &val);
+
+	/* First time connecting to a PD source and it supports USB data */
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: usb(%d), dr(%d), pd(%d)\n", __func__,
+		pd->peer_usb_comm, pd->current_dr, pd->pd_connected);
+#endif
+	if (pd->peer_usb_comm && pd->current_dr == DR_UFP && !pd->pd_connected)
+		start_usb_peripheral(pd);
 
 	/* Check for PPS APDOs */
 	if (pd->spec_rev == USBPD_REV_30) {
@@ -1198,6 +1461,10 @@ static void phy_msg_received(struct usbpd *pd, enum pd_sop_type sop,
 
 static void phy_shutdown(struct usbpd *pd)
 {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	union power_supply_propval val = {0};
+#endif
+
 	usbpd_dbg(&pd->dev, "shutdown");
 
 	if (pd->vconn_enabled) {
@@ -1209,6 +1476,15 @@ static void phy_shutdown(struct usbpd *pd)
 		regulator_disable(pd->vbus);
 		pd->vbus_enabled = false;
 	}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	else if (pd->need_vbus_force_disable == true) {
+		usbpd_info(&pd->dev, "%s: turn off vbus by otg_psy because of previous blocked host\n", __func__);
+		val.intval = 0;
+		power_supply_set_property(pd->otg_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+		pd->need_vbus_force_disable = false;
+		pd->vbus_enabled = false;
+	}
+#endif
 }
 
 static enum hrtimer_restart pd_timeout(struct hrtimer *timer)
@@ -1347,6 +1623,18 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 	union power_supply_propval val = {0};
 	unsigned long flags;
 	int ret;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	unsigned int temp;
+	int i;
+#endif
+#if defined(CONFIG_TYPEC)
+	struct typec_partner_desc desc;
+	enum typec_pwr_opmode mode = TYPEC_PWR_MODE_USB;
+#endif
+#if defined(CONFIG_USB_HOST_NOTIFY)
+	struct otg_notify *o_notify = get_otg_notify();
+	bool must_block_host = 0;
+#endif
 
 	if (pd->hard_reset_recvd) /* let usbpd_sm handle it */
 		return;
@@ -1354,6 +1642,11 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 	usbpd_dbg(&pd->dev, "%s -> %s\n",
 			usbpd_state_strings[pd->current_state],
 			usbpd_state_strings[next_state]);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	usbpd_info(&pd->dev, "%s: %s -> %s, current_pr(%d) current_dr(%d)\n",
+			__func__, usbpd_state_strings[pd->current_state],
+			usbpd_state_strings[next_state], pd->current_pr, pd->current_dr);
+#endif
 
 	pd->current_state = next_state;
 
@@ -1368,6 +1661,14 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 	/* Source states */
 	case PE_SRC_DISABLED:
+#if defined(CONFIG_USB_HOST_NOTIFY)
+		if (o_notify)
+			must_block_host = is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST);
+		if (must_block_host) {
+			usbpd_info(&pd->dev, "%s: PE_SRC_DISABLED, host blocked, do nothing\n", __func__);
+			break;
+		}
+#endif
 		/* are we still connected? */
 		if (pd->typec_mode == POWER_SUPPLY_TYPEC_NONE) {
 			pd->current_pr = PR_NONE;
@@ -1377,13 +1678,36 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		break;
 
 	case PE_SRC_STARTUP:
+#if defined(CONFIG_USB_HOST_NOTIFY)
+		send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 1);
+#endif
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: next_state(%d), current_dr(%d)\n",
+			__func__, next_state, pd->current_dr);
+#endif
 		if (pd->current_dr == DR_NONE) {
 			pd->current_dr = DR_DFP;
 			start_usb_host(pd, true);
 			pd->ss_lane_svid = 0x0;
 		}
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 		dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+		if (pd->partner == NULL) {
+			pd->typec_power_role = TYPEC_SOURCE;
+			pd->typec_data_role = TYPEC_HOST;
+			pd->pwr_opmode = TYPEC_PWR_MODE_USB;
+			typec_set_pwr_opmode(pd->port, pd->pwr_opmode);
+			desc.usb_pd = mode == TYPEC_PWR_MODE_PD;
+			desc.accessory = TYPEC_ACCESSORY_NONE; /* XXX: handle accessories */
+			desc.identity = NULL;
+			typec_set_pwr_role(pd->port, pd->typec_power_role);
+			typec_set_data_role(pd->port, pd->typec_data_role);
+			usbpd_info(&pd->dev, "%s: typec_register_partner", __func__);
+			pd->partner = typec_register_partner(pd->port, &desc);
+		}
+#endif
 
 		val.intval = 1; /* Rp-1.5A; SinkTxNG for PD 3.0 */
 		power_supply_set_property(pd->usb_psy,
@@ -1528,12 +1852,26 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		 * USB Host stack was started at PE_SRC_STARTUP but if peer
 		 * doesn't support USB communication, we can turn it off
 		 */
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: next_state(%d), dr(%d), usb(%d), iec(%d)\n",
+			__func__, next_state, pd->current_dr, pd->peer_usb_comm,
+			pd->in_explicit_contract);
+#endif
 		if (pd->current_dr == DR_DFP && !pd->peer_usb_comm &&
 				!pd->in_explicit_contract)
 			stop_usb_host(pd);
 
-		if (!pd->in_explicit_contract)
+
+		if (!pd->in_explicit_contract) {
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+			pd->typec_power_role = TYPEC_SOURCE;
+			typec_set_pwr_role(pd->port, pd->typec_power_role);
+			pd->pwr_opmode = TYPEC_PWR_MODE_PD;
+			typec_set_pwr_opmode(pd->port, pd->pwr_opmode);
+#endif
+		}			
 
 		pd->in_explicit_contract = true;
 
@@ -1619,6 +1957,9 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 	/* Sink states */
 	case PE_SNK_STARTUP:
+#if defined(CONFIG_USB_HOST_NOTIFY)
+		send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
+#endif
 		if (pd->current_dr == DR_NONE || pd->current_dr == DR_UFP) {
 			pd->current_dr = DR_UFP;
 
@@ -1632,7 +1973,23 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			}
 		}
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 		dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+		if (pd->partner == NULL) {
+			pd->typec_power_role = TYPEC_SINK;
+			pd->typec_data_role = TYPEC_DEVICE;
+			pd->pwr_opmode = TYPEC_PWR_MODE_USB;
+			typec_set_pwr_opmode(pd->port, pd->pwr_opmode);
+			desc.usb_pd = mode == TYPEC_PWR_MODE_PD;
+			desc.accessory = TYPEC_ACCESSORY_NONE; /* XXX: handle accessories */
+			desc.identity = NULL;
+			typec_set_pwr_role(pd->port, pd->typec_power_role);
+			typec_set_data_role(pd->port, pd->typec_data_role);
+			usbpd_info(&pd->dev, "%s: typec_register_partner", __func__);
+			pd->partner = typec_register_partner(pd->port, &desc);
+		}
+#endif
 
 		pd_reset_protocol(pd);
 
@@ -1691,7 +2048,88 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 	case PE_SNK_EVALUATE_CAPABILITY:
 		pd->hard_reset_count = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		pd_count = 0;
+		temp=0;
+		max_pd_power =0;
+		for (i = 0; i < ARRAY_SIZE(pd->received_pdos); i++) {
+			u32 pdo = pd->received_pdos[i];
 
+			if (pdo == 0)
+			{
+				
+				break;
+			}
+			if (PD_SRC_PDO_TYPE(pdo) == PD_SRC_PDO_TYPE_FIXED) {
+				/*To detect kakao stand. */
+				if (i == 0 && pd->is_kakao == KAKAO_NONE && PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50 == 5000 &&
+						PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10 == 500) {
+					pd->is_kakao = KAKAO_FIRST_PDO;
+					usbpd_dbg(&pd->dev, "KAKAO_FIRST_PDO\n");
+				} else if (i == 1 && pd->is_kakao == KAKAO_FIRST_PDO && PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50 == 9000 &&
+						PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10 == 1670) {
+					pd->is_kakao = KAKAO_SECOND_PDO;
+					usbpd_dbg(&pd->dev, "KAKAO_SECOND_PDO\n");
+				} else if (i > 1) {
+					pd->is_kakao = KAKAO_NONE;
+				}
+				
+				usbpd_dbg(&pd->dev, "Fixed PDO:%d Max Volt:%dmV Max OpCurr:%dmA\n",
+				i,
+				PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50,
+				PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10);
+				if(PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50 <= SEC_PD_VOLT_LIMIT)
+				{
+				temp = (PD_SRC_PDO_FIXED_VOLTAGE(pdo) * PD_SRC_PDO_FIXED_MAX_CURR(pdo) / 2);
+				pd_count++;
+				}
+			} else if (PD_SRC_PDO_TYPE(pdo) == PD_SRC_PDO_TYPE_BATTERY) {
+				usbpd_dbg(&pd->dev, "Battery PDO:%d Max Volt:%dmV Min Volt:%dmV OpPow:%dmW \n",
+				i,
+				PD_SRC_PDO_VAR_BATT_MAX_VOLT(pdo) * 50,
+				PD_SRC_PDO_VAR_BATT_MIN_VOLT(pdo) * 50,
+				PD_SRC_PDO_VAR_BATT_MAX(pdo) * 250);
+				
+				if(PD_SRC_PDO_VAR_BATT_MAX_VOLT(pdo) * 50 <= SEC_PD_VOLT_LIMIT)
+				{
+					temp = PD_SRC_PDO_VAR_BATT_MAX(pdo) * 250;
+					pd_count++;
+				}
+				
+			} else if (PD_SRC_PDO_TYPE(pdo) == PD_SRC_PDO_TYPE_VARIABLE) {
+				usbpd_dbg(&pd->dev, "Variable PDO:%d Max Volt:%dmV Min Volt:%dmV Max OpCurr:%dmA\n",
+				i,
+				PD_SRC_PDO_VAR_BATT_MAX_VOLT(pdo) * 50,
+				PD_SRC_PDO_VAR_BATT_MIN_VOLT(pdo) * 50,
+				PD_SRC_PDO_VAR_BATT_MAX(pdo) * 10);
+				
+				if(PD_SRC_PDO_VAR_BATT_MAX_VOLT(pdo) * 50 <= SEC_PD_VOLT_LIMIT)
+				{
+					temp = ( PD_SRC_PDO_VAR_BATT_MAX_VOLT(pdo) * PD_SRC_PDO_VAR_BATT_MAX(pdo) / 2);
+					pd_count++;
+				}
+			} else if (PD_SRC_PDO_TYPE(pdo) == PD_SRC_PDO_TYPE_AUGMENTED) {
+				usbpd_dbg(&pd->dev, "Augmented PDO:%d Max Volt:%dmV MIn Volt:%dmV Max OpCurr:%dmA\n",
+				i,
+				PD_APDO_MAX_VOLT(pdo) * 100,
+				PD_APDO_MIN_VOLT(pdo) * 100,
+				PD_APDO_MAX_CURR(pdo) * 50);
+				
+				if(PD_APDO_MAX_VOLT(pdo) * 100 <= SEC_PD_VOLT_LIMIT)
+				{
+					temp = (PD_APDO_MAX_VOLT(pdo) * PD_APDO_MAX_CURR(pdo) * 5);
+					pd_count++;
+				}
+			} 
+			
+			if(temp > max_pd_power)
+			{
+				max_pd_power = temp;
+				
+			}
+		}
+		usbpd_dbg(&pd->dev, "Max PD Power found: %dmW number of pdos : %d\n", max_pd_power,pd_count);
+#endif
 		/* evaluate PDOs and select one */
 		ret = pd_eval_src_caps(pd);
 		if (ret < 0) {
@@ -1722,8 +2160,21 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		break;
 
 	case PE_SNK_READY:
-		if (!pd->in_explicit_contract)
+
+
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		pm6150_set_pd_state(pm6150_State_PE_SNK_Ready);
+#endif
+		if (!pd->in_explicit_contract) {
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 			dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+			pd->typec_power_role = TYPEC_SINK;
+			typec_set_pwr_role(pd->port, pd->typec_power_role);
+			pd->pwr_opmode = TYPEC_PWR_MODE_PD;
+			typec_set_pwr_opmode(pd->port, pd->pwr_opmode);
+#endif
+		}
 
 		pd->in_explicit_contract = true;
 
@@ -1736,14 +2187,34 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 		kobject_uevent(&pd->dev.kobj, KOBJ_CHANGE);
 		complete(&pd->is_ready);
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		if (pd->is_kakao == KAKAO_SECOND_PDO) {
+			if (pd_select_pdo(pd, 2, 0, 0)) {
+				usbpd_dbg(&pd->dev, "fail to request 9V\n");
+			} else {
+				pd->is_kakao = KAKAO_REQUESTED_9V;
+				usbpd_dbg(&pd->dev, "kakao stand request 9V\n");
+				usbpd_set_state(pd, PE_SNK_SELECT_CAPABILITY);
+			}
+		}
+#endif
 		break;
 
 	case PE_SNK_TRANSITION_TO_DEFAULT:
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: next_state(%d), current_dr(%d)\n",
+			__func__, next_state, pd->current_dr);
+#endif
 		if (pd->current_dr != DR_UFP) {
 			stop_usb_host(pd);
 			start_usb_peripheral(pd);
 			pd->current_dr = DR_UFP;
 			pd_phy_update_roles(pd->current_dr, pd->current_pr);
+#if defined(CONFIG_TYPEC)
+			pd->typec_data_role = TYPEC_DEVICE;
+			typec_set_data_role(pd->port, pd->typec_data_role);
+#endif
 		}
 		if (pd->vconn_enabled) {
 			regulator_disable(pd->vconn);
@@ -1893,6 +2364,17 @@ void usbpd_vdm_in_suspend(struct usbpd *pd, bool in_suspend)
 }
 EXPORT_SYMBOL(usbpd_vdm_in_suspend);
 
+int usbpd_send_uvdm(struct usbpd *pd, u16 vid, const void * vdos, int num_vdos)
+{
+	u32 uvdm_hdr = UVDM_HDR(vid, 4);
+	
+	usbpd_info(&pd->dev, "UVDM tx: vid:%x uvdm_hdr:%x num_vdos:%x\n",
+			vid, uvdm_hdr, num_vdos-1);
+
+	return usbpd_send_vdm(pd, uvdm_hdr, (u32 *)vdos, num_vdos-1);
+}
+EXPORT_SYMBOL(usbpd_send_uvdm);
+
 static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 {
 	int ret;
@@ -1907,6 +2389,9 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 	u8 cmd_type = SVDM_HDR_CMD_TYPE(vdm_hdr);
 	struct usbpd_svid_handler *handler;
 	ktime_t recvd_time = ktime_get();
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	union power_supply_propval val = {0};
+#endif
 
 	usbpd_dbg(&pd->dev,
 			"VDM rx: svid:%04x cmd:%x cmd_type:%x vdm_hdr:%x has_dp: %s\n",
@@ -2008,6 +2493,15 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 					else
 						pd->vbus_enabled = false;
 				}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+				else if (pd->need_vbus_force_disable == true) {
+					usbpd_info(&pd->dev, "%s: turn off vbus by otg_psy because of previous blocked host\n", __func__);
+					val.intval = 0;
+					power_supply_set_property(pd->otg_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+					pd->need_vbus_force_disable = false;
+					pd->vbus_enabled = false;
+				}
+#endif
 			}
 
 			if (!pd->in_explicit_contract)
@@ -2020,6 +2514,13 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 			}
 
 			pd->vdm_state = DISCOVERED_ID;
+			pd->phy_driver_data->Vendor_ID = vdos[0] & 0xFFFF;
+			pd->phy_driver_data->Product_ID = vdos[2] >> 16;
+			pd->phy_driver_data->Device_Version = vdos[2] & 0x00FF; 
+			pr_info("%s Vendor_ID : 0x%X, Product_ID : 0x%X Device Version 0x%X \n",\
+				 __func__, pd->phy_driver_data->Vendor_ID, pd->phy_driver_data->Product_ID, pd->phy_driver_data->Device_Version);			
+			if (process_check_accessory(pd))
+				pr_info("%s : Samsung Accessory Connected.\n", __func__);
 			usbpd_send_svdm(pd, USBPD_SID,
 					USBPD_SVDM_DISCOVER_SVIDS,
 					SVDM_CMD_TYPE_INITIATOR, 0, NULL, 0);
@@ -2353,6 +2854,21 @@ static void dr_swap(struct usbpd *pd)
 {
 	reset_vdm_state(pd);
 	usbpd_dbg(&pd->dev, "%s: current_dr(%d)\n", __func__, pd->current_dr);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: current_dr(%d), peer_usb_comm(%d)\n",
+		__func__, pd->current_dr, pd->peer_usb_comm);
+#endif
+	if(pd->phy_driver_data->dr_swap_cnt < INT_MAX)
+		pd->phy_driver_data->dr_swap_cnt++;
+	/* exception code for 0x45 friends firmware */
+	if (pd->phy_driver_data->Vendor_ID == SAMSUNG_VENDOR_ID &&
+		pd->phy_driver_data->Product_ID == FRIENDS_PRODUCT_ID &&
+		pd->phy_driver_data->dr_swap_cnt > 2 &&
+		pd->current_dr == DR_UFP) {
+		usbpd_info(&pd->dev,"skip %dth dr_swap message in samsung friends",
+			pd->phy_driver_data->dr_swap_cnt);
+		return;
+	}
 
 	if (pd->current_dr == DR_DFP) {
 		pd->current_dr = DR_UFP;
@@ -2376,7 +2892,15 @@ static void dr_swap(struct usbpd *pd)
 				SVDM_CMD_TYPE_INITIATOR, 0, NULL, 0);
 	}
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+	if (pd->current_dr == DR_UFP)
+		pd->typec_data_role = TYPEC_DEVICE;
+	else if (pd->current_dr == DR_DFP)
+		pd->typec_data_role = TYPEC_HOST;
+	typec_set_data_role(pd->port, pd->typec_data_role);
+#endif
 }
 
 
@@ -2430,6 +2954,24 @@ static int enable_vbus(struct usbpd *pd)
 	union power_supply_propval val = {0};
 	int count = 100;
 	int ret;
+#if defined(CONFIG_USB_HOST_NOTIFY)
+	struct otg_notify *o_notify = get_otg_notify();
+	bool must_block_host = 0;
+
+	if (o_notify)
+		must_block_host = is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST);
+
+	if (must_block_host) {
+		usbpd_info(&pd->dev, "%s: host blocked, don't turn on vbus\n", __func__);
+		if (pd->vbus_enabled) {
+			usbpd_info(&pd->dev, "%s: turn off vbus because of blocked host\n",	__func__);
+			regulator_disable(pd->vbus);
+			pd->vbus_enabled = false;
+		}
+		pd->need_vbus_force_disable = true;
+		return -EPERM;
+	}
+#endif
 
 	if (!check_vsafe0v)
 		goto enable_reg;
@@ -2470,6 +3012,15 @@ enable_reg:
 	 * Check to make sure VBUS voltage reaches above Vsafe5Vmin (4.75v)
 	 * before proceeding.
 	 */
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	while (count--) {
+		ret = power_supply_get_property(pd->otg_psy,
+				POWER_SUPPLY_PROP_VOLTAGE_NOW, &val);
+		if (ret || val.intval >= 4750000) /*vsafe5Vmin*/
+			break;
+		usleep_range(10000, 12000); /* Delay between two reads */
+	}
+#else
 	while (count--) {
 		ret = power_supply_get_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, &val);
@@ -2477,6 +3028,11 @@ enable_reg:
 			break;
 		usleep_range(10000, 12000); /* Delay between two reads */
 	}
+#endif
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: count(%d), VBUS voltage(%d)\n",
+		__func__, count, val.intval);
+#endif
 
 	if (ret)
 		msleep(100); /* Delay to wait for VBUS ramp up if read fails */
@@ -2502,9 +3058,17 @@ static void usbpd_sm(struct work_struct *w)
 	struct rx_msg *rx_msg = NULL;
 	unsigned long flags;
 	s64 dr_swap_delta;
+#if defined(CONFIG_USB_HOST_NOTIFY)
+	struct otg_notify *o_notify = get_otg_notify();
+	bool must_block_host = 0;
+#endif
 
 	usbpd_dbg(&pd->dev, "handle state %s\n",
 			usbpd_state_strings[pd->current_state]);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	usbpd_info(&pd->dev, "%s: handle state %s, current_pr(%d) current_dr(%d)\n",
+			__func__, usbpd_state_strings[pd->current_state], pd->current_pr, pd->current_dr);
+#endif
 
 	hrtimer_cancel(&pd->timer);
 	pd->sm_queued = false;
@@ -2515,6 +3079,14 @@ static void usbpd_sm(struct work_struct *w)
 		list_del(&rx_msg->entry);
 	}
 	spin_unlock_irqrestore(&pd->rx_lock, flags);
+
+	if ((pd->typec_mode == POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER) &&
+		(pd->phy_driver_data->acc_type == CCIC_DOCK_TYPEC_ANALOG_EARPHONE))
+		process_check_accessory(pd);
+
+	if ((pd->typec_mode == POWER_SUPPLY_TYPEC_NONE) &&
+		(pd->phy_driver_data->acc_type == CCIC_DOCK_TYPEC_ANALOG_EARPHONE))
+		usbpd_acc_detach(&pd->dev);
 
 	/* Disconnect? */
 	if (pd->current_pr == PR_NONE) {
@@ -2556,13 +3128,33 @@ static void usbpd_sm(struct work_struct *w)
 
 		power_supply_set_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_PD_ACTIVE, &val);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+		ps_ready = false;
+		pd->is_kakao = KAKAO_NONE;
+#endif
 
 		if (pd->vbus_enabled) {
 			regulator_disable(pd->vbus);
 			pd->vbus_enabled = false;
 		}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		else if (pd->need_vbus_force_disable == true) {
+			usbpd_info(&pd->dev, "%s: turn off vbus by otg_psy because of previous blocked host\n", __func__);
+			val.intval = 0;
+			power_supply_set_property(pd->otg_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+			pd->need_vbus_force_disable = false;
+			pd->vbus_enabled = false;
+		}
+#endif
+#if defined(CONFIG_USB_HOST_NOTIFY)
+		send_otg_notify(o_notify, NOTIFY_EVENT_POWER_SOURCE, 0);
+#endif
 
 		reset_vdm_state(pd);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: current_dr(%d), pd->forced_pr(%d)\n", __func__,
+			pd->current_dr, pd->forced_pr);
+#endif
 		if (pd->current_dr == DR_UFP)
 			stop_usb_peripheral(pd);
 		else if (pd->current_dr == DR_DFP)
@@ -2593,7 +3185,18 @@ static void usbpd_sm(struct work_struct *w)
 		pd_reset_protocol(pd);
 
 		kobject_uevent(&pd->dev.kobj, KOBJ_CHANGE);
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 		dual_role_instance_changed(pd->dual_role);
+#elif defined(CONFIG_TYPEC)
+		if (pd->partner) {
+			usbpd_info(&pd->dev, "%s: typec_unregister_partner", __func__);
+			if (!IS_ERR(pd->partner))
+				typec_unregister_partner(pd->partner);
+			pd->partner = NULL;
+			pd->typec_power_role = TYPEC_SINK;
+			pd->typec_data_role = TYPEC_DEVICE;
+		}
+#endif
 
 		if (pd->has_dp) {
 			pd->has_dp = false;
@@ -2601,6 +3204,9 @@ static void usbpd_sm(struct work_struct *w)
 			/* Set to USB only mode when cable disconnected */
 			extcon_blocking_sync(pd->extcon, EXTCON_DISP_DP, 0);
 		}
+		usbpd_acc_detach(&pd->dev);
+		pd->phy_driver_data->pn_flag = false;
+		pd->phy_driver_data->dr_swap_cnt = 0;
 
 		goto sm_done;
 	}
@@ -2628,6 +3234,9 @@ static void usbpd_sm(struct work_struct *w)
 		pd->in_explicit_contract = false;
 		pd->selected_pdo = pd->requested_pdo = 0;
 		pd->rdo = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		pd->is_kakao = KAKAO_NONE;
+#endif
 		rx_msg_cleanup(pd);
 		reset_vdm_state(pd);
 		kobject_uevent(&pd->dev.kobj, KOBJ_CHANGE);
@@ -2718,6 +3327,23 @@ static void usbpd_sm(struct work_struct *w)
 		break;
 
 	case PE_SRC_SEND_CAPABILITIES:
+#if defined(CONFIG_USB_HOST_NOTIFY)
+		if (o_notify)
+			must_block_host = is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST);
+		if (must_block_host) {
+			usbpd_info(&pd->dev, "%s: host blocked, usbpd_set_state PE_SRC_DISABLED\n", __func__);
+			usbpd_set_state(pd, PE_SRC_DISABLED);
+
+			val.intval = POWER_SUPPLY_PD_INACTIVE;
+			power_supply_set_property(pd->usb_psy,
+					POWER_SUPPLY_PROP_PD_ACTIVE,
+					&val);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+			ps_ready = false;
+#endif
+			break;
+		}
+#endif
 		ret = pd_send_msg(pd, MSG_SOURCE_CAPABILITIES, default_src_caps,
 				ARRAY_SIZE(default_src_caps), SOP_MSG);
 		if (ret) {
@@ -2734,6 +3360,9 @@ static void usbpd_sm(struct work_struct *w)
 				power_supply_set_property(pd->usb_psy,
 						POWER_SUPPLY_PROP_PD_ACTIVE,
 						&val);
+			#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+				ps_ready = false;
+			#endif
 				break;
 			}
 
@@ -2753,6 +3382,9 @@ static void usbpd_sm(struct work_struct *w)
 		val.intval = POWER_SUPPLY_PD_ACTIVE;
 		power_supply_set_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_PD_ACTIVE, &val);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+		ps_ready = false;
+#endif
 		break;
 
 	case PE_SRC_SEND_CAPABILITIES_WAIT:
@@ -2879,21 +3511,43 @@ static void usbpd_sm(struct work_struct *w)
 			start_src_ams(pd, false);
 		}
 
+		pd->phy_driver_data->pn_flag = true;
 		break;
 
 	case PE_SRC_TRANSITION_TO_DEFAULT:
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: next_state(%s), current_dr(%d)\n",
+			__func__, usbpd_state_strings[pd->current_state], pd->current_dr);
+#endif
 		if (pd->vconn_enabled)
 			regulator_disable(pd->vconn);
 		pd->vconn_enabled = false;
 
 		if (pd->vbus_enabled)
 			regulator_disable(pd->vbus);
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		else if (pd->need_vbus_force_disable == true) {
+			usbpd_info(&pd->dev, "%s: turn off vbus by otg_psy because of previous blocked host\n", __func__);
+			val.intval = 0;
+			power_supply_set_property(pd->otg_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+			pd->need_vbus_force_disable = false;
+			pd->vbus_enabled = false;
+		}
+#endif
 		pd->vbus_enabled = false;
 
 		if (pd->current_dr != DR_DFP) {
 			extcon_set_state_sync(pd->extcon, EXTCON_USB, 0);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+			stop_usb_peripheral(pd);
+			start_usb_host(pd, true);
+#endif
 			pd->current_dr = DR_DFP;
 			pd_phy_update_roles(pd->current_dr, pd->current_pr);
+#if defined(CONFIG_TYPEC)
+			pd->typec_data_role = TYPEC_HOST;
+			typec_set_data_role(pd->port, pd->typec_data_role);
+#endif
 		}
 
 		/* PE_UNKNOWN will turn on VBUS and go back to PE_SRC_STARTUP */
@@ -2910,6 +3564,14 @@ static void usbpd_sm(struct work_struct *w)
 			if (pd->vbus_present)
 				usbpd_set_state(pd,
 						PE_SNK_WAIT_FOR_CAPABILITIES);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+			usbpd_info(&pd->dev, "%s: send_pr_swap=%d, in_pr_swap=%d, typec_mode=%d\n",
+				__func__, pd->send_pr_swap, pd->in_pr_swap, pd->typec_mode);
+			if (pd->in_pr_swap && !pd->typec_mode) {
+				usbpd_set_state(pd, PE_ERROR_RECOVERY);
+				break;
+			}
+#endif
 
 			/*
 			 * Handle disconnection in the middle of PR_Swap.
@@ -2931,10 +3593,12 @@ static void usbpd_sm(struct work_struct *w)
 		/* fall-through */
 
 	case PE_SNK_WAIT_FOR_CAPABILITIES:
-		pd->in_pr_swap = false;
-		val.intval = 0;
-		power_supply_set_property(pd->usb_psy,
-				POWER_SUPPLY_PROP_PR_SWAP, &val);
+		if (pd->in_pr_swap) {
+			pd->in_pr_swap = false;
+			val.intval = 0;
+			power_supply_set_property(pd->usb_psy,
+					POWER_SUPPLY_PROP_PR_SWAP, &val);
+		}
 
 		if (IS_DATA(rx_msg, MSG_SOURCE_CAPABILITIES)) {
 			val.intval = 0;
@@ -2964,6 +3628,9 @@ static void usbpd_sm(struct work_struct *w)
 			val.intval = POWER_SUPPLY_PD_INACTIVE;
 			power_supply_set_property(pd->usb_psy,
 					POWER_SUPPLY_PROP_PD_ACTIVE, &val);
+		#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+			ps_ready = false;
+		#endif
 		}
 		break;
 
@@ -3011,6 +3678,9 @@ static void usbpd_sm(struct work_struct *w)
 			}
 
 			pd->selected_pdo = pd->requested_pdo;
+		#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+			ps_ready = false;
+		#endif
 		} else if (IS_CTRL(rx_msg, MSG_REJECT) ||
 				IS_CTRL(rx_msg, MSG_WAIT)) {
 			if (pd->in_explicit_contract)
@@ -3040,6 +3710,10 @@ static void usbpd_sm(struct work_struct *w)
 			val.intval = pd->requested_current * 1000; /* mA->uA */
 			power_supply_set_property(pd->usb_psy,
 					POWER_SUPPLY_PROP_PD_CURRENT_MAX, &val);
+		#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)		
+			ps_ready = true;
+			usbpd_dbg(&pd->dev, "ps_ready:  PE_SNK_TRANSITION_SINK  Volt:%duV Curr:%dmA\n",pd->current_voltage, val.intval );
+		#endif
 
 			usbpd_set_state(pd, PE_SNK_READY);
 		} else {
@@ -3097,6 +3771,19 @@ static void usbpd_sm(struct work_struct *w)
 			dr_swap(pd);
 			break;
 		} else if (IS_CTRL(rx_msg, MSG_PR_SWAP)) {
+#if defined(CONFIG_USB_HOST_NOTIFY)
+			if (o_notify)
+				must_block_host = is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST);
+			if (must_block_host) {
+				usbpd_info(&pd->dev, "%s: host blocked, reject MSG_PR_SWAP\n", __func__);
+				ret = pd_send_msg(pd, MSG_REJECT, NULL, 0, SOP_MSG);
+				if (ret) {
+					usbpd_set_state(pd, PE_SEND_SOFT_RESET);
+					break;
+				}
+				break;
+			}
+#endif
 			/* TODO: should we Reject in certain circumstances? */
 			ret = pd_send_msg(pd, MSG_ACCEPT, NULL, 0, SOP_MSG);
 			if (ret) {
@@ -3127,8 +3814,16 @@ static void usbpd_sm(struct work_struct *w)
 				break;
 			}
 			memcpy(&ado, rx_msg->payload, sizeof(ado));
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			usbpd_err(&pd->dev, "Received Alert 0x%08x\n", ado);
+			if (ado & 0x4000000) {
+				union power_supply_propval value;
+				power_supply_set_property(pd->usb_psy,
+					POWER_SUPPLY_PROP_TA_ALERT, &value);
+			}
+#else
 			usbpd_dbg(&pd->dev, "Received Alert 0x%08x\n", ado);
-
+#endif
 			/*
 			 * Don't send Get_Status right away so we can coalesce
 			 * multiple Alerts. 150ms should be enough to not get
@@ -3290,6 +3985,7 @@ static void usbpd_sm(struct work_struct *w)
 				handle_vdm_tx(pd, SOP_MSG);
 			}
 		}
+		pd->phy_driver_data->pn_flag = true;
 		break;
 
 	case PE_SNK_TRANSITION_TO_DEFAULT:
@@ -3347,6 +4043,15 @@ static void usbpd_sm(struct work_struct *w)
 			regulator_disable(pd->vbus);
 			pd->vbus_enabled = false;
 		}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		else if (pd->need_vbus_force_disable == true) {
+			usbpd_info(&pd->dev, "%s: turn off vbus by otg_psy because of previous blocked host\n", __func__);
+			val.intval = 0;
+			power_supply_set_property(pd->otg_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+			pd->need_vbus_force_disable = false;
+			pd->vbus_enabled = false;
+		}
+#endif
 
 		/* PE_PRS_SRC_SNK_Assert_Rd */
 		pd->current_pr = PR_SINK;
@@ -3483,12 +4188,33 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 	typec_mode = val.intval;
 
 	ret = power_supply_get_property(pd->usb_psy,
+			POWER_SUPPLY_PROP_REAL_TYPE, &val);
+	if (ret) {
+		usbpd_err(&pd->dev, "Unable to read USB TYPE: %d\n", ret);
+		return ret;
+	}
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	if (typec_mode == POWER_SUPPLY_TYPEC_SINK)
+		pm6150_set_cable(POWER_SUPPLY_TYPE_OTG);
+	else if (typec_mode == POWER_SUPPLY_TYPEC_SOURCE_DEFAULT
+		|| typec_mode == POWER_SUPPLY_TYPEC_SOURCE_MEDIUM
+		|| typec_mode == POWER_SUPPLY_TYPEC_SOURCE_HIGH)
+		pm6150_set_cable(val.intval);
+	else
+		pm6150_set_cable(POWER_SUPPLY_TYPE_UNKNOWN);
+#endif
+
+	ret = power_supply_get_property(pd->usb_psy,
 			POWER_SUPPLY_PROP_PE_START, &val);
 	if (ret) {
 		usbpd_err(&pd->dev, "Unable to read USB PROP_PE_START: %d\n",
 				ret);
 		return ret;
 	}
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: TYPEC mode: %d, PE start: %d, PD: %d\n",
+		__func__, typec_mode, val.intval, pd->pd_connected);
+#endif
 
 	/* Don't proceed if PE_START=0; start USB directly if needed */
 	if (!val.intval && !pd->pd_connected &&
@@ -3500,6 +4226,9 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 					ret);
 			return ret;
 		}
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+		usbpd_info(&pd->dev, "%s: USB type: %d\n", __func__, val.intval);
+#endif
 
 		if (val.intval == POWER_SUPPLY_TYPE_USB ||
 			val.intval == POWER_SUPPLY_TYPE_USB_CDP ||
@@ -3519,6 +4248,9 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 		usbpd_err(&pd->dev, "Unable to read USB PRESENT: %d\n", ret);
 		return ret;
 	}
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	usbpd_info(&pd->dev, "%s: USB present: %d\n", __func__, val.intval);
+#endif
 
 	pd->vbus_present = val.intval;
 
@@ -3614,6 +4346,7 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 		break;
 	case POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER:
 		usbpd_info(&pd->dev, "Type-C Analog Audio Adapter connected\n");
+		pd->phy_driver_data->acc_type = CCIC_DOCK_TYPEC_ANALOG_EARPHONE;
 		break;
 	default:
 		usbpd_warn(&pd->dev, "Unsupported typec mode:%d\n",
@@ -3626,6 +4359,7 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 	return 0;
 }
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 static enum dual_role_property usbpd_dr_properties[] = {
 	DUAL_ROLE_PROP_SUPPORTED_MODES,
 	DUAL_ROLE_PROP_MODE,
@@ -3867,6 +4601,198 @@ static int usbpd_dr_prop_writeable(struct dual_role_phy_instance *dual_role,
 
 	return 0;
 }
+#elif defined(CONFIG_TYPEC)
+static int usbpd_dr_set(const struct typec_capability *cap, enum typec_data_role role)
+{
+	struct usbpd *pd = container_of(cap, struct usbpd, typec_cap);
+	bool do_swap = false;
+
+	usbpd_info(&pd->dev, "%s, typec_power_role=%d, typec_data_role=%d, pd->current_dr=%d, Setting data_role to %d",
+		__func__, pd->typec_power_role, pd->typec_data_role, pd->current_dr, role);
+
+	if (pd->typec_data_role != TYPEC_DEVICE
+		&& pd->typec_data_role != TYPEC_HOST)
+		return -EPERM;
+	else if (pd->typec_data_role == role)
+		return -EPERM;
+
+	if (role == TYPEC_HOST) {
+		if (pd->current_dr == DR_UFP)
+			do_swap = true;
+	} else if (role == TYPEC_DEVICE) {
+		if (pd->current_dr == DR_DFP)
+			do_swap = true;
+	} else {
+		usbpd_warn(&pd->dev, "setting data_role to 'none' unsupported\n");
+		return -ENOTSUPP;
+	}
+
+	if (do_swap) {
+		if (pd->current_state != PE_SRC_READY &&
+				pd->current_state != PE_SNK_READY) {
+			usbpd_err(&pd->dev, "data_role swap not allowed: PD not in Ready state\n");
+			return -EAGAIN;
+		}
+
+		if (pd->current_state == PE_SNK_READY &&
+				!is_sink_tx_ok(pd)) {
+			usbpd_err(&pd->dev, "Rp indicates SinkTxNG\n");
+			return -EAGAIN;
+		}
+
+		mutex_lock(&pd->swap_lock);
+		reinit_completion(&pd->is_ready);
+		pd->send_dr_swap = true;
+
+		if (pd->current_state == PE_SRC_READY &&
+				!in_src_ams(pd))
+			start_src_ams(pd, true);
+		else
+			kick_sm(pd, 0);
+
+		/* wait for operation to complete */
+		if (!wait_for_completion_timeout(&pd->is_ready,
+				msecs_to_jiffies(100))) {
+			usbpd_err(&pd->dev, "data_role swap timed out\n");
+			mutex_unlock(&pd->swap_lock);
+			return -ETIMEDOUT;
+		}
+
+		mutex_unlock(&pd->swap_lock);
+
+		if ((role == TYPEC_HOST &&
+				pd->current_dr != DR_DFP) ||
+			(role == TYPEC_DEVICE &&
+				 pd->current_dr != DR_UFP)) {
+			usbpd_err(&pd->dev, "incorrect state (%s) after data_role swap\n",
+					pd->current_dr == DR_DFP ?
+					"dfp" : "ufp");
+			return -EPROTO;
+		}
+	}
+
+	return 0;
+}
+
+static int usbpd_pr_set(const struct typec_capability *cap, enum typec_role role)
+{
+	struct usbpd *pd = container_of(cap, struct usbpd, typec_cap);
+	bool do_swap = false;
+
+	usbpd_info(&pd->dev, "%s, typec_power_role=%d, typec_data_role=%d, pd->current_pr=%d, Setting power_role to %d",
+		__func__, pd->typec_power_role, pd->typec_data_role, pd->current_pr, role);
+
+	if (pd->typec_power_role != TYPEC_SINK
+	    && pd->typec_power_role != TYPEC_SOURCE)
+		return -EPERM;
+	else if (pd->typec_power_role == role)
+		return -EPERM;
+
+	if (role == TYPEC_SOURCE) {
+		if (pd->current_pr == PR_SINK)
+			do_swap = true;
+	} else if (role == TYPEC_SINK) {
+		if (pd->current_pr == PR_SRC)
+			do_swap = true;
+	} else {
+		usbpd_warn(&pd->dev, "setting power_role to 'none' unsupported\n");
+		return -ENOTSUPP;
+	}
+
+	if (do_swap) {
+		if (pd->current_state != PE_SRC_READY &&
+				pd->current_state != PE_SNK_READY) {
+			usbpd_err(&pd->dev, "power_role swap not allowed: PD not in Ready state\n");
+			return -EAGAIN;
+		}
+
+		if (pd->current_state == PE_SNK_READY &&
+				!is_sink_tx_ok(pd)) {
+			usbpd_err(&pd->dev, "Rp indicates SinkTxNG\n");
+			return -EAGAIN;
+		}
+
+		mutex_lock(&pd->swap_lock);
+		reinit_completion(&pd->is_ready);
+		pd->send_pr_swap = true;
+
+		if (pd->current_state == PE_SRC_READY &&
+				!in_src_ams(pd))
+			start_src_ams(pd, true);
+		else
+			kick_sm(pd, 0);
+
+		/* wait for operation to complete */
+		if (!wait_for_completion_timeout(&pd->is_ready,
+				msecs_to_jiffies(2000))) {
+			usbpd_err(&pd->dev, "power_role swap timed out\n");
+			mutex_unlock(&pd->swap_lock);
+			return -ETIMEDOUT;
+		}
+
+		mutex_unlock(&pd->swap_lock);
+
+		if ((role == TYPEC_SOURCE &&
+				pd->current_pr != PR_SRC) ||
+			(role == TYPEC_SINK &&
+				 pd->current_pr != PR_SINK)) {
+			usbpd_err(&pd->dev, "incorrect state (%s) after power_role swap\n",
+					pd->current_pr == PR_SRC ?
+					"source" : "sink");
+			return -EPROTO;
+		}
+	}
+
+	return 0;
+}
+
+static int usbpd_port_type_set(const struct typec_capability *cap, enum typec_port_type port_type)
+{
+	struct usbpd *pd = container_of(cap, struct usbpd, typec_cap);
+	union power_supply_propval val = {0};
+
+	usbpd_info(&pd->dev, "typec_power_role=%d, typec_data_role=%d, pwr_opmode=%d, port_type=%d",
+		pd->typec_power_role, pd->typec_data_role, pd->pwr_opmode, port_type);
+
+	usbpd_info(&pd->dev, "Setting mode to %d\n", port_type);
+
+	if (pd->pwr_opmode == TYPEC_PWR_MODE_PD) {
+		usbpd_info(&pd->dev, "invalid typec_role");
+		return 0;
+	}
+	/*
+	 * Forces disconnect on CC and re-establishes connection.
+	 * This does not use PD-based PR/DR swap
+	 */
+	if (port_type == TYPEC_PORT_UFP)
+		pd->forced_pr = POWER_SUPPLY_TYPEC_PR_SINK;
+	else if (port_type == TYPEC_PORT_DFP)
+		pd->forced_pr = POWER_SUPPLY_TYPEC_PR_SOURCE;
+	else {
+		val.intval = 0;
+		power_supply_set_property(pd->usb_psy,
+				POWER_SUPPLY_PROP_PR_SWAP, &val);
+		
+		val.intval = POWER_SUPPLY_TYPEC_PR_DUAL;
+		power_supply_set_property(pd->usb_psy,
+				POWER_SUPPLY_PROP_TYPEC_POWER_ROLE, &val);
+
+		pd->forced_pr = POWER_SUPPLY_TYPEC_PR_NONE;
+
+		pd->current_state = PE_UNKNOWN;
+		return 0;
+	}
+
+	/* new mode will be applied in disconnect handler */
+	set_power_role(pd, PR_NONE);
+
+	/* wait until it takes effect */
+	while (pd->forced_pr != POWER_SUPPLY_TYPEC_PR_NONE)
+		msleep(20);
+
+	return 0;
+}
+#endif
 
 static int usbpd_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
@@ -4249,6 +5175,22 @@ static ssize_t hard_reset_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(hard_reset);
 
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+struct usbpd *g_pd;
+void set_pd_hard_reset(int val)
+{
+	struct usbpd *pd = g_pd;
+	if (!pd) {
+		pr_info("%s : g_pd is null!\n", __func__);
+		return;
+	}
+	pr_info("%s \n", __func__);
+	if (val)
+		usbpd_set_state(pd, pd->current_pr == PR_SRC ?
+				PE_SRC_HARD_RESET : PE_SNK_HARD_RESET);
+}
+
+#endif
 static int trigger_tx_msg(struct usbpd *pd, bool *msg_tx_flag)
 {
 	int ret = 0;
@@ -4563,6 +5505,17 @@ struct usbpd *usbpd_create(struct device *parent)
 	pd->timer.function = pd_timeout;
 	mutex_init(&pd->swap_lock);
 	mutex_init(&pd->svid_handler_lock);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	pm6150_usbpd_create(&pd->dev, &pd->phy_driver_data);
+	if (pd->phy_driver_data == NULL) {
+		pr_info("%s : phy_driver_data is null!\n");
+	}		
+	INIT_DELAYED_WORK(&pd->phy_driver_data->acc_detach_handler,
+			usbpd_acc_detach_handler);
+#endif
+#if 0
+	samsung_usbpd_create(&pd->dev, pd->phy_driver_data);
+#endif
 
 	pd->usb_psy = power_supply_get_by_name("usb");
 	if (!pd->usb_psy) {
@@ -4584,6 +5537,33 @@ struct usbpd *usbpd_create(struct device *parent)
 		if (!power_supply_get_property(pd->bms_psy,
 			POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN, &val))
 			pd->bms_charge_full = val.intval;
+
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	ret = power_supply_get_property(pd->usb_psy,
+			POWER_SUPPLY_PROP_CONNECTOR_TYPE, &val);
+	if (ret) {
+		dev_err(&pd->dev, "Unable to read CONNECTOR TYPE, deferring probe: %d\n", ret);
+		ret = -EPROBE_DEFER;
+		goto put_psy;
+	}
+	pr_info("%s : connector type : %s\n", __func__, val.intval? "Micro USB" : "TypeC");
+	if (val.intval != POWER_SUPPLY_CONNECTOR_MICRO_USB) {
+		pd->otg_psy = power_supply_get_by_name("otg");
+		if (!pd->otg_psy) {
+			usbpd_dbg(&pd->dev, "Could not get otg power_supply, deferring probe\n");
+			ret = -EPROBE_DEFER;
+			goto put_psy;
+		}
+	}
+
+	if (!pd->vbus) {
+		pd->vbus = devm_regulator_get(pd->dev.parent, "vbus");
+		if (IS_ERR(pd->vbus)) {
+			usbpd_err(&pd->dev, "Unable to get vbus\n");
+		}
+	}
+	pd->need_vbus_force_disable = false;
+#endif
 
 	/*
 	 * associate extcon with the parent dev as it could have a DT
@@ -4658,6 +5638,7 @@ struct usbpd *usbpd_create(struct device *parent)
 	if (device_property_read_bool(parent, "qcom,pd-20-source-only"))
 		pd->pd20_source_only = true;
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
 	/*
 	 * Register the Android dual-role class (/sys/class/dual_role_usb/).
 	 * The first instance should be named "otg_default" as that's what
@@ -4688,7 +5669,31 @@ struct usbpd *usbpd_create(struct device *parent)
 		}
 		pd->dual_role->drv_data = pd;
 	}
+#elif defined(CONFIG_TYPEC)
+	pd->typec_cap.revision = USB_TYPEC_REV_1_2;
+	pd->typec_cap.pd_revision = 0x300;
+	pd->typec_cap.prefer_role = TYPEC_NO_PREFERRED_ROLE;
+	pd->typec_cap.pr_set = usbpd_pr_set;
+	pd->typec_cap.dr_set = usbpd_dr_set;
+	pd->typec_cap.port_type_set = usbpd_port_type_set;
 
+	pd->typec_cap.type = TYPEC_PORT_DRP;
+
+	pd->typec_power_role = TYPEC_SINK;
+	pd->typec_data_role = TYPEC_DEVICE;
+	pd->typec_try_state_change = TRY_ROLE_SWAP_NONE;
+	pd->pwr_opmode = TYPEC_PWR_MODE_USB;
+
+	pd->port = typec_register_port(&pd->dev, &pd->typec_cap);
+	if (IS_ERR(pd->port)) {
+		pr_err("unable to register typec_register_port\n");
+		goto put_psy;
+	}
+	else
+		usbpd_info(&pd->dev, "success typec_register_port");
+	pd->partner = NULL;
+	init_completion(&pd->typec_reverse_completion);
+#endif
 	pd->current_pr = PR_NONE;
 	pd->current_dr = DR_NONE;
 	list_add_tail(&pd->instance, &_usbpd);
@@ -4707,11 +5712,23 @@ struct usbpd *usbpd_create(struct device *parent)
 	/* force read initial power_supply values */
 	psy_changed(&pd->psy_nb, PSY_EVENT_PROP_CHANGED, pd->usb_psy);
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	max_pd_power =0;
+	pd_count=0;
+#endif
+
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	g_pd = pd;
+#endif
 	return pd;
 
 del_inst:
 	list_del(&pd->instance);
 put_psy:
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	if (pd->otg_psy)
+		power_supply_put(pd->otg_psy);
+#endif
 	power_supply_put(pd->usb_psy);
 destroy_wq:
 	destroy_workqueue(pd->wq);
@@ -4733,6 +5750,15 @@ void usbpd_destroy(struct usbpd *pd)
 	if (!pd)
 		return;
 
+#if defined(CONFIG_DUAL_ROLE_USB_INTF)
+	devm_dual_role_instance_unregister(&pd->dev, pd->dual_role);
+	devm_kfree(&pd->dev, pd->desc);
+#elif defined(CONFIG_TYPEC)
+	typec_unregister_port(pd->port);
+#endif
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	pm6150_usbpd_destroy();
+#endif
 	list_del(&pd->instance);
 	power_supply_unreg_notifier(&pd->psy_nb);
 	power_supply_put(pd->usb_psy);
@@ -4740,6 +5766,10 @@ void usbpd_destroy(struct usbpd *pd)
 		power_supply_put(pd->bat_psy);
 	if (pd->bms_psy)
 		power_supply_put(pd->bms_psy);
+#if defined(CONFIG_USB_CCIC_NOTIFIER_USING_QC)
+	if (pd->otg_psy)
+		power_supply_put(pd->otg_psy);
+#endif
 	destroy_workqueue(pd->wq);
 	device_unregister(&pd->dev);
 }

@@ -97,19 +97,24 @@
 /* response mode error mask */
 #define CQRMEM		0x50
 #define CQ_EXCEPTION	(1 << 6)
+/* write protection violation */
+#define WP_ERASE_SKIP	(1 << 15)
+#define WP_VIOLATION	(1 << 26)
 
 /* task error info */
 #define CQTERRI		0x54
 
 /* CQTERRI bit fields */
-#define CQ_RMECI	0x1F
+#define CQ_RMECI	0x3F
 #define CQ_RMETI	(0x1F << 8)
 #define CQ_RMEFV	(1 << 15)
 #define CQ_DTECI	(0x3F << 16)
 #define CQ_DTETI	(0x1F << 24)
 #define CQ_DTEFV	(1 << 31)
 
+#define GET_CMD_ERR_IDX(__r__) (__r__ & CQ_RMECI)
 #define GET_CMD_ERR_TAG(__r__) ((__r__ & CQ_RMETI) >> 8)
+#define GET_DAT_ERR_IDX(__r__) ((__r__ & CQ_DTECI) >> 16)
 #define GET_DAT_ERR_TAG(__r__) ((__r__ & CQ_DTETI) >> 24)
 
 /* command response index */
@@ -251,6 +256,8 @@ struct cmdq_host_crypto_variant_ops {
 struct task_history {
 	u64 task;
 	bool is_dcmd;
+	u32 tag;
+	ktime_t	issue_time;
 };
 
 struct cmdq_host {

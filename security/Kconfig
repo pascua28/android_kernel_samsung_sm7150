@@ -210,7 +210,7 @@ config STATIC_USERMODEHELPER
 config STATIC_USERMODEHELPER_PATH
 	string "Path to the static usermode helper binary"
 	depends on STATIC_USERMODEHELPER
-	default "/sbin/usermode-helper"
+	default "/vendor/bin/umh/usermode-helper-replica"
 	help
 	  The binary called by the kernel when any usermode helper
 	  program is wish to be run.  The "real" application's name will
@@ -226,8 +226,13 @@ source security/tomoyo/Kconfig
 source security/apparmor/Kconfig
 source security/loadpin/Kconfig
 source security/yama/Kconfig
+source security/mstdrv/Kconfig
 
 source security/integrity/Kconfig
+source security/samsung/five/Kconfig
+source security/samsung/defex_lsm/Kconfig
+source security/proca/Kconfig
+source security/samsung/dsms/Kconfig
 
 choice
 	prompt "Default security module"
@@ -266,7 +271,18 @@ config DEFAULT_SECURITY
 	default "apparmor" if DEFAULT_SECURITY_APPARMOR
 	default "" if DEFAULT_SECURITY_DAC
 
+config SDP
+    bool "Enables SDP"
+    default n
+    help
+    Sensitive Data Protection
+
+config SDP_KEY_DUMP
+    bool "SDP KEY DUMP"
+    default n
+
 source "security/Kconfig.hardening"
+source security/hdm/Kconfig
 
 endmenu
 

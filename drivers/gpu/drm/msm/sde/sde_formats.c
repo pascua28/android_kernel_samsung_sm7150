@@ -18,6 +18,10 @@
 #include "sde_kms.h"
 #include "sde_formats.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include "ss_dsi_panel_common.h"
+#endif
+
 #define SDE_UBWC_META_MACRO_W_H		16
 #define SDE_UBWC_META_BLOCK_SIZE	256
 #define SDE_UBWC_PLANE_SIZE_ALIGNMENT	4096
@@ -1017,6 +1021,14 @@ static int _sde_format_populate_addrs_ubwc(
 		layout->plane_addr[3] = 0;
 	}
 done:
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) && defined(CONFIG_SEC_DEBUG)
+	if (sec_debug_is_enabled()) {
+		ss_image_logging_update(base_addr,
+			layout->width, layout->height,
+			layout->format->base.pixel_format);
+	}
+#endif
 	return 0;
 }
 

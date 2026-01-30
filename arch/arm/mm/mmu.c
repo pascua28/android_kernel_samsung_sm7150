@@ -1795,6 +1795,7 @@ void __init paging_init(const struct machine_desc *mdesc)
 {
 	void *zero_page;
 
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	prepare_page_table();
 	map_lowmem();
 	memblock_set_current_limit(arm_lowmem_limit);
@@ -1817,6 +1818,7 @@ void __init paging_init(const struct machine_desc *mdesc)
 
 	/* Compute the virt/idmap offset, mostly for the sake of KVM */
 	kimage_voffset = (unsigned long)&kimage_voffset - virt_to_idmap(&kimage_voffset);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 }
 
 void __init early_mm_init(const struct machine_desc *mdesc)

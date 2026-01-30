@@ -25,6 +25,8 @@
 #include <net/sock.h>
 #include <uapi/linux/sched/types.h>
 
+#include <soc/qcom/subsystem_restart.h>
+
 #include "qrtr.h"
 
 #define QRTR_LOG_PAGE_CNT 4
@@ -1838,6 +1840,8 @@ static int qrtr_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	long len = 0;
 	int rc = 0;
 
+	struct msm_ipc_subsys_request subsys_req;
+	
 	lock_sock(sk);
 
 	switch (cmd) {
@@ -1879,6 +1883,20 @@ static int qrtr_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	case SIOCGIFNETMASK:
 	case SIOCSIFNETMASK:
 		rc = -EINVAL;
+		break;
+	case IPC_SUB_IOCTL_SUBSYS_GET_RESTART:
+		rc = copy_from_user(&subsys_req, (void *)arg, sizeof(subsys_req));
+		if (rc) {
+			rc = -EFAULT;
+			break;
+		}
+
+		if (subsys_req.request_id == SUBSYS_RES_REQ)
+			subsys_force_stop((const char *)(subsys_req.name), true);
+		else if (subsys_req.request_id == SUBSYS_CR_REQ)
+			subsys_force_stop((const char *)(subsys_req.name), false);
+		else
+			rc = -EINVAL;
 		break;
 	default:
 		rc = -ENOIOCTLCMD;

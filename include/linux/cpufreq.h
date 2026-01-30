@@ -224,6 +224,21 @@ static inline void cpufreq_stats_record_transition(struct cpufreq_policy *policy
 						   unsigned int new_freq) { }
 #endif /* CONFIG_CPU_FREQ_STAT */
 
+#if defined (CONFIG_CPU_FREQ_LIMIT_USERSPACE)
+enum {
+	DVFS_NO_ID			= 0,
+
+	/* need to update now */
+	DVFS_TOUCH_ID			= 0x00000001,
+	DVFS_FINGER_ID			= 0x00000002,
+	DVFS_ARGOS_ID			= 0x00000004,
+
+	DVFS_MAX_ID
+};
+
+int set_freq_limit(unsigned long id, unsigned int freq);
+#endif
+
 /*********************************************************************
  *                      CPUFREQ DRIVER INTERFACE                     *
  *********************************************************************/

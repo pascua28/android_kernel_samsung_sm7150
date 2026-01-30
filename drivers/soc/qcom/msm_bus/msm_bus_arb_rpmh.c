@@ -20,6 +20,7 @@
 #include <dt-bindings/msm/msm-bus-ids.h>
 #include "msm_bus_core.h"
 #include "msm_bus_rpmh.h"
+#include <trace/events/power.h>
 
 #define NUM_CL_HANDLES	50
 #define NUM_LNODES	3
@@ -44,6 +45,8 @@ static struct handle_type handle_list;
 static LIST_HEAD(commit_list);
 static LIST_HEAD(late_init_clist);
 static LIST_HEAD(query_list);
+
+//extern bool is_dbg_level_low;
 
 DEFINE_RT_MUTEX(msm_bus_adhoc_lock);
 
@@ -735,6 +738,7 @@ static void aggregate_bus_req(struct msm_bus_node_device_type *bus_dev,
 	int i;
 	uint64_t max_ib = 0;
 	uint64_t sum_ab = 0;
+	//uint64_t unit_scail = 4000000;
 
 	if (!bus_dev || !to_msm_bus_node(bus_dev->node_info->bus_device)) {
 		MSM_BUS_ERR("Bus node pointer is Invalid");
@@ -748,6 +752,13 @@ static void aggregate_bus_req(struct msm_bus_node_device_type *bus_dev,
 
 	bus_dev->node_bw[ctx].sum_ab = sum_ab;
 	bus_dev->node_bw[ctx].max_ib = max_ib;
+	/*if(!is_dbg_level_low){ 
+		if(bus_dev->node_info->id == MSM_BUS_SLAVE_EBI_CH0){
+			trace_clock_set_rate(bus_dev->node_info->name, max_ib/unit_scail, raw_smp_processor_id());
+		}else if(bus_dev->node_info->id == MSM_BUS_SLAVE_EBI_CH0_DISPLAY){
+			trace_clock_set_rate(bus_dev->node_info->name, max_ib/unit_scail, raw_smp_processor_id());
+		}
+	}*/
 
 exit_agg_bus_req:
 	return;

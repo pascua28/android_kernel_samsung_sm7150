@@ -93,6 +93,7 @@ _kgsl_pool_add_page(struct kgsl_page_pool *pool, struct page *p)
 		return;
 	}
 
+
 	_kgsl_pool_zero_page(p, pool->pool_order);
 
 	spin_lock(&pool->list_lock);

@@ -4679,6 +4679,17 @@ int msm_comm_try_get_bufreqs(struct msm_vidc_inst *inst)
 		}
 	}
 
+	/* Buffer size will be double when the resolution is
+	 * 360p < resolution <= 720p
+	 */
+	for (i = 0; i < HAL_BUFFER_MAX; i++) {
+		if ((inst->buff_req.buffer[i].buffer_type == HAL_BUFFER_OUTPUT) &&
+				(inst->buff_req.buffer[i].buffer_size >= 175000 &&
+				inst->buff_req.buffer[i].buffer_size <= 900000)) {
+			inst->buff_req.buffer[i].buffer_size *= 2;
+		}
+	}
+
 	dprintk(VIDC_DBG, "Buffer requirements driver adjusted:\n");
 	dprintk(VIDC_DBG, "%15s %8s %8s %8s %8s\n",
 		"buffer type", "count", "mincount_host", "mincount_fw", "size");
@@ -5733,6 +5744,8 @@ static int msm_vidc_check_image_session_capabilities(struct msm_vidc_inst *inst)
 
 	return rc;
 }
+
+
 
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 {

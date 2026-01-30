@@ -17,7 +17,7 @@
 #include "sdmmagpie-thermal-overlay.dtsi"
 
 #include "sdmmagpie-sde-display.dtsi"
-#include "sdmmagpie-camera-sensor-qrd.dtsi"
+/*#include "sdmmagpie-camera-sensor-qrd.dtsi"*/
 &soc {
 	fpc1020 {
 		compatible = "fpc,fpc1020";
@@ -285,14 +285,12 @@
 		      <&pm6150_vadc ADC_USB_IN_I>,
 		      <&pm6150_vadc ADC_CHG_TEMP>,
 		      <&pm6150_vadc ADC_DIE_TEMP>,
-		      <&pm6150l_vadc ADC_AMUX_THM1_PU2>,
 		      <&pm6150_vadc ADC_SBUx>,
 		      <&pm6150_vadc ADC_VPH_PWR>;
 	io-channel-names = "usb_in_voltage",
 			   "usb_in_current",
 			   "chg_temp",
 			   "die_temp",
-			   "conn_temp",
 			   "sbux_res",
 			   "vph_voltage";
 	qcom,battery-data = <&mtp_batterydata>;

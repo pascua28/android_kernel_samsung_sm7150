@@ -210,3 +210,18 @@ config SND_SOC_SAMSUNG_TM2_WM5110
 	  Say Y if you want to add support for SoC audio on the TM2 board.
 
 endif #SND_SOC_SAMSUNG
+
+config SND_SOC_SAMSUNG_AUDIO
+	tristate "Audio support for Samsung Projects"
+	help
+	  Say Y here to enable audio support for the Samsung Audio.
+
+config SND_SOC_SAMSUNG_MBHC_SUPPORT
+	tristate "Audio support for Samsung MBHC"
+	help
+	  Say Y here to enable audio support for the Samsung MBHC.
+
+config SND_SOC_SAMSUNG_JACK
+	tristate "earjack sysfs support for Samsung MBHC"
+	help
+	  Say Y here to enable earjack sysfs support for Samsung MBHC

@@ -21,6 +21,7 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/secure_buffer.h>
 #include <linux/ratelimit.h>
+#include <linux/jiffies.h>
 
 #include "kgsl.h"
 #include "kgsl_sharedmem.h"
@@ -493,8 +494,13 @@ int kgsl_lock_sgt(struct sg_table *sgt, uint64_t size)
 	int dest_vm = VMID_CP_PIXEL;
 	int ret;
 	int i;
+	unsigned long j;
+	j = jiffies;
 
 	ret = hyp_assign_table(sgt, &source_vm, 1, &dest_vm, &dest_perms, 1);
+	j = (jiffies - j)/HZ;
+	if (j > 2)
+		KGSL_CORE_ERR("hyp_assign_table took %lusecs\n", j);
 	if (ret) {
 		/*
 		 * If returned error code is EADDRNOTAVAIL, then this
@@ -524,8 +530,12 @@ int kgsl_unlock_sgt(struct sg_table *sgt)
 	int dest_vm = VMID_HLOS;
 	int ret;
 	struct sg_page_iter sg_iter;
+	unsigned long j;
+	j = jiffies;
 
 	ret = hyp_assign_table(sgt, &source_vm, 1, &dest_vm, &dest_perms, 1);
+	if (j > 2)
+		KGSL_CORE_ERR("hyp_assign_table took %lusecs\n", j);
 
 	if (ret) {
 		pr_err("kgsl: hyp_assign_table failed ret: %d\n", ret);
@@ -1050,7 +1060,6 @@ void kgsl_sharedmem_free(struct kgsl_memdesc *memdesc)
 		kfree(memdesc->sgt);
 		memdesc->sgt = NULL;
 	}
-
 	memdesc->page_count = 0;
 	if (memdesc->pages)
 		kgsl_free(memdesc->pages);

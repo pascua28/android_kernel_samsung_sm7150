@@ -116,14 +116,15 @@ void selinux_avc_init(struct selinux_avc **avc);
 extern struct selinux_state selinux_state;
 
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
+extern int selinux_enforcing;
 static inline bool enforcing_enabled(struct selinux_state *state)
 {
-	return state->enforcing;
+	return selinux_enforcing; // SEC_SELINUX_PORTING_COMMON Change to use RKP
 }
 
 static inline void enforcing_set(struct selinux_state *state, bool value)
 {
-	state->enforcing = value;
+	selinux_enforcing = value; // SEC_SELINUX_PORTING_COMMON Change to use RKP
 }
 #else
 static inline bool enforcing_enabled(struct selinux_state *state)

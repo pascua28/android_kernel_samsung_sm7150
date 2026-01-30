@@ -194,11 +194,10 @@ static struct dentry *__sdcardfs_interpose(struct dentry *dentry,
 		ret_dentry = ERR_CAST(inode);
 		goto out;
 	}
+	update_derived_permission_lock(dentry, inode);
 
 	ret_dentry = d_splice_alias(inode, dentry);
 	dentry = ret_dentry ?: dentry;
-	if (!IS_ERR(dentry))
-		update_derived_permission_lock(dentry);
 out:
 	return ret_dentry;
 }
@@ -372,7 +371,6 @@ found:
 
 	lower_path.dentry = lower_dentry;
 	lower_path.mnt = mntget(lower_dir_mnt);
-
 	/*
 	 * Check if someone sneakily filled in the dentry when
 	 * we weren't looking. We'll check again in create.
@@ -381,7 +379,6 @@ found:
 		err = 0;
 		goto found;
 	}
-
 	sdcardfs_set_lower_path(dentry, &lower_path);
 
 	/*
@@ -447,14 +444,9 @@ struct dentry *sdcardfs_lookup(struct inode *dir, struct dentry *dentry,
 		goto out;
 	if (ret)
 		dentry = ret;
-	if (d_inode(dentry)) {
-		fsstack_copy_attr_times(d_inode(dentry),
-					sdcardfs_lower_inode(d_inode(dentry)));
-		/* get derived permission */
-		get_derived_permission(parent, dentry);
-		fixup_tmp_permissions(d_inode(dentry));
+	if (d_inode(dentry))
 		fixup_lower_ownership(dentry, dentry->d_name.name);
-	}
+
 	/* update parent directory's atime */
 	fsstack_copy_attr_atime(d_inode(parent),
 				sdcardfs_lower_inode(d_inode(parent)));
