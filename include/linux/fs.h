@@ -914,9 +914,6 @@ struct file {
 	struct address_space	*f_mapping;
 	errseq_t		f_wb_err;
 
-#if defined(CONFIG_FIVE_PA_FEATURE) || defined(CONFIG_PROCA)
-	void *f_signature;
-#endif
 #ifdef CONFIG_FILE_TABLE_DEBUG
 	struct hlist_node f_hash;
 #endif /* #ifdef CONFIG_FILE_TABLE_DEBUG */
