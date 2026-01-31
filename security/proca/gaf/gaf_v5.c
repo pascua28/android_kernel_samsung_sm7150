@@ -282,13 +282,9 @@ static struct GAForensicINFO {
 		offsetof(struct proca_certificate, app_name_size),
 #endif
 	.mount_struct_mnt_mountpoint = offsetof(struct mount, mnt_mountpoint),
-#ifdef CONFIG_RKP_NS_PROT
-	.vfsmount_struct_bp_mount = offsetof(struct vfsmount, bp_mount),
-#else
 	.vfsmount_struct_bp_mount =
 		(short)(offsetof(struct mount, mnt_mountpoint)
 		- offsetof(struct mount, mnt)),
-#endif
 	.GAFINFOCheckSum = 0
 };
 
