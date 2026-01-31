@@ -70,34 +70,9 @@
 
 #include <trace/events/task.h>
 
-#if 0 //def CONFIG_RKP_NS_PROT
-#include "mount.h"
-#endif
-
 #include "internal.h"
 
 #include <trace/events/sched.h>
-
-#ifdef CONFIG_RKP_KDP
-#define rkp_is_nonroot(x) ((x->cred->type)>>1 & 1)
-#ifdef CONFIG_LOD_SEC
-#define rkp_is_lod(x) ((x->cred->type)>>3 & 1)
-#endif
-static unsigned int __is_kdp_recovery __kdp_ro;
-
-static int __init boot_recovery(char *str)
-{
-	int temp = 0;
-
-	if (get_option(&str, &temp)) {
-		__is_kdp_recovery = temp;
-		return 0;
-	}
-
-	return -EINVAL;
-}
-early_param("androidboot.boot_recovery", boot_recovery);
-#endif
 
 #ifdef CONFIG_SECURITY_DEFEX
 #include <linux/defex.h>
@@ -1075,11 +1050,6 @@ static int exec_mmap(struct mm_struct *mm)
 		local_irq_enable();
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
-#ifdef CONFIG_RKP_KDP
-	if (rkp_cred_enable) {
-		uh_call(UH_APP_RKP, RKP_KDP_X43, (u64)current_cred(), (u64)mm->pgd, 0, 0);
-	}
-#endif
 	task_unlock(tsk);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);
@@ -1289,110 +1259,6 @@ void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 	perf_event_comm(tsk, exec);
 }
 
-#if 0 //def CONFIG_RKP_NS_PROT
-extern struct super_block *sys_sb;	/* pointer to superblock */
-extern struct super_block *odm_sb;	/* pointer to superblock */
-extern struct super_block *vendor_sb;	/* pointer to superblock */
-extern struct super_block *rootfs_sb;	/* pointer to superblock */
-extern struct super_block *art_sb;	/* pointer to superblock */
-extern struct super_block *crypt_sb;	/* pointer to superblock */
-extern struct super_block *adbd_sb;	/* pointer to superblock */
-extern struct super_block *runtime_sb;	/* pointer to superblock */
-extern struct super_block *sysext_sb;	/* pointer to superblock */
-extern int __check_verifiedboot;
-
-static int kdp_check_sb_mismatch(struct super_block *sb)
-{
-	if (__is_kdp_recovery || __check_verifiedboot) {
-		return 0;
-	}
-
-	if ((sb != rootfs_sb) && (sb != sys_sb) && (sb != odm_sb) && (sb != vendor_sb)
-		&& (sb != art_sb) && (sb != crypt_sb) && (sb!=adbd_sb) && (sb!=runtime_sb) && (sb != sysext_sb)) {
-		return 1;
-	}
-	return 0;
-}
-
-static int kdp_check_path_mismatch(struct vfsmount *vfsmnt)
-{
-	int i = 0;
-	int ret = -1;
-	char *buf = NULL;
-	char *path_name = NULL;
-	const char* skip_path[] = {
-		"/com.android.runtime",
-		"/com.android.conscrypt",
-		"/com.android.art",
-		"/com.android.adbd",
-		"/com.android.sdkext",
-	};
-
-	if (!vfsmnt->bp_mount) {
-		printk(KERN_ERR "vfsmnt->bp_mount is NULL");
-		return -ENOMEM;
-	}
-
-	buf = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	path_name = dentry_path_raw(vfsmnt->bp_mount->mnt_mountpoint, buf, PATH_MAX);
-	if (IS_ERR(path_name))
-		goto out;
-
-	for (; i < ARRAY_SIZE(skip_path); ++i) {
-		if (!strncmp(path_name, skip_path[i], strlen(skip_path[i]))) {
-			ret = 0;
-			break;
-		}
-	}
-out:
-	kfree(buf);
-
-	return ret;
-}
-
-static int invalid_drive(struct linux_binprm * bprm) 
-{
-	struct super_block *sb =  NULL;
-	struct vfsmount *vfsmnt = NULL;
-
-	vfsmnt = bprm->file->f_path.mnt;
-	if (!vfsmnt ||
-		!rkp_ro_page((unsigned long)vfsmnt)) {
-		printk("\nInvalid Drive #%s# #%p#\n",bprm->filename, vfsmnt);
-		return 1;
-	}
-
-	if (!kdp_check_path_mismatch(vfsmnt)) {
-		return 0;
-	}
-
-	sb = vfsmnt->mnt_sb;
-
-	if (kdp_check_sb_mismatch(sb)) {
-		printk("\n Superblock Mismatch #%s# vfsmnt #%lx#sb #%lx:%lx:%lx:%lx:%lx:%lx:%lx:%lx:%lx:%lx#\n",
-					bprm->filename, vfsmnt, sb, rootfs_sb, sys_sb, odm_sb, vendor_sb, art_sb, crypt_sb, adbd_sb, runtime_sb, sysext_sb);
-		return 1;
-	}
-
-	return 0;
-}
-#define RKP_CRED_SYS_ID 1000
-
-static int is_rkp_priv_task(void)
-{
-	struct cred *cred = (struct cred *)current_cred();
-
-	if (cred->uid.val <= (uid_t)RKP_CRED_SYS_ID || cred->euid.val <= (uid_t)RKP_CRED_SYS_ID ||
-		cred->gid.val <= (gid_t)RKP_CRED_SYS_ID || cred->egid.val <= (gid_t)RKP_CRED_SYS_ID ) {
-		return 1;
-	}
-	return 0;
-}
-#endif
-
 /*
  * Calling this is the point of no return. None of the failures will be
  * seen by userspace since either the process is already taking a fatal
@@ -1424,13 +1290,6 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 * Release all of the old mmap stuff
 	 */
 	acct_arg_size(bprm, 0);
-#if 0 //def CONFIG_RKP_NS_PROT
-	if (rkp_cred_enable &&
-		is_rkp_priv_task() &&
-		invalid_drive(bprm)) {
-		panic("\n KDP_NS_PROT: Illegal Execution of file #%s#\n", bprm->filename);
-	}
-#endif
 	retval = exec_mmap(bprm->mm);
 	if (retval)
 		goto out;
@@ -2140,20 +1999,6 @@ SYSCALL_DEFINE3(execve,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
 {
-#ifdef CONFIG_RKP_KDP
-	struct filename *path = getname(filename);
-	int error = PTR_ERR(path);
-
-	if (IS_ERR(path))
-		return error;
-
-	if (rkp_cred_enable) {
-		uh_call(UH_APP_RKP, RKP_KDP_X4B, (u64)path->name, 0, 0, 0);
-	}
-
-	putname(path);
-#endif
-
 	return do_execve(getname(filename), argv, envp);
 }
 

@@ -213,8 +213,6 @@ obj-$(CONFIG_BATTERY_SAMSUNG)	+= battery_v2/
 endif
 
 obj-y				+= motor/
-# uH                                                                            
-obj-$(CONFIG_UH)	+= uh/
 
 # FIVE TEE driver
 obj-$(CONFIG_FIVE_TEE_DRIVER)	+= security/samsung/five_tee_driver/

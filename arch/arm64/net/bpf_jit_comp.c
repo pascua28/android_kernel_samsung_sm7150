@@ -23,9 +23,6 @@
 #include <linux/printk.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
-#ifdef CONFIG_RKP_MODULE_SUPPORT
-#include <linux/rkp.h>
-#endif
 #include <asm/byteorder.h>
 #include <asm/cacheflush.h>
 #include <asm/debug-monitors.h>
@@ -1006,9 +1003,6 @@ skip_init_ctx:
 	prog->bpf_func = (void *)ctx.image;
 	prog->jited = 1;
 	prog->jited_len = image_size;
-#ifdef CONFIG_RKP_MODULE_SUPPORT
-	uh_call(UH_APP_RKP, RKP_BFP_LOAD, (u64)header, (u64)(header->pages * PAGE_SIZE), RKP_BPF_JIT_LOAD, 0);
-#endif
 
 	if (!prog->is_func || extra_pass) {
 out_off:
