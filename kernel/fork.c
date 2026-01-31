@@ -108,10 +108,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
 
-#ifdef CONFIG_SECURITY_DEFEX
-#include <linux/defex.h>
-#endif
-
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -1705,41 +1701,6 @@ static int pidfd_create(struct pid *pid)
 	return fd;
 }
 
-#ifdef CONFIG_FIVE
-static int dup_task_integrity(unsigned long clone_flags,
-					struct task_struct *tsk)
-{
-	int ret = 0;
-
-	if (clone_flags & CLONE_VM) {
-		task_integrity_get(current->integrity);
-		tsk->integrity = current->integrity;
-	} else {
-		tsk->integrity = task_integrity_alloc();
-
-		if (!tsk->integrity)
-			ret = -ENOMEM;
-	}
-
-	return ret;
-}
-
-static inline void task_integrity_cleanup(struct task_struct *tsk)
-{
-	task_integrity_put(tsk->integrity);
-}
-
-static inline int task_integrity_apply(unsigned long clone_flags,
-						struct task_struct *tsk)
-{
-	int ret = 0;
-
-	if (!(clone_flags & CLONE_VM))
-		ret = five_fork(current, tsk);
-
-	return ret;
-}
-#else
 static inline int dup_task_integrity(unsigned long clone_flags,
 						struct task_struct *tsk)
 {
@@ -1755,8 +1716,6 @@ static inline int task_integrity_apply(unsigned long clone_flags,
 {
 	return 0;
 }
-
-#endif
 
 static inline void rcu_copy_process(struct task_struct *p)
 {
@@ -2390,10 +2349,6 @@ long _do_fork(unsigned long clone_flags,
 
 		pid = get_task_pid(p, PIDTYPE_PID);
 		nr = pid_vnr(pid);
-
-#ifdef CONFIG_SECURITY_DEFEX
-		task_defex_zero_creds(p);
-#endif
 
 		if (clone_flags & CLONE_PARENT_SETTID)
 			put_user(nr, parent_tidptr);

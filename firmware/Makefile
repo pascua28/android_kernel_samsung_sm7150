@@ -72,11 +72,6 @@ fw-external-$(CONFIG_EPEN_WACOM_W9019) += epen/w9019_gts6lite.bin
 #touch based grip sensor
 fw-shipped-$(CONFIG_SENSORS_TC3XXK_A60) += coreriver/tc305k_a60_grip.fw
 
-# FIVE
-ifeq ($(CONFIG_FIVE_TEE_DRIVER),y)
-include $(srctree)/firmware/five/Makefile
-endif
-
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
 quiet_cmd_ihex  = IHEX    $@

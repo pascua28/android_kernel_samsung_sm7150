@@ -173,22 +173,8 @@ extern struct cred init_cred;
 # define INIT_VTIME(tsk)
 #endif
 
-#ifdef CONFIG_FIVE
-# define INIT_TASK_INTEGRITY(integrity) {				\
-	.user_value = INTEGRITY_NONE,					\
-	.value = INTEGRITY_NONE,					\
-	.usage_count = ATOMIC_INIT(1),					\
-	.value_lock = __SPIN_LOCK_UNLOCKED(integrity.value_lock),	\
-	.list_lock = __SPIN_LOCK_UNLOCKED(integrity.list_lock),		\
-	.events = { .list = LIST_HEAD_INIT(integrity.events.list),},	\
-}
-
-# define INIT_INTEGRITY(tsk)						\
-	.integrity = &init_integrity,
-#else
 # define INIT_INTEGRITY(tsk)
 # define INIT_TASK_INTEGRITY(integrity)
-#endif
 
 #define INIT_TASK_COMM "swapper"
 
