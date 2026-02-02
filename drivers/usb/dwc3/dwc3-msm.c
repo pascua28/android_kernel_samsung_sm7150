@@ -49,6 +49,7 @@
 #include <linux/clk/qcom.h>
 #include <soc/qcom/boot_stats.h>
 #include <linux/sec_class.h>
+#include <linux/usb_notify.h>
 
 #include "power.h"
 #include "core.h"
@@ -331,6 +332,7 @@ struct dwc3_msm {
 	struct pm_qos_request pm_qos_req_dma;
 	struct delayed_work perf_vote_work;
 	struct delayed_work sdp_check;
+	int dwc3_msm_probe_done;
 	bool usb_compliance_mode;
 	struct mutex suspend_resume_mutex;
 
@@ -3599,6 +3601,27 @@ int dwc_msm_vbus_event(bool enable)
 }
 EXPORT_SYMBOL(dwc_msm_vbus_event);
 
+int is_dwc3_msm_probe_done(void)
+{
+	struct dwc3_msm *mdwc;
+
+	if (msm_dwc3 == NULL) {
+		pr_info("%s(): msm_dwc3 is not initialized.\n", __func__);
+		return 0;
+	}
+
+	mdwc = dev_get_drvdata(msm_dwc3);
+
+	if (mdwc == NULL) {
+		pr_info("%s(): mdwc is not initialized.\n", __func__);
+		return 0;
+	}
+
+	pr_info("%s: %d\n", __func__, mdwc->dwc3_msm_probe_done);
+	return mdwc->dwc3_msm_probe_done;
+}
+EXPORT_SYMBOL(is_dwc3_msm_probe_done);
+
 int gadget_speed(void)
 {
 	struct dwc3_msm *mdwc;
@@ -3833,9 +3856,21 @@ static ssize_t mode_store(struct device *dev, struct device_attribute *attr,
 	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
 
 	if (sysfs_streq(buf, "peripheral")) {
+#ifdef CONFIG_USB_NOTIFIER
+		if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_CLIENT)) {
+			dev_err(dev, "blocked peripheral mode\n");
+			return -EINVAL;
+		}
+#endif
 		mdwc->vbus_active = true;
 		mdwc->id_state = DWC3_ID_FLOAT;
 	} else if (sysfs_streq(buf, "host")) {
+#ifdef CONFIG_USB_NOTIFIER
+		if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_HOST)) {
+			dev_err(dev, "blocked host mode\n");
+			return -EINVAL;
+		}
+#endif
 		mdwc->vbus_active = false;
 		mdwc->id_state = DWC3_ID_GROUND;
 	} else {
@@ -4509,6 +4544,10 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	device_create_file(&pdev->dev, &dev_attr_usb_compliance_mode);
 	device_create_file(&pdev->dev, &dev_attr_bus_vote);
 	device_create_file(&pdev->dev, &dev_attr_usb_data_enabled);
+
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER)
+	enable_usb_notify();
+#endif
 
 	return 0;
 
