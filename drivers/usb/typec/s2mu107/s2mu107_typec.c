@@ -3258,12 +3258,14 @@ static void s2mu107_usbpd_otg_attach(struct s2mu107_usbpd_data *pdic_data)
 	s2mu107_ccic_event_work(pdic_data, CCIC_NOTIFY_DEV_USB, CCIC_NOTIFY_ID_USB,
 			1/*attach*/, USB_STATUS_NOTIFY_ATTACH_DFP/*drp*/);
 	/* add to turn on external 5V */
-#if defined(CONFIG_USB_HOST_NOTIFY)
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION)
 	if (!is_blocked(o_notify, NOTIFY_BLOCK_TYPE_HOST)) {
+#endif
 #ifdef CONFIG_PM_S2MU107
 		s2mu107_usbpd_check_vbus(pdic_data, 80, VBUS_OFF);
 #endif
 		s2mu107_vbus_turn_on_ctrl(pdic_data, VBUS_ON);
+#if defined(CONFIG_USB_HOST_NOTIFY) && defined(CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION)
 	}
 #endif
 	usbpd_manager_acc_handler_cancel(dev);
