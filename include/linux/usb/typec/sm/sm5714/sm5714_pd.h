@@ -66,6 +66,12 @@
 #define tSwapSinkReady			(15)	/* 15 ms */
 #define tSrcRecover				(670)	/* 660~1000 ms */
 
+#define ALTERNATE_MODE_NOT_READY	(1 << 0)
+#define ALTERNATE_MODE_READY		(1 << 1)
+#define ALTERNATE_MODE_STOP			(1 << 2)
+#define ALTERNATE_MODE_START		(1 << 3)
+#define ALTERNATE_MODE_RESET		(1 << 4)
+
 typedef enum {
 	POWER_TYPE_FIXED = 0,
 	POWER_TYPE_BATTERY,
@@ -424,6 +430,11 @@ typedef enum sm5714_usbpd_manager_event {
 	MANAGER_UVDM_RECEIVE_MESSAGE			= 17,
 	MANAGER_PR_SWAP_REQUEST					= 18,
 	MANAGER_DR_SWAP_REQUEST					= 19,
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
+#ifndef SM5714_LATEST
+	MANAGER_SEND_DISCOVER_IDENTITY			= 20,
+#endif
+#endif
 } sm5714_usbpd_manager_event_type;
 
 enum usbpd_msg_status {
@@ -833,6 +844,9 @@ struct sm5714_usbpd_data {
 #endif
 	unsigned int            wait_for_msg_arrived;
 	int			specification_revision;
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
+	bool		altmode_enable;
+#endif
 };
 
 static inline struct sm5714_usbpd_data *protocol_rx_to_usbpd(
@@ -918,5 +932,8 @@ extern void (*fp_select_pdo)(int num);
 extern int (*fp_sec_pd_select_pps)(int num, int ppsVol, int ppsCur);
 extern int (*fp_sec_pd_get_apdo_max_power)(unsigned int *pdo_pos,
 		unsigned int *taMaxVol, unsigned int *taMaxCur, unsigned int *taMaxPwr);
+#endif
+#ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
+void sm5714_set_enable_alternate_mode(int mode);
 #endif
 #endif

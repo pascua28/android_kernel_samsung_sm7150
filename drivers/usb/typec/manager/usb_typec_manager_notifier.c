@@ -522,6 +522,13 @@ static void manager_cable_type_check_work(struct work_struct *work)
 
 	dwc3_link_check= dwc3_gadget_get_cmply_link_state_wrapper();
 
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER) && !IS_ENABLED(CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION)
+	if (is_blocked(get_otg_notify(), NOTIFY_BLOCK_TYPE_CLIENT)) {
+		pr_info("%s usb device is blocked. skip.\n", __func__);
+		return;
+	}
+#endif
+
 	if ((typec_manager.ccic_drp_state != USB_STATUS_NOTIFY_ATTACH_UFP) ||
 		typec_manager.is_MPSM || dwc3_link_check == 1 ) {
 		pr_info("%s: skip case : dwc3_link = %d\n", __func__, dwc3_link_check);
@@ -544,9 +551,22 @@ static void manager_cable_type_check_work(struct work_struct *work)
 }
 
 static void manager_cable_type_check(bool state, int time) {
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER) && !IS_ENABLED(CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION)
+	struct otg_notify *o_notify = get_otg_notify();
+	int enum_check_skip = 0;
+
+	if ((o_notify && o_notify->booting_delay_sec) || is_blocked(o_notify, NOTIFY_BLOCK_TYPE_CLIENT))
+		enum_check_skip = 1;
+#endif
 	if (typec_manager.usb_enable_state) {
 		cancel_delayed_work_sync(&typec_manager.cable_check_work);
 		if (state) {
+#if IS_ENABLED(CONFIG_USB_NOTIFY_LAYER) && !IS_ENABLED(CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION)
+			if (enum_check_skip) {
+				pr_info("%s skip. booting_delay(%d)\n", __func__, o_notify->booting_delay_sec);
+				return;
+			}
+#endif	
 			schedule_delayed_work(&typec_manager.cable_check_work, msecs_to_jiffies(time*100));
 		}
 	}
