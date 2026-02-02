@@ -1555,6 +1555,7 @@ static void sde_rotator_commit_handler(struct kthread_work *work)
 	struct sde_rot_hw_resource *hw;
 	struct sde_rot_mgr *mgr;
 	struct sched_param param = { .sched_priority = 5 };
+	struct sde_rot_trace_entry rot_trace;
 	int ret;
 
 	entry = container_of(work, struct sde_rot_entry, commit_work);
@@ -1603,17 +1604,26 @@ static void sde_rotator_commit_handler(struct kthread_work *work)
 	if (entry->item.ts)
 		entry->item.ts[SDE_ROTATOR_TS_COMMIT] = ktime_get();
 
+	/* Set values to pass to trace */
+	rot_trace.wb_idx = entry->item.wb_idx;
+	rot_trace.flags = entry->item.flags;
+	rot_trace.input_format = entry->item.input.format;
+	rot_trace.input_width = entry->item.input.width;
+	rot_trace.input_height = entry->item.input.height;
+	rot_trace.src_x = entry->item.src_rect.x;
+	rot_trace.src_y = entry->item.src_rect.y;
+	rot_trace.src_w = entry->item.src_rect.w;
+	rot_trace.src_h = entry->item.src_rect.h;
+	rot_trace.output_format = entry->item.output.format;
+	rot_trace.output_width = entry->item.output.width;
+	rot_trace.output_height = entry->item.output.height;
+	rot_trace.dst_x = entry->item.dst_rect.x;
+	rot_trace.dst_y = entry->item.dst_rect.y;
+	rot_trace.dst_w = entry->item.dst_rect.w;
+	rot_trace.dst_h = entry->item.dst_rect.h;
+
 	trace_rot_entry_commit(
-		entry->item.session_id, entry->item.sequence_id,
-		entry->item.wb_idx, entry->item.flags,
-		entry->item.input.format,
-		entry->item.input.width, entry->item.input.height,
-		entry->item.src_rect.x, entry->item.src_rect.y,
-		entry->item.src_rect.w, entry->item.src_rect.h,
-		entry->item.output.format,
-		entry->item.output.width, entry->item.output.height,
-		entry->item.dst_rect.x, entry->item.dst_rect.y,
-		entry->item.dst_rect.w, entry->item.dst_rect.h);
+		entry->item.session_id, entry->item.sequence_id, &rot_trace);
 
 	ATRACE_INT("sde_smmu_ctrl", 0);
 	ret = sde_smmu_ctrl(1);
@@ -1699,6 +1709,7 @@ static void sde_rotator_done_handler(struct kthread_work *work)
 	struct sde_rot_entry_container *request;
 	struct sde_rot_hw_resource *hw;
 	struct sde_rot_mgr *mgr;
+	struct sde_rot_trace_entry rot_trace;
 	int ret;
 
 	entry = container_of(work, struct sde_rot_entry, done_work);
@@ -1733,17 +1744,26 @@ static void sde_rotator_done_handler(struct kthread_work *work)
 	if (entry->item.ts)
 		entry->item.ts[SDE_ROTATOR_TS_DONE] = ktime_get();
 
-	trace_rot_entry_done(
-		entry->item.session_id, entry->item.sequence_id,
-		entry->item.wb_idx, entry->item.flags,
-		entry->item.input.format,
-		entry->item.input.width, entry->item.input.height,
-		entry->item.src_rect.x, entry->item.src_rect.y,
-		entry->item.src_rect.w, entry->item.src_rect.h,
-		entry->item.output.format,
-		entry->item.output.width, entry->item.output.height,
-		entry->item.dst_rect.x, entry->item.dst_rect.y,
-		entry->item.dst_rect.w, entry->item.dst_rect.h);
+	/* Set values to pass to trace */
+	rot_trace.wb_idx = entry->item.wb_idx;
+	rot_trace.flags = entry->item.flags;
+	rot_trace.input_format = entry->item.input.format;
+	rot_trace.input_width = entry->item.input.width;
+	rot_trace.input_height = entry->item.input.height;
+	rot_trace.src_x = entry->item.src_rect.x;
+	rot_trace.src_y = entry->item.src_rect.y;
+	rot_trace.src_w = entry->item.src_rect.w;
+	rot_trace.src_h = entry->item.src_rect.h;
+	rot_trace.output_format = entry->item.output.format;
+	rot_trace.output_width = entry->item.output.width;
+	rot_trace.output_height = entry->item.output.height;
+	rot_trace.dst_x = entry->item.dst_rect.x;
+	rot_trace.dst_y = entry->item.dst_rect.y;
+	rot_trace.dst_w = entry->item.dst_rect.w;
+	rot_trace.dst_h = entry->item.dst_rect.h;
+
+	trace_rot_entry_done(entry->item.session_id, entry->item.sequence_id,
+			&rot_trace);
 
 	sde_rot_mgr_lock(mgr);
 	sde_rotator_put_hw_resource(entry->commitq, entry, entry->commitq->hw);
@@ -3173,16 +3193,19 @@ int sde_rotator_core_init(struct sde_rot_mgr **pmgr,
 		mgr->ops_hw_init = sde_rotator_r3_init;
 		mgr->min_rot_clk = ROT_MIN_ROT_CLK;
 
-		/*
-		 * on platforms where the maxlinewidth is greater than
-		 * default we need to have a max clock rate check to
-		 * ensure we do not cross the max allowed clock for rotator
-		 */
-		if (IS_SDE_MAJOR_SAME(mdata->mdss_version,
-			SDE_MDP_HW_REV_500) ||
+		if (IS_SDE_MAJOR_MINOR_SAME(mdata->mdss_version,
+				SDE_MDP_HW_REV_500) ||
+		IS_SDE_MAJOR_MINOR_SAME(mdata->mdss_version,
+				SDE_MDP_HW_REV_620))
+			mgr->max_rot_clk = 460000000UL;
+		else if (IS_SDE_MAJOR_MINOR_SAME(mdata->mdss_version,
+					SDE_MDP_HW_REV_520))
+			mgr->max_rot_clk = 430000000UL;
+		else if (IS_SDE_MAJOR_MINOR_SAME(mdata->mdss_version,
+				SDE_MDP_HW_REV_530) ||
 			IS_SDE_MAJOR_MINOR_SAME(mdata->mdss_version,
-			SDE_MDP_HW_REV_620))
-			mgr->max_rot_clk = ROT_R3_MAX_ROT_CLK;
+				SDE_MDP_HW_REV_540))
+			mgr->max_rot_clk = 307200000UL;
 
 		if (!(IS_SDE_MAJOR_SAME(mdata->mdss_version,
 					SDE_MDP_HW_REV_500) ||

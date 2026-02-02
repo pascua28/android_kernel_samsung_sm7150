@@ -4264,9 +4264,13 @@ static void populate_frame_data(struct vidc_frame_data *data,
 	tag_data.index = vb->index;
 	tag_data.type = vb->type;
 
-	msm_comm_fetch_tags(inst, &tag_data);
-	data->input_tag = tag_data.input_tag;
-	data->output_tag = tag_data.output_tag;
+	if (msm_comm_fetch_tags(inst, &tag_data)) {
+		data->input_tag = tag_data.input_tag;
+		data->output_tag = tag_data.output_tag;
+	} else {
+		data->input_tag = 0;
+		data->output_tag = 0;
+	}
 
 
 	extra_idx = EXTRADATA_IDX(vb->num_planes);
@@ -6642,25 +6646,24 @@ struct msm_vidc_buffer *msm_comm_get_vidc_buffer(struct msm_vidc_inst *inst,
 	struct vb2_v4l2_buffer *vbuf;
 	struct vb2_buffer *vb;
 	unsigned long dma_planes[VB2_MAX_PLANES] = {0};
-	struct msm_vidc_buffer *mbuf;
+	struct msm_vidc_buffer *mbuf = NULL;
 	bool found = false;
-	int i;
+	int i = 0, planes = 0;
 
 	if (!inst || !vb2) {
 		dprintk(VIDC_ERR, "%s: invalid params\n", __func__);
 		return NULL;
 	}
 
-	for (i = 0; i < vb2->num_planes; i++) {
+	for (planes = 0; planes < vb2->num_planes; planes++) {
 		/*
 		 * always compare dma_buf addresses which is guaranteed
 		 * to be same across the processes (duplicate fds).
 		 */
-		dma_planes[i] = (unsigned long)msm_smem_get_dma_buf(
-				vb2->planes[i].m.fd);
-		if (!dma_planes[i])
-			return NULL;
-		msm_smem_put_dma_buf((struct dma_buf *)dma_planes[i]);
+		dma_planes[planes] = (unsigned long)msm_smem_get_dma_buf(
+				vb2->planes[planes].m.fd);
+		if (!dma_planes[planes])
+			goto put_ref;
 	}
 
 	mutex_lock(&inst->registeredbufs.lock);
@@ -6763,27 +6766,22 @@ struct msm_vidc_buffer *msm_comm_get_vidc_buffer(struct msm_vidc_inst *inst,
 	if (!found)
 		list_add_tail(&mbuf->list, &inst->registeredbufs.list);
 
-	mutex_unlock(&inst->registeredbufs.lock);
-
-	/*
-	 * Return mbuf if decode batching is enabled as this buffer
-	 * may trigger queuing full batch to firmware, also this buffer
-	 * will not be queued to firmware while full batch queuing,
-	 * it will be queued when rbr event arrived from firmware.
-	 */
-	if (rc == -EEXIST && !inst->batch.enable)
-		return ERR_PTR(rc);
-
-	return mbuf;
-
 exit:
-	dprintk(VIDC_ERR, "%s: rc %d\n", __func__, rc);
-	msm_comm_unmap_vidc_buffer(inst, mbuf);
-	if (!found)
-		kref_put_mbuf(mbuf);
+	if (rc == -EEXIST) {
+		print_vidc_buffer(VIDC_DBG, "qbuf upon rbr", inst, mbuf);
+	} else if (rc) {
+		dprintk(VIDC_ERR, "%s: rc %d\n", __func__, rc);
+		msm_comm_unmap_vidc_buffer(inst, mbuf);
+		if (!found)
+			kref_put_mbuf(mbuf);
+	}
 	mutex_unlock(&inst->registeredbufs.lock);
+put_ref:
+	while (planes)
+		msm_smem_put_dma_buf((struct dma_buf *)dma_planes[--planes]);
 
-	return ERR_PTR(rc);
+	return rc ? ((rc == -EEXIST && !inst->batch.enable) ?
+			ERR_PTR(rc) : mbuf) : mbuf;
 }
 
 void msm_comm_put_vidc_buffer(struct msm_vidc_inst *inst,
@@ -7073,7 +7071,7 @@ exit:
 	mutex_unlock(&inst->buffer_tags.lock);
 }
 
-void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
+bool msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	struct vidc_tag_data *tag_data)
 {
 	struct vidc_tag_data *temp, *next;
@@ -7081,7 +7079,7 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 	if (!inst || !tag_data) {
 		dprintk(VIDC_ERR, "%s: invalid params %pK %pK\n",
 				__func__, inst, tag_data);
-		return;
+		return false;
 	}
 	mutex_lock(&inst->buffer_tags.lock);
 	list_for_each_entry_safe(temp, next, &inst->buffer_tags.list, list) {
@@ -7089,10 +7087,13 @@ void msm_comm_fetch_tags(struct msm_vidc_inst *inst,
 				temp->type == tag_data->type) {
 			tag_data->input_tag = temp->input_tag;
 			tag_data->output_tag = temp->output_tag;
-			break;
+			mutex_unlock(&inst->buffer_tags.lock);
+			return true;
 		}
 	}
 	mutex_unlock(&inst->buffer_tags.lock);
+
+	return false;
 }
 
 void msm_comm_store_mark_data(struct msm_vidc_list *data_list,

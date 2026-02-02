@@ -19,6 +19,7 @@
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/usb/typec.h>
 
@@ -27,6 +28,15 @@
 #include "tcpm.h"
 
 #define PD_RETRY_COUNT 3
+
+#define tcpc_presenting_cc1_rd(reg) \
+	(!(TCPC_ROLE_CTRL_DRP & (reg)) && \
+	 (((reg) & (TCPC_ROLE_CTRL_CC1_MASK << TCPC_ROLE_CTRL_CC1_SHIFT)) == \
+	  (TCPC_ROLE_CTRL_CC_RD << TCPC_ROLE_CTRL_CC1_SHIFT)))
+#define tcpc_presenting_cc2_rd(reg) \
+	(!(TCPC_ROLE_CTRL_DRP & (reg)) && \
+	 (((reg) & (TCPC_ROLE_CTRL_CC2_MASK << TCPC_ROLE_CTRL_CC2_SHIFT)) == \
+	  (TCPC_ROLE_CTRL_CC_RD << TCPC_ROLE_CTRL_CC2_SHIFT)))
 
 struct tcpci {
 	struct device *dev;
@@ -47,7 +57,7 @@ static inline struct tcpci *tcpc_to_tcpci(struct tcpc_dev *tcpc)
 }
 
 static int tcpci_read16(struct tcpci *tcpci, unsigned int reg,
-			unsigned int *val)
+			u16 *val)
 {
 	return regmap_raw_read(tcpci->regmap, reg, val, sizeof(u16));
 }
@@ -149,8 +159,12 @@ static int tcpci_get_cc(struct tcpc_dev *tcpc,
 			enum typec_cc_status *cc1, enum typec_cc_status *cc2)
 {
 	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
-	unsigned int reg;
+	unsigned int reg, role_control;
 	int ret;
+
+	ret = regmap_read(tcpci->regmap, TCPC_ROLE_CTRL, &role_control);
+	if (ret < 0)
+		return ret;
 
 	ret = regmap_read(tcpci->regmap, TCPC_CC_STATUS, &reg);
 	if (ret < 0)
@@ -158,10 +172,12 @@ static int tcpci_get_cc(struct tcpc_dev *tcpc,
 
 	*cc1 = tcpci_to_typec_cc((reg >> TCPC_CC_STATUS_CC1_SHIFT) &
 				 TCPC_CC_STATUS_CC1_MASK,
-				 reg & TCPC_CC_STATUS_TERM);
+				 reg & TCPC_CC_STATUS_TERM ||
+				 tcpc_presenting_cc1_rd(role_control));
 	*cc2 = tcpci_to_typec_cc((reg >> TCPC_CC_STATUS_CC2_SHIFT) &
 				 TCPC_CC_STATUS_CC2_MASK,
-				 reg & TCPC_CC_STATUS_TERM);
+				 reg & TCPC_CC_STATUS_TERM ||
+				 tcpc_presenting_cc2_rd(role_control));
 
 	return 0;
 }
@@ -284,15 +300,15 @@ static int tcpci_pd_transmit(struct tcpc_dev *tcpc,
 			     const struct pd_message *msg)
 {
 	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
-	unsigned int reg, cnt, header;
+	u16 header = msg ? le16_to_cpu(msg->header) : 0;
+	unsigned int reg, cnt;
 	int ret;
 
-	cnt = msg ? pd_header_cnt(msg->header) * 4 : 0;
+	cnt = msg ? pd_header_cnt(header) * 4 : 0;
 	ret = regmap_write(tcpci->regmap, TCPC_TX_BYTE_CNT, cnt + 2);
 	if (ret < 0)
 		return ret;
 
-	header = msg ? msg->header : 0;
 	ret = tcpci_write16(tcpci, TCPC_TX_HDR, header);
 	if (ret < 0)
 		return ret;
@@ -331,6 +347,10 @@ static int tcpci_init(struct tcpc_dev *tcpc)
 	if (time_after(jiffies, timeout))
 		return -ETIMEDOUT;
 
+	ret = tcpci_write16(tcpci, TCPC_FAULT_STATUS, TCPC_FAULT_STATUS_ALL_REG_RST_TO_DEFAULT);
+	if (ret < 0)
+		return ret;
+
 	/* Clear all events */
 	ret = tcpci_write16(tcpci, TCPC_ALERT, 0xffff);
 	if (ret < 0)
@@ -355,7 +375,7 @@ static int tcpci_init(struct tcpc_dev *tcpc)
 static irqreturn_t tcpci_irq(int irq, void *dev_id)
 {
 	struct tcpci *tcpci = dev_id;
-	unsigned int status, reg;
+	u16 status;
 
 	tcpci_read16(tcpci, TCPC_ALERT, &status);
 
@@ -371,6 +391,8 @@ static irqreturn_t tcpci_irq(int irq, void *dev_id)
 		tcpm_cc_change(tcpci->port);
 
 	if (status & TCPC_ALERT_POWER_STATUS) {
+		unsigned int reg;
+
 		regmap_read(tcpci->regmap, TCPC_POWER_STATUS_MASK, &reg);
 
 		/*
@@ -386,11 +408,12 @@ static irqreturn_t tcpci_irq(int irq, void *dev_id)
 	if (status & TCPC_ALERT_RX_STATUS) {
 		struct pd_message msg;
 		unsigned int cnt;
+		u16 header;
 
 		regmap_read(tcpci->regmap, TCPC_RX_BYTE_CNT, &cnt);
 
-		tcpci_read16(tcpci, TCPC_RX_HDR, &reg);
-		msg.header = reg;
+		tcpci_read16(tcpci, TCPC_RX_HDR, &header);
+		msg.header = cpu_to_le16(header);
 
 		if (WARN_ON(cnt > sizeof(msg.payload)))
 			cnt = sizeof(msg.payload);
@@ -436,6 +459,12 @@ static int tcpci_parse_config(struct tcpci *tcpci)
 
 	/* TODO: Populate struct tcpc_config from ACPI/device-tree */
 	tcpci->tcpc.config = &tcpci_tcpc_config;
+	tcpci->tcpc.fwnode = device_get_named_child_node(tcpci->dev,
+							 "connector");
+	if (!tcpci->tcpc.fwnode) {
+		dev_err(tcpci->dev, "Can't find connector node.\n");
+		return -EINVAL;
+	}
 
 	return 0;
 }

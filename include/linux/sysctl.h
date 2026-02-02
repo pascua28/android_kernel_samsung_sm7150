@@ -66,6 +66,9 @@ extern int proc_do_large_bitmap(struct ctl_table *, int,
 extern int proc_douintvec_capacity(struct ctl_table *table, int write,
 				   void __user *buffer, size_t *lenp,
 				   loff_t *ppos);
+extern int proc_do_static_key(struct ctl_table *table, int write,
+			      void __user *buffer, size_t *lenp,
+			      loff_t *ppos);
 
 /*
  * Register a set of sysctl names by calling register_sysctl_table
@@ -201,6 +204,9 @@ struct ctl_table_header *register_sysctl_paths(const struct ctl_path *path,
 void unregister_sysctl_table(struct ctl_table_header * table);
 
 extern int sysctl_init(void);
+extern void __register_sysctl_init(const char *path, struct ctl_table *table,
+				 const char *table_name);
+#define register_sysctl_init(path, table) __register_sysctl_init(path, table, #table)
 
 extern struct ctl_table sysctl_mount_point[];
 

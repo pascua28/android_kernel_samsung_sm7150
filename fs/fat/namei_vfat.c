@@ -678,7 +678,7 @@ static int vfat_add_entry(struct inode *dir, const struct qstr *qname,
 		goto cleanup;
 
 	/* update timestamp */
-	dir->i_ctime = dir->i_mtime = dir->i_atime = *ts;
+	dir->i_ctime = dir->i_mtime = dir->i_atime = timespec_to_timespec64(*ts);
 	if (IS_DIRSYNC(dir))
 		(void)fat_sync_inode(dir);
 	else
@@ -695,15 +695,6 @@ static int vfat_find(struct inode *dir, const struct qstr *qname,
 	if (len == 0)
 		return -ENOENT;
 	return fat_search_long(dir, qname->name, len, sinfo);
-}
-
-/*
- * (nfsd's) anonymous disconnected dentry?
- * NOTE: !IS_ROOT() is not anonymous (I.e. d_splice_alias() did the job).
- */
-static int vfat_d_anon_disconn(struct dentry *dentry)
-{
-	return IS_ROOT(dentry) && (dentry->d_flags & DCACHE_DISCONNECTED);
 }
 
 static struct dentry *vfat_lookup(struct inode *dir, struct dentry *dentry,
@@ -738,8 +729,7 @@ static struct dentry *vfat_lookup(struct inode *dir, struct dentry *dentry,
 	 * Checking "alias->d_parent == dentry->d_parent" to make sure
 	 * FS is not corrupted (especially double linked dir).
 	 */
-	if (alias && alias->d_parent == dentry->d_parent &&
-	    !vfat_d_anon_disconn(alias)) {
+	if (alias && alias->d_parent == dentry->d_parent) {
 		/*
 		 * Unhashed alias is able to exist because of revalidate()
 		 * called by lookup_fast. You can easily make this status
@@ -784,13 +774,15 @@ static int vfat_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode;
 	struct fat_slot_info sinfo;
-	struct timespec ts;
+	struct timespec64 ts;
+	struct timespec t;
 	int err;
 
 	mutex_lock(&MSDOS_SB(sb)->s_lock);
 
 	ts = current_time(dir);
-	err = vfat_add_entry(dir, &dentry->d_name, 0, 0, &ts, &sinfo);
+	t = timespec64_to_timespec(ts);
+	err = vfat_add_entry(dir, &dentry->d_name, 0, 0, &t, &sinfo);
 	if (err)
 		goto out;
 	dir->i_version++;
@@ -873,18 +865,20 @@ static int vfat_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode;
 	struct fat_slot_info sinfo;
-	struct timespec ts;
+	struct timespec64 ts;
+	struct timespec t;
 	int err, cluster;
 
 	mutex_lock(&MSDOS_SB(sb)->s_lock);
 
 	ts = current_time(dir);
-	cluster = fat_alloc_new_dir(dir, &ts);
+	t = timespec64_to_timespec(ts);
+	cluster = fat_alloc_new_dir(dir, &t);
 	if (cluster < 0) {
 		err = cluster;
 		goto out;
 	}
-	err = vfat_add_entry(dir, &dentry->d_name, 1, cluster, &ts, &sinfo);
+	err = vfat_add_entry(dir, &dentry->d_name, 1, cluster, &t, &sinfo);
 	if (err)
 		goto out_free;
 	dir->i_version++;
@@ -922,7 +916,8 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct msdos_dir_entry *dotdot_de;
 	struct inode *old_inode, *new_inode;
 	struct fat_slot_info old_sinfo, sinfo;
-	struct timespec ts;
+	struct timespec64 ts;
+	struct timespec t;
 	loff_t new_i_pos;
 	int err, is_dir, update_dotdot, corrupt = 0;
 	struct super_block *sb = old_dir->i_sb;
@@ -957,8 +952,9 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 		new_i_pos = MSDOS_I(new_inode)->i_pos;
 		fat_detach(new_inode);
 	} else {
+		t = timespec64_to_timespec(ts);
 		err = vfat_add_entry(new_dir, &new_dentry->d_name, is_dir, 0,
-				     &ts, &sinfo);
+				     &t, &sinfo);
 		if (err)
 			goto out;
 		new_i_pos = sinfo.i_pos;
@@ -1041,7 +1037,7 @@ error_inode:
 	if (corrupt < 0) {
 		fat_fs_error(new_dir->i_sb,
 			     "%s: Filesystem corrupted (i_pos %lld)",
-			     __func__, sinfo.i_pos);
+			     __func__, new_i_pos);
 	}
 	goto out;
 }

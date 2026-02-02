@@ -1,4 +1,4 @@
-/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017,2020,2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -172,6 +172,7 @@ EXPORT_SYMBOL(msm_minidump_enabled);
 int msm_minidump_add_region(const struct md_region *entry)
 {
 	u32 entries;
+	u32 toc_init;
 	struct md_region *mdr;
 	int ret = 0;
 
@@ -197,6 +198,19 @@ int msm_minidump_add_region(const struct md_region *entry)
 		return -ENOMEM;
 	}
 
+	toc_init = 0;
+	if (minidump_table.md_ss_toc &&
+		(minidump_table.md_ss_toc->md_ss_enable_status ==
+		MD_SS_ENABLED)) {
+		toc_init = 1;
+		if (minidump_table.md_ss_toc->ss_region_count >=
+			MAX_NUM_ENTRIES) {
+			spin_unlock(&mdt_lock);
+			pr_err("Maximum regions in minidump table reached.\n");
+			return -ENOMEM;
+		}
+	}
+
 	mdr = &minidump_table.entry[entries];
 	strlcpy(mdr->name, entry->name, sizeof(mdr->name));
 	mdr->virt_addr = entry->virt_addr;
@@ -206,9 +220,7 @@ int msm_minidump_add_region(const struct md_region *entry)
 
 	minidump_table.num_regions = entries + 1;
 
-	if (minidump_table.md_ss_toc &&
-		(minidump_table.md_ss_toc->md_ss_enable_status ==
-		MD_SS_ENABLED))
+	if (toc_init)
 		md_update_ss_toc(entry);
 	else
 		pendings++;
@@ -227,6 +239,7 @@ static int msm_minidump_add_header(void)
 	struct elf_phdr *phdr;
 	unsigned int strtbl_off, elfh_size, phdr_off;
 	char *banner;
+	size_t linux_banner_len = strlen(linux_banner);
 
 	/* Header buffer contains:
 	 * elf header, MAX_NUM_ENTRIES+4 of section and program elf headers,
@@ -294,7 +307,7 @@ static int msm_minidump_add_header(void)
 
 	/* 4th section is linux banner */
 	banner = (char *)ehdr + strtbl_off + MAX_STRTBL_SIZE;
-	strlcpy(banner, linux_banner, strlen(linux_banner) + 1);
+	strlcpy(banner, linux_banner, linux_banner_len + 1);
 
 	shdr->sh_type = SHT_PROGBITS;
 	shdr->sh_offset = (elf_addr_t)(strtbl_off + MAX_STRTBL_SIZE);
@@ -336,7 +349,7 @@ static int __init msm_minidump_init(void)
 	}
 
 	/*Check global minidump support initialization */
-	if (!md_global_toc->md_toc_init) {
+	if (size < sizeof(*md_global_toc) || !md_global_toc->md_toc_init) {
 		pr_err("System Minidump TOC not initialized\n");
 		return -ENODEV;
 	}

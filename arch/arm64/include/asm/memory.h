@@ -29,12 +29,6 @@
 #include <asm/sizes.h>
 
 /*
- * Allow for constants defined here to be used from assembly code
- * by prepending the UL suffix only with actual C code compilation.
- */
-#define UL(x) _AC(x, UL)
-
-/*
  * Size of the PCI I/O space. This must remain a power of two so that
  * IO_SPACE_LIMIT acts as a mask for the low bits of I/O addresses.
  */
@@ -68,8 +62,11 @@
 #define PAGE_OFFSET		(UL(0xffffffffffffffff) - \
 	(UL(1) << (VA_BITS - 1)) + 1)
 #define KIMAGE_VADDR		(MODULES_END)
+#define BPF_JIT_REGION_START	(VA_START + KASAN_SHADOW_SIZE)
+#define BPF_JIT_REGION_SIZE	(SZ_128M)
+#define BPF_JIT_REGION_END	(BPF_JIT_REGION_START + BPF_JIT_REGION_SIZE)
 #define MODULES_END		(MODULES_VADDR + MODULES_VSIZE)
-#define MODULES_VADDR		(VA_START + KASAN_SHADOW_SIZE)
+#define MODULES_VADDR		(BPF_JIT_REGION_END)
 #define MODULES_VSIZE		(SZ_128M)
 #define VMEMMAP_START		(PAGE_OFFSET - VMEMMAP_SIZE)
 #define PCI_IO_END		(VMEMMAP_START - SZ_2M)
@@ -327,12 +324,14 @@ static inline void *phys_to_virt(phys_addr_t x)
  * virtual address. Therefore, use inline assembly to ensure we are
  * always taking the address of the actual function.
  */
-#define __pa_function(x) ({						\
-	unsigned long addr;						\
+#define __va_function(x) ({						\
+	void *addr;							\
 	asm("adrp %0, " __stringify(x) "\n\t"				\
 	    "add  %0, %0, :lo12:" __stringify(x) : "=r" (addr));	\
-	__pa_symbol(addr);						\
+	addr;								\
 })
+
+#define __pa_function(x) 	__pa_symbol(__va_function(x))
 
 /*
  *  virt_to_page(k)	convert a _valid_ virtual address to struct page *

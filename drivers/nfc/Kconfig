@@ -165,3 +165,4 @@ config ESE_P3_V2_LSI
           You should select your NFC product and interface.
 
 source "drivers/nfc/nfc_logger/Kconfig"
+source "drivers/nfc/max32560/Kconfig"

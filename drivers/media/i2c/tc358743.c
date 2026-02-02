@@ -1318,7 +1318,7 @@ static int tc358743_isr(struct v4l2_subdev *sd, u32 status, bool *handled)
 static irqreturn_t tc358743_irq_handler(int irq, void *dev_id)
 {
 	struct tc358743_state *state = dev_id;
-	bool handled;
+	bool handled = false;
 
 	tc358743_isr(&state->sd, 0, &handled);
 
@@ -1806,6 +1806,7 @@ static int tc358743_probe_of(struct tc358743_state *state)
 	bps_pr_lane = 2 * endpoint->link_frequencies[0];
 	if (bps_pr_lane < 62500000U || bps_pr_lane > 1000000000U) {
 		dev_err(dev, "unsupported bps per lane: %u bps\n", bps_pr_lane);
+		ret = -EINVAL;
 		goto disable_clk;
 	}
 
@@ -1936,9 +1937,6 @@ static int tc358743_probe(struct i2c_client *client,
 	state->mbus_fmt_code = MEDIA_BUS_FMT_RGB888_1X24;
 
 	sd->dev = &client->dev;
-	err = v4l2_async_register_subdev(sd);
-	if (err < 0)
-		goto err_hdl;
 
 	mutex_init(&state->confctl_mutex);
 
@@ -1976,6 +1974,10 @@ static int tc358743_probe(struct i2c_client *client,
 
 	err = v4l2_ctrl_handler_setup(sd->ctrl_handler);
 	if (err)
+		goto err_work_queues;
+
+	err = v4l2_async_register_subdev(sd);
+	if (err < 0)
 		goto err_work_queues;
 
 	v4l2_info(sd, "%s found @ 0x%x (%s)\n", client->name,

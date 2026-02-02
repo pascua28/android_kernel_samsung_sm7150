@@ -459,7 +459,7 @@ lim_restore_from_auth_state(struct mac_context *mac, tSirResultCodes resultCode,
 	 * host have received the auth rsp and no longer auth
 	 * retry is needed also cancel the auth rety timer
 	 */
-	mac->auth_ack_status = LIM_AUTH_ACK_RCD_SUCCESS;
+	mac->auth_ack_status = LIM_ACK_RCD_SUCCESS;
 
 	/* Auth retry and AUth failure timers are not started for SAE */
 	/* 'Change' timer for future activations */
@@ -510,7 +510,7 @@ lim_encrypt_auth_frame(struct mac_context *mac, uint8_t keyId, uint8_t *pKey,
 		       uint8_t *pPlainText, uint8_t *pEncrBody,
 		       uint32_t keyLength)
 {
-	uint8_t seed[LIM_SEED_LENGTH], icv[SIR_MAC_WEP_ICV_LENGTH];
+	uint8_t seed[LIM_SEED_LENGTH] = { 0, }, icv[SIR_MAC_WEP_ICV_LENGTH];
 	uint16_t frame_len;
 
 	frame_len = ((tpSirMacAuthFrameBody)pPlainText)->length +
@@ -521,6 +521,7 @@ lim_encrypt_auth_frame(struct mac_context *mac, uint8_t keyId, uint8_t *pKey,
 	 * Make sure that IV is non-zero, because few IOT APs fails to decrypt
 	 * auth sequence 3 encrypted frames if initialization vector value is 0
 	 */
+	qdf_get_random_bytes(seed, SIR_MAC_WEP_IV_LENGTH);
 	while (!(*(uint32_t *)seed))
 		qdf_get_random_bytes(seed, SIR_MAC_WEP_IV_LENGTH);
 

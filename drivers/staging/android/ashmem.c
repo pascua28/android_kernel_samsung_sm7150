@@ -100,6 +100,15 @@ static DEFINE_MUTEX(ashmem_mutex);
 static struct kmem_cache *ashmem_area_cachep __read_mostly;
 static struct kmem_cache *ashmem_range_cachep __read_mostly;
 
+/*
+ * A separate lockdep class for the backing shmem inodes to resolve the lockdep
+ * warning about the race between kswapd taking fs_reclaim before inode_lock
+ * and write syscall taking inode_lock and then fs_reclaim.
+ * Note that such race is impossible because ashmem does not support write
+ * syscalls operating on the backing shmem.
+ */
+static struct lock_class_key backing_shmem_inode_class;
+
 static inline unsigned long range_size(struct ashmem_range *range)
 {
 	return range->pgend - range->pgstart + 1;
@@ -186,7 +195,7 @@ static int range_alloc(struct ashmem_area *asma,
 	struct ashmem_range *range;
 
 	range = kmem_cache_zalloc(ashmem_range_cachep, GFP_KERNEL);
-	if (unlikely(!range))
+	if (!range)
 		return -ENOMEM;
 
 	range->asma = asma;
@@ -254,11 +263,11 @@ static int ashmem_open(struct inode *inode, struct file *file)
 	int ret;
 
 	ret = generic_file_open(inode, file);
-	if (unlikely(ret))
+	if (ret)
 		return ret;
 
 	asma = kmem_cache_zalloc(ashmem_area_cachep, GFP_KERNEL);
-	if (unlikely(!asma))
+	if (!asma)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&asma->unpinned_list);
@@ -384,7 +393,7 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 	mutex_lock(&ashmem_mutex);
 
 	/* user needs to SET_SIZE before mapping */
-	if (unlikely(!asma->size)) {
+	if (!asma->size) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -396,8 +405,8 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	/* requested protection bits must match our allowed protection mask */
-	if (unlikely((vma->vm_flags & ~calc_vm_prot_bits(asma->prot_mask, 0)) &
-		     calc_vm_prot_bits(PROT_MASK, 0))) {
+	if ((vma->vm_flags & ~calc_vm_prot_bits(asma->prot_mask, 0)) &
+	    calc_vm_prot_bits(PROT_MASK, 0)) {
 		ret = -EPERM;
 		goto out;
 	}
@@ -406,6 +415,7 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!asma->file) {
 		char *name = ASHMEM_NAME_DEF;
 		struct file *vmfile;
+		struct inode *inode;
 
 		if (asma->name[ASHMEM_NAME_PREFIX_LEN] != '\0')
 			name = asma->name;
@@ -417,6 +427,8 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 			goto out;
 		}
 		vmfile->f_mode |= FMODE_LSEEK;
+		inode = file_inode(vmfile);
+		lockdep_set_class(&inode->i_rwsem, &backing_shmem_inode_class);
 		asma->file = vmfile;
 		/*
 		 * override mmap operation of the vmfile so that it can't be
@@ -520,7 +532,7 @@ static int set_prot_mask(struct ashmem_area *asma, unsigned long prot)
 	mutex_lock(&ashmem_mutex);
 
 	/* the user can only remove, not add, protection bits */
-	if (unlikely((asma->prot_mask & prot) != prot)) {
+	if ((asma->prot_mask & prot) != prot) {
 		ret = -EINVAL;
 		goto out;
 	}
@@ -558,7 +570,7 @@ static int set_name(struct ashmem_area *asma, void __user *name)
 		local_name[ASHMEM_NAME_LEN - 1] = '\0';
 	mutex_lock(&ashmem_mutex);
 	/* cannot change an existing mapping's name */
-	if (unlikely(asma->file))
+	if (asma->file)
 		ret = -EINVAL;
 	else
 		strcpy(asma->name + ASHMEM_NAME_PREFIX_LEN, local_name);
@@ -597,7 +609,7 @@ static int get_name(struct ashmem_area *asma, void __user *name)
 	 * Now we are just copying from the stack variable to userland
 	 * No lock held
 	 */
-	if (unlikely(copy_to_user(name, local_name, len)))
+	if (copy_to_user(name, local_name, len))
 		ret = -EFAULT;
 	return ret;
 }
@@ -735,25 +747,25 @@ static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
 	size_t pgstart, pgend;
 	int ret = -EINVAL;
 
-	if (unlikely(copy_from_user(&pin, p, sizeof(pin))))
+	if (copy_from_user(&pin, p, sizeof(pin)))
 		return -EFAULT;
 
 	mutex_lock(&ashmem_mutex);
 
-	if (unlikely(!asma->file))
+	if (!asma->file)
 		goto out_unlock;
 
 	/* per custom, you can pass zero for len to mean "everything onward" */
 	if (!pin.len)
 		pin.len = PAGE_ALIGN(asma->size) - pin.offset;
 
-	if (unlikely((pin.offset | pin.len) & ~PAGE_MASK))
+	if ((pin.offset | pin.len) & ~PAGE_MASK)
 		goto out_unlock;
 
-	if (unlikely(((__u32)-1) - pin.offset < pin.len))
+	if (((__u32)-1) - pin.offset < pin.len)
 		goto out_unlock;
 
-	if (unlikely(PAGE_ALIGN(asma->size) < pin.offset + pin.len))
+	if (PAGE_ALIGN(asma->size) < pin.offset + pin.len)
 		goto out_unlock;
 
 	pgstart = pin.offset / PAGE_SIZE;
@@ -871,21 +883,21 @@ static int __init ashmem_init(void)
 	ashmem_area_cachep = kmem_cache_create("ashmem_area_cache",
 					       sizeof(struct ashmem_area),
 					       0, 0, NULL);
-	if (unlikely(!ashmem_area_cachep)) {
+	if (!ashmem_area_cachep) {
 		pr_err("failed to create slab cache\n");
 		goto out;
 	}
 
 	ashmem_range_cachep = kmem_cache_create("ashmem_range_cache",
 						sizeof(struct ashmem_range),
-						0, 0, NULL);
-	if (unlikely(!ashmem_range_cachep)) {
+						0, SLAB_RECLAIM_ACCOUNT, NULL);
+	if (!ashmem_range_cachep) {
 		pr_err("failed to create slab cache\n");
 		goto out_free1;
 	}
 
 	ret = misc_register(&ashmem_misc);
-	if (unlikely(ret)) {
+	if (ret) {
 		pr_err("failed to register misc device!\n");
 		goto out_free2;
 	}

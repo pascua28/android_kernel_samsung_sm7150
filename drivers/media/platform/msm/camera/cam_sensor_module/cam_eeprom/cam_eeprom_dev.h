@@ -38,8 +38,8 @@
 #define PROPERTY_MAXSIZE 32
 
 #define MSM_EEPROM_MEMORY_MAP_MAX_SIZE          80
-#define MSM_EEPROM_MAX_MEM_MAP_CNT              50
-#define MSM_EEPROM_MEM_MAP_PROPERTIES_CNT       6
+#define MSM_EEPROM_MAX_MEM_MAP_CNT              100
+#define MSM_EEPROM_MEM_MAP_PROPERTIES_CNT       8
 #define PROJECT_CAL_TYPE_MAX_SIZE               (20)
 
 #if defined(CONFIG_SAMSUNG_REAR_TRIPLE)

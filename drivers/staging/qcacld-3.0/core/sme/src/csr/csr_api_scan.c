@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -646,11 +647,7 @@ static void csr_diag_reset_country_information(struct mac_context *mac)
 				mac->mlme_cfg->power.max_tx_power);
 		}
 	}
-	if (!mac->mlme_cfg->gen.enabled_11d)
-		p11dLog->supportMultipleDomain = WLAN_80211D_DISABLED;
-	else
-		p11dLog->supportMultipleDomain =
-			WLAN_80211D_SUPPORT_MULTI_DOMAIN;
+
 	WLAN_HOST_DIAG_LOG_REPORT(p11dLog);
 }
 #endif /* FEATURE_WLAN_DIAG_SUPPORT_CSR */
@@ -1429,6 +1426,15 @@ QDF_STATUS csr_scan_for_ssid(struct mac_context *mac_ctx, uint32_t session_id,
 			}
 		}
 		req->scan_req.chan_list.num_chan = num_chan;
+	}
+
+	/* Add freq hint for scan for ssid */
+	if (!num_chan && profile->freq_hint &&
+	    csr_roam_is_valid_channel(mac_ctx, profile->freq_hint)) {
+		sme_debug("add freq hint %d", profile->freq_hint);
+		req->scan_req.chan_list.chan[0].freq =
+						profile->freq_hint;
+		req->scan_req.chan_list.num_chan = 1;
 	}
 
 	/* Extend it for multiple SSID */
@@ -2377,7 +2383,7 @@ static QDF_STATUS csr_fill_bss_from_scan_entry(struct mac_context *mac_ctx,
 	qdf_mem_copy(bss_desc->bssId,
 			scan_entry->bssid.bytes,
 			QDF_MAC_ADDR_SIZE);
-	bss_desc->scansystimensec = scan_entry->scan_entry_time;
+	bss_desc->scansystimensec = scan_entry->boottime_ns;
 	qdf_mem_copy(bss_desc->timeStamp,
 		scan_entry->tsf_info.data, 8);
 

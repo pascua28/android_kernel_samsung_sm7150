@@ -206,7 +206,7 @@ static int udf_name_from_CS0(uint8_t *str_o, int str_max_len,
 	cmp_id = ocu[0];
 	if (cmp_id != 8 && cmp_id != 16) {
 		memset(str_o, 0, str_max_len);
-		pr_err("unknown compression code (%d)\n", cmp_id);
+		pr_err("unknown compression code (%u)\n", cmp_id);
 		return -EINVAL;
 	}
 	u_ch = cmp_id >> 3;
@@ -268,7 +268,7 @@ static int udf_name_from_CS0(uint8_t *str_o, int str_max_len,
 	}
 
 	if (translate) {
-		if (str_o_len <= 2 && str_o[0] == '.' &&
+		if (str_o_len > 0 && str_o_len <= 2 && str_o[0] == '.' &&
 		    (str_o_len == 1 || str_o[1] == '.'))
 			needsCRC = 1;
 		if (needsCRC) {

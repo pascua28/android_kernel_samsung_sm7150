@@ -50,7 +50,6 @@
 #include "omap_device.h"
 #include <plat/counter-32k.h>
 #include <plat/dmtimer.h>
-#include "omap-pm.h"
 
 #include "soc.h"
 #include "common.h"
@@ -562,6 +561,7 @@ static void __init realtime_counter_init(void)
 	}
 
 	rate = clk_get_rate(sys_clk);
+	clk_put(sys_clk);
 
 	if (soc_is_dra7xx()) {
 		/*

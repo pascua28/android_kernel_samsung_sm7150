@@ -35,15 +35,37 @@
 
 #define DVB_UNSET (-1)
 
-#define DVB_DEVICE_VIDEO      0
-#define DVB_DEVICE_AUDIO      1
-#define DVB_DEVICE_SEC        2
-#define DVB_DEVICE_FRONTEND   3
-#define DVB_DEVICE_DEMUX      4
-#define DVB_DEVICE_DVR        5
-#define DVB_DEVICE_CA         6
-#define DVB_DEVICE_NET        7
-#define DVB_DEVICE_OSD        8
+/* List of DVB device types */
+
+/**
+ * enum dvb_device_type - type of the Digital TV device
+ *
+ * @DVB_DEVICE_SEC:		Digital TV standalone Common Interface (CI)
+ * @DVB_DEVICE_FRONTEND:	Digital TV frontend.
+ * @DVB_DEVICE_DEMUX:		Digital TV demux.
+ * @DVB_DEVICE_DVR:		Digital TV digital video record (DVR).
+ * @DVB_DEVICE_CA:		Digital TV Conditional Access (CA).
+ * @DVB_DEVICE_NET:		Digital TV network.
+ *
+ * @DVB_DEVICE_VIDEO:		Digital TV video decoder.
+ *				Deprecated. Used only on av7110-av.
+ * @DVB_DEVICE_AUDIO:		Digital TV audio decoder.
+ *				Deprecated. Used only on av7110-av.
+ * @DVB_DEVICE_OSD:		Digital TV On Screen Display (OSD).
+ *				Deprecated. Used only on av7110.
+ */
+enum dvb_device_type {
+	DVB_DEVICE_SEC,
+	DVB_DEVICE_FRONTEND,
+	DVB_DEVICE_DEMUX,
+	DVB_DEVICE_DVR,
+	DVB_DEVICE_CA,
+	DVB_DEVICE_NET,
+
+	DVB_DEVICE_VIDEO,
+	DVB_DEVICE_AUDIO,
+	DVB_DEVICE_OSD,
+};
 
 #define DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr) \
 	static short adapter_nr[] = \
@@ -104,8 +126,7 @@ struct dvb_adapter {
  * @list_head:	List head with all DVB devices
  * @fops:	pointer to struct file_operations
  * @adapter:	pointer to the adapter that holds this device node
- * @type:	type of the device: DVB_DEVICE_SEC, DVB_DEVICE_FRONTEND,
- *		DVB_DEVICE_DEMUX, DVB_DEVICE_DVR, DVB_DEVICE_CA, DVB_DEVICE_NET
+ * @type:	type of the device, as defined by &enum dvb_device_type.
  * @minor:	devnode minor number. Major number is always DVB_MAJOR.
  * @id:		device ID number, inside the adapter
  * @readers:	Initialized by the caller. Each call to open() in Read Only mode
@@ -133,9 +154,10 @@ struct dvb_adapter {
  */
 struct dvb_device {
 	struct list_head list_head;
+	struct kref ref;
 	const struct file_operations *fops;
 	struct dvb_adapter *adapter;
-	int type;
+	enum dvb_device_type type;
 	int minor;
 	u32 id;
 
@@ -163,6 +185,35 @@ struct dvb_device {
 
 	void *priv;
 };
+
+/**
+ * struct dvbdevfops_node - fops nodes registered in dvbdevfops_list
+ *
+ * @fops:		Dynamically allocated fops for ->owner registration
+ * @type:		type of dvb_device
+ * @template:		dvb_device used for registration
+ * @list_head:		list_head for dvbdevfops_list
+ */
+struct dvbdevfops_node {
+	struct file_operations *fops;
+	enum dvb_device_type type;
+	const struct dvb_device *template;
+	struct list_head list_head;
+};
+
+/**
+ * dvb_device_get - Increase dvb_device reference
+ *
+ * @dvbdev:	pointer to struct dvb_device
+ */
+struct dvb_device *dvb_device_get(struct dvb_device *dvbdev);
+
+/**
+ * dvb_device_get - Decrease dvb_device reference
+ *
+ * @dvbdev:	pointer to struct dvb_device
+ */
+void dvb_device_put(struct dvb_device *dvbdev);
 
 /**
  * dvb_register_adapter - Registers a new DVB adapter
@@ -194,9 +245,7 @@ int dvb_unregister_adapter(struct dvb_adapter *adap);
  *		stored
  * @template:	Template used to create &pdvbdev;
  * @priv:	private data
- * @type:	type of the device: %DVB_DEVICE_SEC, %DVB_DEVICE_FRONTEND,
- *		%DVB_DEVICE_DEMUX, %DVB_DEVICE_DVR, %DVB_DEVICE_CA,
- *		%DVB_DEVICE_NET
+ * @type:	type of the device, as defined by &enum dvb_device_type.
  * @demux_sink_pads: Number of demux outputs, to be used to create the TS
  *		outputs via the Media Controller.
  */
@@ -204,34 +253,22 @@ int dvb_register_device(struct dvb_adapter *adap,
 			struct dvb_device **pdvbdev,
 			const struct dvb_device *template,
 			void *priv,
-			int type,
+			enum dvb_device_type type,
 			int demux_sink_pads);
 
 /**
  * dvb_remove_device - Remove a registered DVB device
  *
- * This does not free memory.  To do that, call dvb_free_device().
+ * This does not free memory. dvb_free_device() will do that when
+ * reference counter is empty
  *
  * @dvbdev:	pointer to struct dvb_device
  */
 void dvb_remove_device(struct dvb_device *dvbdev);
 
-/**
- * dvb_free_device - Free memory occupied by a DVB device.
- *
- * Call dvb_unregister_device() before calling this function.
- *
- * @dvbdev:	pointer to struct dvb_device
- */
-void dvb_free_device(struct dvb_device *dvbdev);
 
 /**
  * dvb_unregister_device - Unregisters a DVB device
- *
- * This is a combination of dvb_remove_device() and dvb_free_device().
- * Using this function is usually a mistake, and is often an indicator
- * for a use-after-free bug (when a userspace process keeps a file
- * handle to a detached device).
  *
  * @dvbdev:	pointer to struct dvb_device
  */

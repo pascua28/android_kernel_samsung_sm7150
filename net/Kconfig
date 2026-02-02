@@ -60,6 +60,7 @@ source "net/xfrm/Kconfig"
 source "net/iucv/Kconfig"
 source "net/ncm/Kconfig"
 source "net/smc/Kconfig"
+source "net/xdp/Kconfig"
 
 config INET
 	bool "TCP/IP networking"
@@ -196,10 +197,11 @@ config BRIDGE_NETFILTER
 source "net/netfilter/Kconfig"
 source "net/ipv4/netfilter/Kconfig"
 source "net/ipv6/netfilter/Kconfig"
-source "net/decnet/netfilter/Kconfig"
 source "net/bridge/netfilter/Kconfig"
 
 endif
+
+source "net/bpfilter/Kconfig"
 
 source "net/dccp/Kconfig"
 source "net/sctp/Kconfig"
@@ -211,7 +213,6 @@ source "net/802/Kconfig"
 source "net/bridge/Kconfig"
 source "net/dsa/Kconfig"
 source "net/8021q/Kconfig"
-source "net/decnet/Kconfig"
 source "net/llc/Kconfig"
 source "net/ipx/Kconfig"
 source "drivers/net/appletalk/Kconfig"
@@ -300,8 +301,11 @@ config BPF_JIT
 
 config BPF_STREAM_PARSER
 	bool "enable BPF STREAM_PARSER"
+	depends on INET
 	depends on BPF_SYSCALL
+	depends on CGROUP_BPF
 	select STREAM_PARSER
+	select NET_SOCK_MSG
 	---help---
 	 Enabling this allows a stream parser to be used with
 	 BPF_MAP_TYPE_SOCKMAP.
@@ -436,6 +440,14 @@ config GRO_CELLS
 	bool
 	default n
 
+config NET_SOCK_MSG
+	bool
+	default n
+	help
+	  The NET_SOCK_MSG provides a framework for plain sockets (e.g. TCP) or
+	  ULPs (upper layer modules, e.g. TLS) to process L7 application data
+	  with the help of BPF programs.
+
 config NET_DEVLINK
 	tristate "Network physical/parent device Netlink interface"
 	help
@@ -451,6 +463,9 @@ config MAY_USE_DEVLINK
 	  Drivers using the devlink infrastructure should have a dependency
 	  on MAY_USE_DEVLINK to ensure they do not cause link errors when
 	  devlink is a loadable module and the driver using it is built-in.
+
+config PAGE_POOL
+       bool
 
 endif   # if NET
 
