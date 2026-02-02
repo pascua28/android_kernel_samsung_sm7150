@@ -328,12 +328,15 @@ static struct tzdbg tzdbg = {
 static struct tzdbg_log_t *g_qsee_log;
 static dma_addr_t coh_pmem;
 static uint32_t debug_rw_buf_size;
+
+#ifdef CONFIG_DEBUG_FS
+#ifdef CONFIG_PM
 static bool restore_from_hibernation;
+#endif
 
 /*
  * Debugfs data structure and functions
  */
-#ifdef CONFIG_DEBUG_FS
 static int _disp_tz_general_stats(void)
 {
 	int len = 0;
@@ -1164,7 +1167,7 @@ static int tz_log_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_PM
+#if defined(CONFIG_PM) && defined(CONFIG_DEBUG_FS)
 static int tz_log_freeze(struct device *dev)
 {
 	/* This Boolean variable is maintained to initialise the ring buffer
