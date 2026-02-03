@@ -1995,6 +1995,37 @@ void put_otg_notify(struct otg_notify *n)
 }
 EXPORT_SYMBOL(put_otg_notify);
 
+void enable_usb_notify(void)
+{
+	struct otg_notify *o_notify = get_otg_notify();
+	struct usb_notify *u_notify = NULL;
+
+	if (!o_notify) {
+		pr_err("%s o_notify is null\n", __func__);
+		return;
+	}
+	u_notify = (struct usb_notify *)(o_notify->u_notify);
+
+	if (!u_notify) {
+		pr_err("%s u_notify structure is null\n",
+			__func__);
+		return;
+	}
+
+	if (!o_notify->booting_delay_sync_usb) {
+		pr_err("%s booting_delay_sync_usb is not setting\n",
+			__func__);
+		return;
+	}
+
+	o_notify->booting_delay_sync_usb = 0;
+	if (!delayed_work_pending(&u_notify->b_delay.booting_work))
+		schedule_delayed_work(&u_notify->b_delay.booting_work, 0);
+	else
+			pr_err("%s wait booting_delay\n", __func__);
+}
+EXPORT_SYMBOL(enable_usb_notify);
+
 bool is_blocked(struct otg_notify *n, int type)
 {
 	struct usb_notify *u_notify = NULL;
