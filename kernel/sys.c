@@ -73,6 +73,8 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
+#include <linux/rom_notifier.h>
+
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a, b)	(-EINVAL)
 #endif
@@ -1207,7 +1209,8 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 	    !strncmp(current->comm, "netbpfload", 10) ||
 	    !strncmp(current->comm, "netd", 4) ||
 	    !strncmp(current->comm, "uprobestats", 11)) {
-		if (current_uid().val == 0 && !legacy_ebpf) {
+		if (current_uid().val == 0 && !legacy_ebpf &&
+		    !is_aosp) {
 #if defined(CONFIG_FAKE_UNAME_5_4)
 			strcpy(tmp.release, "5.4.200");
 #elif defined(CONFIG_FAKE_UNAME_5_10)
