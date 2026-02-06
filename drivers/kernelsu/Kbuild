@@ -29,7 +29,10 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
 
 obj-$(CONFIG_KSU) += kernelsu.o
 
-$(eval KSU_VERSION=32881)
+LPATH := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin
+MDIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+$(eval KSU_VERSION=32896)
 $(info -- KernelSU-Next version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
 
@@ -59,21 +62,21 @@ HAVE_KSU_HOOK ?= 1
 
 # Checks hooks state
 ifeq ($(CONFIG_KSU_KPROBES_HOOK), y)
-$(info -- KernelSU: Hook mode: Kprobes)
+$(info -- KernelSU-Next: Hook mode: Kprobes)
 ccflags-y += -DKSU_KPROBES_HOOK
 # Let's make it 0, so it would pass.
 HAVE_KSU_HOOK := 0
 endif
 
 ifeq ($(CONFIG_KSU_MANUAL_HOOK), y)
-HAVE_KSU_HOOK := $(shell grep -q "ksu_handle_faccessat" $(srctree)/fs/open.c && echo 0 || echo 1)
+HAVE_KSU_HOOK := $(shell grep -q "ksu_handle_sys_reboot" $(srctree)/kernel/reboot.c && echo 0 || echo 1)
 ifeq ($(HAVE_KSU_HOOK),0)
-$(info -- KernelSU: Hook mode: Manual)
+$(info -- KernelSU-Next: Hook mode: Manual)
 endif
 endif
 
 ifneq ($(HAVE_KSU_HOOK),0)
-$(error -- KernelSU: No hooks were defined, please integrate manual hooks in your kernel!)
+$(error -- KernelSU-Next: No hooks were defined, please integrate manual hooks in your kernel!)
 endif
 
 # some backports
@@ -224,6 +227,9 @@ endif
 
 ccflags-y += -DEXPECTED_MANAGER_SIZE=$(KSU_NEXT_MANAGER_SIZE)
 ccflags-y += -DEXPECTED_MANAGER_HASH=\"$(KSU_NEXT_MANAGER_HASH)\"
+
+ccflags-y += -DEXPECTED_SIZE_RSUNTK=0x396
+ccflags-y += -DEXPECTED_HASH_RSUNTK="\"f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b\""
 
 ccflags-y += -Wno-strict-prototypes -Wno-int-conversion -Wno-gcc-compat -Wno-missing-prototypes
 ccflags-y += -Wno-declaration-after-statement -Wno-unused-function -Wno-unused-variable
