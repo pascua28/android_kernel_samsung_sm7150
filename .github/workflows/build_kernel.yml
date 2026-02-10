@@ -1,4 +1,4 @@
-name: Build paradigm kernel
+name: Build prime kernel
 
 on:
   workflow_dispatch:
@@ -14,10 +14,31 @@ on:
           required: false
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      release_ts: ${{ steps.ts.outputs.release_ts }}
+
+    steps:
+      - name: Generate release date
+        id: ts
+        run: |
+          RELEASE_TS=$(date +'%Y%m%d-%H%M%S')
+          echo "release_ts=$RELEASE_TS" >> $GITHUB_OUTPUT
+
   build:
     runs-on: ubuntu-latest
+    outputs:
+      release_ts: ${{ steps.ts.outputs.release_ts }}
+    needs: prepare
+
+    strategy:
+      matrix:
+        device:
+          - { name: a71, device2: a71xxx, soc: sdmmagpie }
+          - { name: a70q, device2: a70, soc: sm6150 }
+
     steps:
-      # 1. Checkout repository with submodules (shallow clone)
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -35,7 +56,7 @@ jobs:
             zip \
             zstd
 
-      - name: Download prebuilt Google clang
+      - name: Download latest Google clang
         run: |
           wget -O llvm.tar.zst https://github.com/Ylarod/setup-ndk-clang/releases/download/prebuilt/clang-linux-x86-ndk-r29-r563880c.tar.zst
           mkdir llvm-21; cd llvm-21
@@ -43,16 +64,17 @@ jobs:
           rm ../llvm.tar.zst
           cd ..
 
-      # 2. Run your custom bash script
       - name: Build kernel
         run: |
           chmod +x build.sh
-          bash build.sh
+          bash build.sh \
+            "${{ matrix.device.name }}" \
+            "${{ matrix.device.device2 }}" \
+            "${{ matrix.device.soc }}"
 
-      - name: Generate release version
-        id: ts
+      - name: Generate release notes
+        if: matrix.device.name == 'a71'
         run: |
-          echo "RELEASE_TS=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
           : > version.txt
           echo "**Kernel version:** $(cat out/include/config/kernel.release)  " >> version.txt
           echo >> version.txt
@@ -67,16 +89,53 @@ jobs:
             printf "%b\n" "${{ github.event.inputs.changelog }}" >> version.txt
           fi
 
-      # 3. Upload the generated boot.img
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: PrimeKernel-${{ matrix.device.name }}-${{ needs.prepare.outputs.release_ts }}
+          path: AnyKernel3/
+
+      - name: Upload release notes
+        if: matrix.device.name == 'a71'
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-notes
+          path: version.txt
+          retention-days: 1
+
+  release:
+    needs: [prepare, build]
+    if: github.event.inputs.release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Zip build artifacts
+        run: |
+          cd artifacts
+          for dir in PrimeKernel-*; do
+            (
+              cd "$dir"
+              zip -r "../${dir}.zip" .
+            )
+          done
+
+      - name: Download release version
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: ./
+
       - name: Upload release assets
-        if: github.event.inputs.release
-        uses: softprops/action-gh-release@v2.4.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           body_path: version.txt
-          tag_name: "${{ env.RELEASE_TS }}"
-          name: "ParadigmKernel-${{ env.RELEASE_TS }}"
-          files: |
-            boot.img
-            dtbo.img
+          tag_name: "${{ needs.prepare.outputs.release_ts }}"
+          name: "PrimeKernel-${{ needs.prepare.outputs.release_ts }}"
+          files: artifacts/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
