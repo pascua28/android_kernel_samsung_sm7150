@@ -1,8 +1,13 @@
 #!/bin/sh
 
+KERNEL_DIR=$(pwd)
+DEVICE="$1"
+DEVICE2="$2"
+SOC="$3"
+
 build_kernel() {
     echo "-----------------------------------------------"
-    echo "Beginning kernel compilation..."
+    echo "Beginning kernel compilation for $DEVICE..."
     echo "-----------------------------------------------"
 
     export ARCH=arm64
@@ -10,14 +15,15 @@ build_kernel() {
 
     export PATH=$(pwd)/llvm-21/bin:$PATH
 
-    BUILD_VAR="-j$(nproc) -C $(pwd) O=$(pwd)/out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
+    KERNEL_MAKE_ENV="DTC_EXT=$(pwd)/tools/dtc CONFIG_BUILD_ARM64_DT_OVERLAY=y"
+    BUILD_VAR="-j$(nproc) -C $(pwd) O=$(pwd)/out $KERNEL_MAKE_ENV ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
 
-    cat arch/arm64/configs/sdmmagpie_defconfig arch/arm64/configs/a71.config > arch/arm64/configs/temp_defconfig
+    cat arch/arm64/configs/sdmmagpie_defconfig arch/arm64/configs/$DEVICE.config > arch/arm64/configs/temp_defconfig
 
     echo "
-    CONFIG_THINLTO=y
-    # CONFIG_LTO_NONE is not set
-    CONFIG_LTO_CLANG=y
+CONFIG_THINLTO=y
+# CONFIG_LTO_NONE is not set
+CONFIG_LTO_CLANG=y
     " >> arch/arm64/configs/temp_defconfig
 
     make $BUILD_VAR temp_defconfig
@@ -36,51 +42,25 @@ build_dtbo() {
     echo "-----------------------------------------------"
     echo "Building dtbo.img..."
     echo "-----------------------------------------------"
-    DTBO_FILES=$(find $(pwd)/out/arch/arm64/boot/dts/samsung/ -name sm*150-sec-a71-eur-overlay-*.dtbo)
+    DTBO_FILES=$(find $(pwd)/out/arch/arm64/boot/dts/samsung/ -name sm*150-sec-$DEVICE-eur-overlay-*.dtbo)
     $(pwd)/tools/mkdtimg create $(pwd)/out/dtbo.img --page_size=4096 ${DTBO_FILES}
-
-    mv $(pwd)/out/dtbo.img dtbo.img
 }
 
-build_boot() {
-    echo "-----------------------------------------------"
-    echo "Building boot.img..."
-    echo "-----------------------------------------------"
-    MKBOOTIMG="$(pwd)/mkbootimg/mkbootimg.py"
-    OUT_KERNEL="$(pwd)/out/arch/arm64/boot/Image"
-    DTB_OUT="$(pwd)/out/arch/arm64/boot/dts/qcom/sdmmagpie.dtb"
-    CMDLINE="console=null androidboot.hardware=qcom androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 swiotlb=1 androidboot.usbcontroller=a600000.dwc3 firmware_class.path=/vendor/firmware_mnt/image nokaslr printk.devkmsg=on loop.max_part=7"
-    BASE="0x00000000"
-    KOFFSET="0x00008000"
-    ROFFSET="0x02000000"
-    SECOFFSET="0x00000000"
-    DTBOFFSET="0x01f00000"
-    TAGSOFFSET="0x01e00000"
-    BOARD="SRPSF18B011"
-    PAGESZ="4096"
-    RAMDISK="$(pwd)/boot/ramdisk"
-    MONTH="$(date +%Y-%m)"
+prepare_ak3() {
+    cd AnyKernel3/
 
-    $MKBOOTIMG \
-        --header_version 2 \
-        --kernel "$OUT_KERNEL" \
-        --ramdisk "$RAMDISK" \
-        --dtb "$DTB_OUT" \
-        --cmdline "$CMDLINE" \
-        --base "$BASE" \
-        --kernel_offset "$KOFFSET" \
-        --ramdisk_offset "$ROFFSET" \
-        --second_offset "$SECOFFSET" \
-        --dtb_offset "$DTBOFFSET" \
-        --tags_offset "$TAGSOFFSET" \
-        --board "$BOARD" \
-        --pagesize "$PAGESZ" \
-        --os_version 16.0.0 \
-        --os_patch_level "$MONTH" \
-        --output boot.img
+    mv "$KERNEL_DIR/out/dtbo.img" dtbo.img
+    mv "$KERNEL_DIR/out/arch/arm64/boot/Image" Image
+
+    mv "$KERNEL_DIR/out/arch/arm64/boot/dts/qcom/$SOC.dtb" dtb
+
+    sed -i "s/^device\.name1=.*/device.name1=${DEVICE}/" anykernel.sh
+    sed -i "s/^device\.name2=.*/device.name2=${DEVICE2}/" anykernel.sh
+
+    cd "$KERNEL_DIR"
 }
 
 build_kernel
 build_dtb
 build_dtbo
-build_boot
+prepare_ak3
