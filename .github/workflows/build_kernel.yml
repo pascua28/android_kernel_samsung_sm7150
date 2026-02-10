@@ -1,0 +1,82 @@
+name: Build paradigm kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+          description: 'Upload release'
+          type: boolean
+          required: true
+          default: false
+      changelog:
+          description: 'Changelog'
+          type: string
+          required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout repository with submodules (shallow clone)
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: |
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            curl \
+            unzip \
+            wget \
+            zip \
+            zstd
+
+      - name: Download prebuilt Google clang
+        run: |
+          wget -O llvm.tar.zst https://github.com/Ylarod/setup-ndk-clang/releases/download/prebuilt/clang-linux-x86-ndk-r29-r563880c.tar.zst
+          mkdir llvm-21; cd llvm-21
+          tar -I unzstd -xf ../llvm.tar.zst
+          rm ../llvm.tar.zst
+          cd ..
+
+      # 2. Run your custom bash script
+      - name: Build kernel
+        run: |
+          chmod +x build.sh
+          bash build.sh
+
+      - name: Generate release version
+        id: ts
+        run: |
+          echo "RELEASE_TS=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+          : > version.txt
+          echo "**Kernel version:** $(cat out/include/config/kernel.release)  " >> version.txt
+          echo >> version.txt
+          export KHASH="$(git rev-parse HEAD)"
+          echo "**Kernel source:** [$KHASH](https://github.com/UN1CA/kernel_samsung_sm7150/tree/$KHASH)" >> version.txt
+
+          if [ "${{ github.event.inputs.release }}" = "true" ] && \
+             [ -n "${{ github.event.inputs.changelog }}" ]; then
+            echo >> version.txt
+            echo "**Changelog:**" >> version.txt
+            echo >> version.txt
+            printf "%b\n" "${{ github.event.inputs.changelog }}" >> version.txt
+          fi
+
+      # 3. Upload the generated boot.img
+      - name: Upload release assets
+        if: github.event.inputs.release
+        uses: softprops/action-gh-release@v2.4.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        with:
+          body_path: version.txt
+          tag_name: "${{ env.RELEASE_TS }}"
+          name: "ParadigmKernel-${{ env.RELEASE_TS }}"
+          files: |
+            boot.img
+            dtbo.img
