@@ -8,6 +8,10 @@ on:
           type: boolean
           required: true
           default: false
+      changelog:
+          description: 'Changelog'
+          type: string
+          required: false
 
 jobs:
   prepare:
@@ -76,6 +80,12 @@ jobs:
           echo >> version.txt
           export KHASH="$(git rev-parse HEAD)"
           echo "**Kernel source:** [$KHASH](https://github.com/UN1CA/kernel_samsung_sm7150/tree/$KHASH)" >> version.txt
+
+          if [ "${{ github.event.inputs.release }}" = "true" ]; then
+            echo "**Changelog:**" >> version.txt
+            echo >> version.txt
+            echo "${{ github.event.inputs.changelog }}" >> version.txt
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
