@@ -84,7 +84,7 @@ jobs:
           if [ "${{ github.event.inputs.release }}" = "true" ]; then
             echo "**Changelog:**" >> version.txt
             echo >> version.txt
-            echo "${{ github.event.inputs.changelog }}" >> version.txt
+            printf "%b\n" "${{ github.event.inputs.changelog }}" >> version.txt
           fi
 
       - name: Upload artifact
