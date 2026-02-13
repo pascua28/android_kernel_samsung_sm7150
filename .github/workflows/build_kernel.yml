@@ -106,7 +106,10 @@ jobs:
         run: |
           cd artifacts
           for dir in PrimeKernel-*; do
-            zip -r "${dir}.zip" "$dir"
+            (
+              cd "$dir"
+              zip -r "../${dir}.zip" .
+            )
           done
 
       - name: Download release version
