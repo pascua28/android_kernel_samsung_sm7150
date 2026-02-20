@@ -394,7 +394,7 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 	}
 
 #ifdef CONFIG_SAMSUNG_FREECESS
-	if (is_async && (alloc->free_async_space < 3*(size + sizeof(struct binder_buffer))
+	if (is_async && (alloc->free_async_space < 3 * size
 		|| (alloc->free_async_space < alloc->buffer_size / 4))) {
 		rcu_read_lock();
 		p = find_task_by_vpid(alloc->pid);
@@ -406,12 +406,9 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 
 	if (is_async &&
 	    alloc->free_async_space < size + sizeof(struct binder_buffer)) {
-		//binder_alloc_debug(BINDER_DEBUG_BUFFER_ALLOC,
-		//	     "%d: binder_alloc_buf size %zd failed, no async space left\n",
-		//	      alloc->pid, size);
-		pr_info("%d: binder_alloc_buf size %zd(%zd) failed, no async space left\n",
-			     alloc->pid, size, alloc->free_async_space);
-
+		binder_alloc_debug(BINDER_DEBUG_BUFFER_ALLOC,
+			     "%d: binder_alloc_buf size %zd failed, no async space left\n",
+			      alloc->pid, size);
 		return ERR_PTR(-ENOSPC);
 	}
 
