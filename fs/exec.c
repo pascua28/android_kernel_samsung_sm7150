@@ -75,8 +75,7 @@
 int suid_dumpable = 0;
 
 #define LIBPERFMGR_BIN "/vendor/bin/hw/android.hardware.power-service.pixel-libperfmgr"
-#define PERF "/vendor/bin/hw/vendor.qti.hardware.perf-hal-service"
-#define PERFD "/vendor/bin/hw/vendor.qti.hardware.perf2-hal-service"
+#define PERFD "/vendor/bin/hw/vendor.qti.hardware.perf@2.2-service"
 #define SERVICEMANAGER_BIN "/system/bin/servicemanager"
 
 static struct task_struct *servicemanager_tsk;
@@ -1879,8 +1878,6 @@ static int __do_execve_file(int fd, struct filename *filename,
 	if (is_global_init(current->parent)) {
 		if (unlikely(!strcmp(filename->name, LIBPERFMGR_BIN))) {
 			WRITE_ONCE(powerhal_tsk, current);
-                } else if (unlikely(!strcmp(filename->name, PERF))) {
-                        WRITE_ONCE(powerhal_tsk, current);
                 } else if (unlikely(!strcmp(filename->name, PERFD))) {
                         WRITE_ONCE(powerhal_tsk, current);
 		} else if (unlikely(!strcmp(filename->name, SERVICEMANAGER_BIN))) {
