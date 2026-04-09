@@ -2,11 +2,14 @@
 #include <linux/fs.h>
 #include <linux/kobject.h>
 #include <linux/module.h>
+#include <linux/sched.h>
 #include <linux/workqueue.h>
 
 #include "allowlist.h"
+#include "app_profile.h"
 #include "feature.h"
 #include "klog.h" // IWYU pragma: keep
+#include "manager.h"
 #include "throne_tracker.h"
 #include "syscall_hook_manager.h"
 #include "ksud.h"
@@ -16,8 +19,7 @@
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs.h>
 #endif // #ifdef CONFIG_KSU_SUSFS
-
-struct cred* ksu_cred;
+#include "selinux/selinux.h"
 
 extern void __init ksu_lsm_hook_init(void);
 extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
@@ -32,8 +34,54 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
 					    flags);
 }
 
+// workaround for A12-5.10 kernel
+// Some third-party kernel (e.g. linegaeOS) uses wrong toolchain, which supports
+// CC_HAVE_STACKPROTECTOR_SYSREG while gki's toolchain doesn't.
+// Therefore, ksu lkm, which uses gki toolchain, requires this __stack_chk_guard,
+// while those third-party kernel can't provide.
+// Thus, we manually provide it instead of using kernel's
+#if defined(CONFIG_STACKPROTECTOR) &&                                          \
+    (defined(CONFIG_ARM64) && defined(MODULE) &&                               \
+     !defined(CONFIG_STACKPROTECTOR_PER_TASK))
+#include <linux/stackprotector.h>
+#include <linux/random.h>
+unsigned long __stack_chk_guard __ro_after_init
+    __attribute__((visibility("hidden")));
+
+__attribute__((no_stack_protector)) void ksu_setup_stack_chk_guard()
+{
+    unsigned long canary;
+
+    /* Try to get a semi random initial value. */
+    get_random_bytes(&canary, sizeof(canary));
+    canary ^= LINUX_VERSION_CODE;
+    canary &= CANARY_MASK;
+    __stack_chk_guard = canary;
+}
+
+__attribute__((naked)) int __init kernelsu_init_early(void)
+{
+    asm("mov x19, x30;\n"
+        "bl ksu_setup_stack_chk_guard;\n"
+        "mov x30, x19;\n"
+        "b kernelsu_init;\n");
+}
+#define NEED_OWN_STACKPROTECTOR 1
+#else
+#define NEED_OWN_STACKPROTECTOR 0
+#endif
+
+struct cred *ksu_cred;
+bool ksu_late_loaded;
+
 int __init kernelsu_init(void)
 {
+#ifdef MODULE
+	ksu_late_loaded = (current->pid != 1);
+#else
+	ksu_late_loaded = false;
+#endif
+
 #ifdef CONFIG_KSU_DEBUG
 	pr_alert("*************************************************************");
 	pr_alert("**     NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE    **");
@@ -53,21 +101,54 @@ int __init kernelsu_init(void)
 
 	ksu_supercalls_init();
 
-	ksu_syscall_hook_manager_init();
+	
 
-	ksu_lsm_hook_init();
+	if (ksu_late_loaded) {
+		pr_info("late load mode, skipping kprobe hooks\n");
 
-	ksu_allowlist_init();
+		apply_kernelsu_rules();
+		cache_sid();
+		setup_ksu_cred();
 
-	ksu_throne_tracker_init();
+		// Grant current process (ksud late-load) root
+		// with KSU SELinux domain before enforcing SELinux, so it
+		// can continue to access /data/app etc. after enforcement.
+		escape_to_root_for_init();
+
+		ksu_allowlist_init();
+		ksu_load_allow_list();
+
+		ksu_syscall_hook_manager_init();
+
+		ksu_throne_tracker_init();
+		ksu_observer_init();
+		ksu_file_wrapper_init();
+
+		ksu_boot_completed = true;
+		track_throne(false);
+
+		if (!getenforce()) {
+			pr_info("Permissive SELinux, enforcing\n");
+			setenforce(true);
+		}
+
+	} else {
+		ksu_syscall_hook_manager_init();
+		
+		ksu_lsm_hook_init();
+
+		ksu_allowlist_init();
+
+		ksu_throne_tracker_init();
 
 #ifdef CONFIG_KSU_SUSFS
-    susfs_init();
+    	susfs_init();
 #endif // #ifdef CONFIG_KSU_SUSFS
 
-	ksu_ksud_init();
+		ksu_ksud_init();
 
-	ksu_file_wrapper_init();
+		ksu_file_wrapper_init();
+	}
 
 #ifdef MODULE
 #ifndef CONFIG_KSU_DEBUG
@@ -86,7 +167,8 @@ void kernelsu_exit(void)
 
 	ksu_observer_exit();
 
-	ksu_ksud_exit();
+	if (!ksu_late_loaded)
+		ksu_ksud_exit();
 
 	ksu_syscall_hook_manager_exit();
 
@@ -99,7 +181,11 @@ void kernelsu_exit(void)
 	}
 }
 
+#if NEED_OWN_STACKPROTECTOR
+module_init(kernelsu_init_early);
+#else
 module_init(kernelsu_init);
+#endif
 module_exit(kernelsu_exit);
 
 MODULE_LICENSE("GPL");
