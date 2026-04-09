@@ -1,5 +1,5 @@
 config ANDROID_SAR_RAMDISK
-	bool
+	bool "Load SAR ramdisk"
 	default y
 	help
 	  Support for loading a ramdisk from a
