@@ -16,9 +16,6 @@ kernelsu-objs += feature.o
 kernelsu-objs += ksud.o
 kernelsu-objs += seccomp_cache.o
 kernelsu-objs += file_wrapper.o
-kernelsu-objs += util.o
-kernelsu-objs += extras.o
-
 kernelsu-objs += extras.o
 
 kernelsu-objs += selinux/selinux.o
@@ -32,11 +29,11 @@ obj-$(CONFIG_KSU) += kernelsu.o
 LPATH := /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin
 MDIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-$(eval KSU_VERSION=32896)
+$(eval KSU_VERSION=32955)
 $(info -- KernelSU-Next version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
 
-$(eval KSU_VERSION_TAG="v3.0.0")
+$(eval KSU_VERSION_TAG="v3.1.0-legacy")
 $(info -- KernelSU-Next tag: $(KSU_VERSION_TAG))
 ccflags-y += -DKSU_VERSION_TAG=\"$(KSU_VERSION_TAG)\"
 
@@ -182,6 +179,9 @@ ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID
 endif
 ifeq ($(shell grep -q "struct selinux_state " $(srctree)/security/selinux/include/security.h; echo $$?),0)
 ccflags-y += -DKSU_COMPAT_USE_SELINUX_STATE
+endif
+ifeq ($(shell grep -q "^DEFINE_RWLOCK(policy_rwlock);" $(srctree)/security/selinux/ss/services.c; echo $$?),0)
+ccflags-y += -DKSU_COMPAT_HAS_EXPORTED_POLICY_RWLOCK
 endif
 
 # Handle optional backports

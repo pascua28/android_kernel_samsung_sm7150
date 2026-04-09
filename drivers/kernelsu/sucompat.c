@@ -30,7 +30,6 @@
 #include "kernel_compat.h"
 #include "sucompat.h"
 #include "app_profile.h"
-#include "util.h"
 
 extern void write_sulog(uint8_t sym);
 
@@ -62,9 +61,13 @@ static const struct ksu_feature_handler su_compat_handler = {
 
 static void __user *userspace_stack_buffer(const void *d, size_t len)
 {
-	// To avoid having to mmap a page in userspace, just write below the stack
-	// pointer.
-	char __user *p = (void __user *)current_user_stack_pointer() - len;
+	// Stack Pointer must be 16-byte aligned.
+	// We also subtract a safe margin (256 bytes) 
+	// to avoid corrupting local variables or smth
+	unsigned long sp = current_user_stack_pointer();
+	sp = (sp - len - 256) & ~0xFUL; // Align downwards to nearest 16 bytes
+
+	char __user *p = (char __user *)sp;
 
 	return copy_to_user(p, d, len) ? NULL : p;
 }
@@ -150,23 +153,10 @@ int ksu_handle_execve_sucompat(const char __user **filename_user,
 	addr = untagged_addr((unsigned long)*filename_user);
 	fn = (const char __user *)addr;
 	memset(path, 0, sizeof(path));
+
 	ret = strncpy_from_user_nofault(path, fn, sizeof(path));
-
-	if (ret < 0 && try_set_access_flag(addr)) {
-		ret = strncpy_from_user_nofault(path, fn, sizeof(path));
-	}
-
-	if (ret < 0 && preempt_count()) {
-		/* This is crazy, but we know what we are doing:
-			* Temporarily exit atomic context to handle page faults, then restore it */
-		pr_info("Access filename failed, try rescue..\n");
-		preempt_enable_no_resched_notrace();
-		ret = strncpy_from_user(path, fn, sizeof(path));
-		preempt_disable_notrace();
-	}
-
 	if (ret < 0) {
-		pr_warn("Access filename when execve failed: %ld", ret);
+		// Memory is protected by ION/DMA or invalid. We gracefully back off.
 		return 0;
 	}
 
