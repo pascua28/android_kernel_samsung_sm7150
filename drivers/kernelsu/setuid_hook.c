@@ -25,9 +25,18 @@
 #include "supercalls.h"
 #include "syscall_hook_manager.h"
 #include "kernel_umount.h"
+
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
 #endif // #ifdef CONFIG_KSU_SUSFS
+
+// force_sig kcompat, TODO: move it out of core_hook.c
+// https://elixir.bootlin.com/linux/v5.3-rc1/source/kernel/signal.c#L1613
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+#define send_sigkill() force_sig(SIGKILL)
+#else
+#define send_sigkill() force_sig(SIGKILL, current)
+#endif
 
 extern void disable_seccomp(struct task_struct *tsk);
 
@@ -45,46 +54,12 @@ static inline bool is_zygote_normal_app_uid(uid_t uid)
 }
 
 extern u32 susfs_zygote_sid;
-extern struct cred *ksu_cred;
-
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-extern void susfs_run_sus_path_loop(void);
+extern void susfs_run_sus_path_loop(uid_t uid);
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-
-struct susfs_handle_setuid_tw {
-    struct callback_head cb;
-};
-
-static void susfs_handle_setuid_tw_func(struct callback_head *cb)
-{
-    struct susfs_handle_setuid_tw *tw = container_of(cb, struct susfs_handle_setuid_tw, cb);
-    const struct cred *saved = override_creds(ksu_cred);
-
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-    susfs_run_sus_path_loop();
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-
-    revert_creds(saved);
-    kfree(tw);
-}
-
-static void ksu_handle_extra_susfs_work(void)
-{
-    struct susfs_handle_setuid_tw *tw = kzalloc(sizeof(*tw), GFP_ATOMIC);
-
-    if (!tw) {
-        pr_err("susfs: No enough memory\n");
-        return;
-    }
-
-    tw->cb.func = susfs_handle_setuid_tw_func;
-
-    int err = task_work_add(current, &tw->cb, TWA_RESUME);
-    if (err) {
-        kfree(tw);
-        pr_err("susfs: Failed adding task_work 'susfs_handle_setuid_tw', err: %d\n", err);
-    }
-}
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern void susfs_reorder_mnt_id(void);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 extern void susfs_try_umount(uid_t uid);
 #endif // #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
@@ -114,21 +89,17 @@ int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid)
     }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
-    pr_debug("handle_setresuid from %d to %d\n", old_uid, new_uid);
+    pr_info("handle_setresuid from %d to %d\n", old_uid, new_uid);
 
     if (likely(ksu_is_manager_appid_valid()) &&
         unlikely(ksu_get_manager_appid() == new_uid % PER_USER_RANGE)) {
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-        if (current->seccomp.mode == SECCOMP_MODE_FILTER && current->seccomp.filter) {
-            ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot);
-        }
+        ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot);
+#ifdef KSU_KPROBES_HOOK
+		ksu_set_task_tracepoint_flag(current);
+#endif
 #else
 		disable_seccomp(current);
-#endif
-
-#ifdef KSU_KPROBES_HOOK
-        ksu_set_task_tracepoint_flag(current);
 #endif
 
         pr_info("install fd for manager: %d\n", new_uid);
@@ -143,28 +114,28 @@ int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid)
         return 0;
     }
 
-    // Check if spawned process is normal user app and needs to be umounted
+// Check if spawned process is normal user app and needs to be umounted
     if (likely(is_zygote_normal_app_uid(new_uid) && ksu_uid_should_umount(new_uid))) {
         goto do_umount;
     }
 
-	if (ksu_is_allow_uid_for_current(new_uid)) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-        if (current->seccomp.mode == SECCOMP_MODE_FILTER && current->seccomp.filter) {
+    if (ksu_is_allow_uid_for_current(new_uid)) {
+        if (current->seccomp.mode == SECCOMP_MODE_FILTER &&
+            current->seccomp.filter) {
             ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot);
         }
-#else
-		disable_seccomp(current);
-#endif
-
 #ifdef KSU_KPROBES_HOOK
 		ksu_set_task_tracepoint_flag(current);
-#endif
 	} else {
-#ifdef KSU_KPROBES_HOOK
 		ksu_clear_task_tracepoint_flag_if_needed(current);
 #endif
     }
+#else
+	if (ksu_is_allow_uid_for_current(new_uid)) {
+		disable_seccomp(current);
+	}
+#endif
 
     // Handle kernel umount
     //ksu_handle_umount(old_uid, new_uid);
@@ -178,12 +149,14 @@ do_umount:
 #else
     susfs_try_umount(new_uid);
 #endif // #ifndef CONFIG_KSU_SUSFS_TRY_UMOUNT
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+    // We can reorder the mnt_id now after all sus mounts are umounted
+    susfs_reorder_mnt_id();
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-    //susfs_run_sus_path_loop(new_uid);
+    susfs_run_sus_path_loop(new_uid);
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-
-    ksu_handle_extra_susfs_work();
 
     susfs_set_current_proc_umounted();
 
@@ -193,11 +166,11 @@ do_umount:
 extern void ksu_lsm_hook_init(void);
 void ksu_setuid_hook_init(void)
 {
-	ksu_kernel_umount_init();
+    ksu_kernel_umount_init();
 }
 
 void ksu_setuid_hook_exit(void)
 {
-	pr_info("ksu_core_exit\n");
-	ksu_kernel_umount_exit();
+    pr_info("ksu_core_exit\n");
+    ksu_kernel_umount_exit();
 }
