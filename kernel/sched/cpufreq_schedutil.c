@@ -304,19 +304,22 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 static inline unsigned long apply_dvfs_headroom(unsigned long util, int cpu)
 {
 	unsigned long capacity = capacity_orig_of(cpu);
+	unsigned long threshold = (capacity >> 3) + (capacity >> 4); /* 18.75% */
 	unsigned long delta, headroom;
 
-	if (util >= capacity)
-		return util;
         /*
-        * Quadratic taper the boosting at the top end as these are expensive
-        * and we don't need that much of a big headroom as we approach max
-        * capacity
-        */
+         * Quadratic taper the boosting at the top end as these are expensive
+         * and we don't need that much of a big headroom as we approach max
+         * capacity
+         */
 	delta = capacity - util;
-	headroom = ((delta * delta) >> 12);
+	headroom = (delta * delta) >> 11;
 
-	return util + headroom;
+	/* Suppress boosting below the threshold */
+	if (util < threshold)
+		headroom = (headroom * util * util) / (threshold * threshold);
+
+	return  util + headroom;
 }
 
 static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu,
