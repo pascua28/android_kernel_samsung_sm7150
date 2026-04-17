@@ -16,6 +16,23 @@ config KSU_DEBUG
 	help
 	  Enable KernelSU debug mode.
 
+config KSU_DISABLE_MANAGER
+	bool "Disable KernelSU manager integration"
+	depends on KSU
+	default n
+	help
+	  Disable manager APK detection and manager-specific handling.
+	  Root will be used in place of manager-only functionality.
+
+config KSU_DISABLE_POLICY
+	bool "Disable KernelSU policy profiles"
+	depends on KSU
+	default n
+	help
+	  Disable per-app root/non-root profile customization.
+	  Escalation will always use the default full root profile, and
+	  non-root handling will follow the global umount policy only.
+
 config KSU_ALLOWLIST_WORKAROUND
 	bool "KernelSU allowlist workaround"
 	depends on KSU
@@ -78,6 +95,14 @@ config KSU_SUSFS_SUS_KSTAT
     help
         - Allow spoofing the kstat of user-defined file/directory.
         - Effective only on zygote spawned user app process.
+
+config KSU_SUSFS_TRY_UMOUNT
+	bool "Enable to use ksu's try_umount"
+	depends on KSU_SUSFS
+	default y
+	help
+		- Allow using try_umount to umount other user-defined mount paths prior to ksu's default umount paths.
+		- Effective only on zygote spawned umounted user app process.
 
 config KSU_SUSFS_SPOOF_UNAME
     bool "Enable to spoof uname"
