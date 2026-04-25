@@ -103,10 +103,6 @@ struct selinux_state selinux_state;
 /* SECMARK reference count */
 static atomic_t selinux_secmark_refcount = ATOMIC_INIT(0);
 
-// [ SEC_SELINUX_PORTING_COMMON
-static DEFINE_MUTEX(selinux_sdcardfs_lock);
-// ] SEC_SELINUX_PORTING_COMMON
-
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
 static int selinux_enforcing_boot;
 
@@ -2949,29 +2945,17 @@ static int selinux_sb_kern_mount(struct super_block *sb, int flags, void *data)
 	struct common_audit_data ad;
 	int rc;
 
-	// [ SEC_SELINUX_PORTING_COMMON
-	if ((strcmp(sb->s_type->name,"sdcardfs")) == 0)
-		mutex_lock(&selinux_sdcardfs_lock);
-
 	rc = superblock_doinit(sb, data);
 	if (rc)
-		goto out;
+		return rc;
 
 	/* Allow all mounts performed by the kernel */
 	if (flags & (MS_KERNMOUNT | MS_SUBMOUNT))
-		goto out;
+		return 0;
 
 	ad.type = LSM_AUDIT_DATA_DENTRY;
 	ad.u.dentry = sb->s_root;
 	rc = superblock_has_perm(cred, sb, FILESYSTEM__MOUNT, &ad);
-
-out:
-	if ((strcmp(sb->s_type->name,"sdcardfs")) == 0)
-		mutex_unlock(&selinux_sdcardfs_lock);
-
-	// ] SEC_SELINUX_PORTING_COMMON
-
-	return rc;
 }
 
 static int selinux_sb_statfs(struct dentry *dentry)
