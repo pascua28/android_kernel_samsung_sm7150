@@ -72,6 +72,10 @@ enum sched_tunable_scaling {
 };
 extern enum sched_tunable_scaling sysctl_sched_tunable_scaling;
 
+extern int sched_updown_migrate_handler_boosted(struct ctl_table *table,
+					int write, void __user *buffer,
+					size_t *lenp, loff_t *ppos);
+
 extern unsigned int sysctl_numa_balancing_scan_delay;
 extern unsigned int sysctl_numa_balancing_scan_period_min;
 extern unsigned int sysctl_numa_balancing_scan_period_max;
@@ -108,10 +112,6 @@ extern unsigned int sysctl_sched_autogroup_enabled;
 
 extern int sysctl_sched_rr_timeslice;
 extern int sched_rr_timeslice;
-
-extern unsigned int sysctl_sched_capacity_margin_up_boosted[MAX_MARGIN_LEVELS];
-extern unsigned int
-       sysctl_sched_capacity_margin_down_boosted[MAX_MARGIN_LEVELS];
 
 int sched_rr_handler(struct ctl_table *table, int write, void *buffer,
 		size_t *lenp, loff_t *ppos);
