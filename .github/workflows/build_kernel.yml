@@ -79,7 +79,7 @@ jobs:
           echo "**Kernel version:** $(cat out/include/config/kernel.release)  " >> version.txt
           echo >> version.txt
           export KHASH="$(git rev-parse HEAD)"
-          echo "**Kernel source:** [$KHASH](https://github.com/UN1CA/kernel_samsung_sm7150/tree/$KHASH)" >> version.txt
+          echo "**Kernel source:** [$KHASH](https://github.com/pascua28/android_kernel_samsung_sm7150/tree/$KHASH)" >> version.txt
 
           if [ "${{ github.event.inputs.release }}" = "true" ] && \
              [ -n "${{ github.event.inputs.changelog }}" ]; then
