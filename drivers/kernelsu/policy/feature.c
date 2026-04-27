@@ -1,8 +1,3 @@
-#include "feature.h"
-#include "klog.h" // IWYU pragma: keep
-
-#include <linux/mutex.h>
-
 static const struct ksu_feature_handler *feature_handlers[KSU_FEATURE_MAX];
 
 static DEFINE_MUTEX(feature_mutex);
@@ -20,7 +15,8 @@ int ksu_register_feature_handler(const struct ksu_feature_handler *handler)
 	}
 
 	if (!handler->get_handler && !handler->set_handler) {
-		pr_err("feature: no handler provided for feature %u\n", handler->feature_id);
+		pr_err("feature: no handler provided for feature %u\n",
+		       handler->feature_id);
 		return -EINVAL;
 	}
 
@@ -28,7 +24,7 @@ int ksu_register_feature_handler(const struct ksu_feature_handler *handler)
 
 	if (feature_handlers[handler->feature_id]) {
 		pr_warn("feature: handler for %u already registered, overwriting\n",
-		handler->feature_id);
+			handler->feature_id);
 	}
 
 	feature_handlers[handler->feature_id] = handler;
@@ -102,7 +98,8 @@ int ksu_get_feature(u32 feature_id, u64 *value, bool *supported)
 
 	ret = handler->get_handler(value);
 	if (ret) {
-		pr_err("feature: get_handler for %u failed: %d\n", feature_id, ret);
+		pr_err("feature: get_handler for %u failed: %d\n", feature_id,
+		       ret);
 	}
 
 out:
@@ -138,7 +135,8 @@ int ksu_set_feature(u32 feature_id, u64 value)
 
 	ret = handler->set_handler(value);
 	if (ret) {
-		pr_err("feature: set_handler for %u failed: %d\n", feature_id, ret);
+		pr_err("feature: set_handler for %u failed: %d\n", feature_id,
+		       ret);
 	}
 
 out:
