@@ -8812,6 +8812,32 @@ static struct cftype cpu_files[] = {
 		.write_u64 = cpu_rt_period_write_uint,
 	},
 #endif
+#ifdef CONFIG_UCLAMP_TASK_GROUP
+	{
+		.name = "uclamp.min",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = cpu_uclamp_min_show_wrapper,
+		.write = cpu_uclamp_min_write_wrapper,
+	},
+	{
+		.name = "uclamp.max",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.seq_show = cpu_uclamp_max_show_wrapper,
+		.write = cpu_uclamp_max_write_wrapper,
+	},
+	{
+		.name = "uclamp.latency_sensitive",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.read_u64 = cpu_uclamp_ls_read_u64_wrapper,
+		.write_u64 = cpu_uclamp_ls_write_u64_wrapper,
+	},
+	{
+		.name = "uclamp.boosted",
+		.flags = CFTYPE_NOT_ON_ROOT,
+		.read_u64 = cpu_uclamp_boost_read_u64_wrapper,
+		.write_u64 = cpu_uclamp_boost_write_u64_wrapper,
+	},
+#endif
 	{ }	/* Terminate */
 };
 
