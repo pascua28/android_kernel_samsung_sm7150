@@ -648,11 +648,8 @@ static void wake_up_idle_cpus(void *v)
 	struct cpumask cpus;
 
 	preempt_disable();
-	if (v) {
-		cpumask_andnot(&cpus, v, cpu_isolated_mask);
+	if (v)
 		cpumask_and(&cpus, &cpus, cpu_online_mask);
-	} else
-		cpumask_andnot(&cpus, cpu_online_mask, cpu_isolated_mask);
 
 	for_each_cpu(cpu, &cpus) {
 		if (cpu == smp_processor_id())
