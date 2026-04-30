@@ -291,7 +291,7 @@ ce_sendlist_send_srng(struct CE_handle *copyeng,
 #endif
 /**
  * ce_recv_buf_enqueue_srng() - enqueue a recv buffer into a copy engine
- * @coyeng: copy engine handle
+ * @copyeng: copy engine handle
  * @per_recv_context: virtual address of the nbuf
  * @buffer: physical address of the nbuf
  *
