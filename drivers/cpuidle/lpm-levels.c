@@ -58,8 +58,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
 
-#include <linux/sec_debug.h>
-
 #ifdef CONFIG_SEC_PM
 #include <linux/regulator/consumer.h>
 #endif
@@ -130,15 +128,6 @@ static struct notifier_block drm_notifier = {
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
-#endif
-
-#ifdef CONFIG_SEC_PM_DEBUG
-extern void sec_gpio_debug_print(void);
-extern void sec_clock_debug_print_enabled(void);
-extern void sec_debug_print_sleep_time(void);
-static int msm_pm_sleep_sec_debug;
-module_param_named(secdebug,
-	msm_pm_sleep_sec_debug, int, S_IRUGO | S_IWUSR | S_IWGRP);
 #endif
 
 bool lpm_sleep_disabled(void)
@@ -529,15 +518,8 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 				|| is_IPI_pending(&online_cpus))
 		return -EPERM;
 
-	if (idx != cluster->default_level) {
-		sec_debug_cluster_lpm_log(cluster->cluster_name, idx,
-			cluster->num_children_in_sync.bits[0],
-			cluster->child_cpus.bits[0], from_idle, 1);
-		trace_cluster_enter(cluster->cluster_name, idx,
-			cluster->num_children_in_sync.bits[0],
-			cluster->child_cpus.bits[0], from_idle);
+	if (idx != cluster->default_level)
 		lpm_stats_cluster_enter(cluster->stats, idx);
-	}
 
 	if (level->notify_rpm) {
 		/*
@@ -667,10 +649,6 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 	trace_cluster_exit(cluster->cluster_name, cluster->last_level,
 			cluster->num_children_in_sync.bits[0],
 			cluster->child_cpus.bits[0], from_idle);
-
-	sec_debug_cluster_lpm_log(cluster->cluster_name, cluster->last_level,
-			cluster->num_children_in_sync.bits[0],
-			cluster->child_cpus.bits[0], from_idle, 0);
 
 	last_level = cluster->last_level;
 	cluster->last_level = cluster->default_level;
@@ -826,15 +804,7 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	if (need_resched())
 		goto exit;
 
-/* FIXME : remove secdbg logging for reducing cpu hang issues */
-#if 0 //#ifdef CONFIG_SEC_DEBUG_POWER_LOG 
-	sec_debug_cpu_lpm_log(dev->cpu, idx, 0, 1);
-	sec_debug_sched_msg("+Idle(%s)", cluster->cpu->levels[idx].name);
 	success = psci_enter_sleep(cpu, idx, true);
-	sec_debug_sched_msg("-Idle(%s)", cluster->cpu->levels[idx].name);
-#else
-	success = psci_enter_sleep(cpu, idx, true);
-#endif
 
 exit:
 	end_time = ktime_to_ns(ktime_get());
@@ -844,7 +814,6 @@ exit:
 	cpu_unprepare(cpu, idx, true);
 	dev->last_residency = ktime_us_delta(ktime_get(), start);
 	trace_cpu_idle_exit(idx, success);
-	sec_debug_cpu_lpm_log(dev->cpu, idx, success, 0);
 	local_irq_enable();
 	return idx;
 }
@@ -1092,19 +1061,11 @@ static int lpm_suspend_prepare(void)
 
 #ifdef CONFIG_SEC_PM
 	regulator_showall_enabled();
-	sec_clock_debug_print_enabled();
 
 	debug_masterstats_show("entry");
 	debug_rpmstats_show("entry");
 #endif
 
-#ifdef CONFIG_SEC_PM_DEBUG
-	if (msm_pm_sleep_sec_debug) {
-		msm_gpio_print_enabled();
-		sec_gpio_debug_print();
-		print_gpio_exp(NULL);
-	}
-#endif
 	lpm_stats_suspend_enter();
 
 	return 0;
@@ -1116,7 +1077,6 @@ static void lpm_suspend_wake(void)
 	lpm_stats_suspend_exit();
 
 #ifdef CONFIG_SEC_PM
-	sec_debug_print_sleep_time();
 	debug_rpmstats_show("exit");
 	debug_masterstats_show("exit");
 #endif
