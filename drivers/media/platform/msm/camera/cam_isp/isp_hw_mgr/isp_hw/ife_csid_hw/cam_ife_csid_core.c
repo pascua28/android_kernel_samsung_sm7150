@@ -1069,6 +1069,8 @@ static int cam_ife_csid_enable_hw(struct cam_ife_csid_hw  *csid_hw)
 	clk_lvl = cam_soc_util_get_vote_level(soc_info, csid_hw->clk_rate);
 	CAM_DBG(CAM_ISP, "CSID clock lvl %u", clk_lvl);
 
+	clk_lvl = CAM_TURBO_VOTE;
+
 	rc = cam_ife_csid_enable_soc_resources(soc_info, clk_lvl);
 	if (rc) {
 		CAM_ERR(CAM_ISP, "CSID:%d Enable SOC failed",
@@ -2812,8 +2814,7 @@ static int cam_ife_csid_release(void *hw_priv,
 			csid_hw->ipp_path_config.measure_enabled = 0;
 		else if (res->res_id == CAM_IFE_PIX_PATH_RES_PPP)
 			csid_hw->ppp_path_config.measure_enabled = 0;
-		else if (res->res_id >= CAM_IFE_PIX_PATH_RES_RDI_0 &&
-			res->res_id <= CAM_IFE_PIX_PATH_RES_RDI_3)
+		else
 			csid_hw->rdi_path_config[res->res_id].measure_enabled
 				= 0;
 		break;

@@ -19,6 +19,10 @@
 #include "sde_formats.h"
 #include "sde_trace.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include "ss_dsi_panel_common.h"
+#endif
+
 #define SDE_DEBUG_CMDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
 		(e)->base.parent->base.id : -1, \
@@ -199,6 +203,10 @@ static void sde_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 
 	SDE_ATRACE_BEGIN("pp_done_irq");
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	SDE_DEBUG("irq_idx 0x%x\n", irq_idx);
+#endif
+
 	/* handle rare cases where the ctl_start_irq is not received */
 	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
 		/*
@@ -267,6 +275,10 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 
 	if (!phys_enc || !phys_enc->hw_pp || !phys_enc->hw_intf)
 		return;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	SDE_DEBUG("irq_idx 0x%x\n", irq_idx);
+#endif
 
 	SDE_ATRACE_BEGIN("rd_ptr_irq");
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
@@ -540,6 +552,10 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 	int event;
 	u32 pending_kickoff_cnt;
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	struct samsung_display_driver_data *vdd = NULL;
+#endif
+
 	if (!phys_enc || !phys_enc->hw_pp || !phys_enc->hw_ctl)
 		return -EINVAL;
 
@@ -563,6 +579,36 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 			cmd_enc->pp_timeout_report_cnt,
 			pending_kickoff_cnt,
 			frame_event);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	SS_XLOG(cmd_enc->pp_timeout_report_cnt);
+#elif defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	SS_XLOG(cmd_enc->pp_timeout_report_cnt);
+
+	vdd = ss_get_vdd(PRIMARY_DISPLAY_NDX);
+	if (vdd)
+		ss_check_te(vdd);
+
+	//inc_dpui_u32_field(DPUI_KEY_QCT_PPTO, 1);
+#if 0
+	pr_err("%s (%d): pp_timeout_report_cnt: %d\n", __func__, __LINE__, cmd_enc->pp_timeout_report_cnt);
+	if (cmd_enc->pp_timeout_report_cnt < 10) {
+		/* request a ctl reset before the next kickoff */
+		phys_enc->enable_state = SDE_ENC_ERR_NEEDS_HW_RESET;
+		pr_err("%s (%d): ignore pp & phy_hw_reset\n", __func__, __LINE__);
+		goto exit;
+	}
+#endif
+
+	SDE_ERROR_CMDENC(cmd_enc,
+		"pp:%d kickoff timed out ctl %d koff_cnt %d\n",
+		phys_enc->hw_pp->idx - PINGPONG_0,
+		phys_enc->hw_ctl->idx - CTL_0,
+		pending_kickoff_cnt);
+
+	SDE_EVT32(DRMID(phys_enc->parent), SDE_EVTLOG_FATAL);
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic");
+#endif
 
 	/* decrement the kickoff_cnt before checking for ESD status */
 	atomic_add_unless(&phys_enc->pending_kickoff_cnt, -1, 0);
@@ -849,6 +895,10 @@ static int sde_encoder_phys_cmd_control_vblank_irq(
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
 			enable, refcount);
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) // case 04436106
+	SS_XLOG_VSYNC(enable, refcount);
+#endif
+
 	if (enable && atomic_inc_return(&phys_enc->vblank_refcount) == 1) {
 		ret = sde_encoder_helper_register_irq(phys_enc, INTR_IDX_RDPTR);
 		if (ret)
@@ -869,6 +919,10 @@ end:
 		SDE_EVT32(DRMID(phys_enc->parent),
 				phys_enc->hw_pp->idx - PINGPONG_0,
 				enable, refcount, SDE_EVTLOG_ERROR);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO) // case 04436106
+		SS_XLOG_VSYNC(0xbad, enable, refcount, ret);
+#endif
 	}
 
 	mutex_unlock(phys_enc->vblank_ctl_lock);
@@ -1065,7 +1119,14 @@ static void sde_encoder_phys_cmd_tearcheck_config(
 	 * disable sde hw generated TE signal, since hw TE will arrive first.
 	 * Only caveat is if due to error, we hit wrap-around.
 	 */
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	/* 3 * 16.6ms based on mode->vtotal
+	 note : need to multiply current_fps / 60 to match 16ms regardless of current fps
+	*/
+	tc_cfg.sync_cfg_height = (mode->vtotal * 3 * mode->vrefresh) / 12 / 5;
+#else
 	tc_cfg.sync_cfg_height = 0xFFF0;
+#endif
 	tc_cfg.vsync_init_val = mode->vdisplay;
 	tc_cfg.sync_threshold_start = _get_tearcheck_threshold(phys_enc,
 			&extra_frame_trigger_time);
@@ -1614,6 +1675,12 @@ static void sde_encoder_phys_cmd_prepare_commit(
 		udelay(SDE_ENC_MAX_POLL_TIMEOUT_US);
 		if ((trial * SDE_ENC_MAX_POLL_TIMEOUT_US)
 				> (KICKOFF_TIMEOUT_MS * USEC_PER_MSEC)) {
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+			struct samsung_display_driver_data *vdd = ss_get_vdd(PRIMARY_DISPLAY_NDX);
+			vdd->is_autorefresh_fail = true;
+			LCD_INFO("set is_autorefresh_fail true\n");
+#endif
+
 			SDE_ERROR_CMDENC(cmd_enc,
 					"disable autorefresh failed\n");
 			break;

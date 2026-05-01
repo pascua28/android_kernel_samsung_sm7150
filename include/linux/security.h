@@ -70,6 +70,8 @@ struct audit_krule;
 struct user_namespace;
 struct timezone;
 
+#define security_integrity_current()  0
+
 enum lsm_event {
 	LSM_POLICY_CHANGE,
 };

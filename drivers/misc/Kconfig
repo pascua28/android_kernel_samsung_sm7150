@@ -325,6 +325,12 @@ config ISL29003
 	  This driver can also be built as a module.  If so, the module
 	  will be called isl29003.
 
+config KNOX_KAP
+	bool "Enable KNOX KAP mode"
+	default n
+	help
+	  Knox Active Protection mode
+
 config ISL29020
 	tristate "Intersil ISL29020 ambient light sensor"
 	depends on I2C
@@ -497,6 +503,11 @@ config PROFILER
          trustzone using Secure Channel Manager (SCM) interface.
          It exposes APIs for userspace to get system profiling
          information.
+config QSEECOM_DEBUG
+        bool "QTI Secure Execution Communicator driver debug"
+	default	n
+        help
+          QTI Secure Execution Communicator driver debug
 
 config VEXPRESS_SYSCFG
 	bool "Versatile Express System Configuration driver"
@@ -561,6 +572,12 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
+config RT_REGMAP
+	tristate "RT Regmap Module"
+	default n
+	help
+	  Say Y here to enable RT regmap support.
+
 config OKL4_USER_VIRQ
 	tristate "User space accessible OKL4 virtual interrupts"
 	depends on OKL4_GUEST
@@ -608,6 +625,7 @@ source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
+source "drivers/misc/dev_ril_bridge/Kconfig"
 endmenu
 
 config OKL4_USER_VIPC

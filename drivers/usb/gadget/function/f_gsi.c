@@ -14,6 +14,9 @@
 #include <linux/module.h>
 #include "f_gsi.h"
 #include "rndis.h"
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+#include <linux/sec_param.h>
+#endif
 
 struct usb_gsi_debugfs {
 	struct dentry *debugfs_root;
@@ -71,6 +74,7 @@ static struct class *gsi_class;
 static DEFINE_IDA(gsi_ida);
 
 /* Deregister misc device and free instance structures */
+
 static void gsi_rndis_ipa_reset_trigger(struct gsi_data_port *d_port);
 static void ipa_disconnect_handler(struct gsi_data_port *d_port);
 static int gsi_ctrl_send_notification(struct f_gsi *gsi);
@@ -3021,6 +3025,7 @@ static int gsi_bind(struct usb_configuration *c, struct usb_function *f)
 		rndis_set_param_medium(gsi->params, RNDIS_MEDIUM_802_3, 0);
 
 		/* export host's Ethernet address in CDC format */
+#ifndef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 		gsi_get_ether_addr(gsi_dev_addr,
 				   gsi->d_port.ipa_init_params.device_ethaddr);
 
@@ -3032,6 +3037,14 @@ static int gsi_bind(struct usb_configuration *c, struct usb_function *f)
 				gsi->d_port.ipa_init_params.device_ethaddr);
 		memcpy(gsi->ethaddr, &gsi->d_port.ipa_init_params.host_ethaddr,
 				ETH_ALEN);
+#else
+		random_ether_addr(gsi->d_port.ipa_init_params.device_ethaddr);
+		pr_info("%s MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", __func__,
+			gsi->ethaddr[0], gsi->ethaddr[1], gsi->ethaddr[2],
+			gsi->ethaddr[3], gsi->ethaddr[4], gsi->ethaddr[5]);
+		memcpy(&gsi->d_port.ipa_init_params.host_ethaddr, gsi->ethaddr,
+				ETH_ALEN);
+#endif
 		rndis_set_host_mac(gsi->params, gsi->ethaddr);
 
 		if (gsi->manufacturer && gsi->vendorID &&
@@ -3070,7 +3083,11 @@ static int gsi_bind(struct usb_configuration *c, struct usb_function *f)
 		 * for windows7/windows10 to avoid data stall issues
 		 */
 		if (gsi->rndis_id == RNDIS_ID_UNKNOWN)
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+			gsi->rndis_id = WIRELESS_CONTROLLER_REMOTE_NDIS;
+#else
 			gsi->rndis_id = MISC_RNDIS_OVER_ETHERNET;
+#endif
 
 		switch (gsi->rndis_id) {
 		default:
@@ -3723,6 +3740,71 @@ static struct config_item_type gsi_func_rndis_type = {
 	.ct_owner	= THIS_MODULE,
 };
 
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+static ssize_t ethaddr_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct usb_function_instance *f = dev_get_drvdata(dev);
+	struct gsi_opts *opts = container_of(f, struct gsi_opts, func_inst);
+
+	return snprintf(buf, PAGE_SIZE, "%02x:%02x:%02x:%02x:%02x:%02x\n",
+		opts->gsi->ethaddr[0], opts->gsi->ethaddr[1], opts->gsi->ethaddr[2],
+		opts->gsi->ethaddr[3], opts->gsi->ethaddr[4], opts->gsi->ethaddr[5]);
+}
+
+static ssize_t ethaddr_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct usb_function_instance *f = dev_get_drvdata(dev);
+	struct gsi_opts *opts = container_of(f, struct gsi_opts, func_inst);
+
+	if (sscanf(buf, "%02x:%02x:%02x:%02x:%02x:%02x\n",
+		    (int *)&opts->gsi->ethaddr[0], (int *)&opts->gsi->ethaddr[1],
+		    (int *)&opts->gsi->ethaddr[2], (int *)&opts->gsi->ethaddr[3],
+		    (int *)&opts->gsi->ethaddr[4], (int *)&opts->gsi->ethaddr[5]) == 6)
+		return size;
+
+	return -EINVAL;
+}
+
+static DEVICE_ATTR(ethaddr, S_IRUGO | S_IWUSR, ethaddr_show, ethaddr_store);
+
+static struct device_attribute *rndis_function_attributes[] = {
+	&dev_attr_ethaddr,
+	NULL,
+};
+
+extern struct device *create_function_device(char *name);
+static int create_rndis_device(struct usb_function_instance *fi)
+{
+	struct device *dev;
+	struct device_attribute **attrs;
+	struct device_attribute *attr;
+	int err = 0;
+
+	dev = create_function_device("f_rndis");
+
+	if (IS_ERR(dev)) {
+		pr_info("%s : failed to create f_rndis device\n", __func__);
+		return PTR_ERR(dev);
+	}
+
+	attrs = rndis_function_attributes;
+	if (attrs) {
+		while ((attr = *attrs++) && !err)
+			err = device_create_file(dev, attr);
+		if (err) {
+			device_destroy(dev->class, dev->devt);
+			return -EINVAL;
+		}
+	}
+	dev_set_drvdata(dev, fi);
+	return 0;
+}
+#endif
+
+
 static int gsi_set_inst_name(struct usb_function_instance *fi,
 	const char *name)
 {
@@ -3759,6 +3841,17 @@ static int gsi_set_inst_name(struct usb_function_instance *fi,
 						&opts->func_inst.group, 1,
 						descs, names, THIS_MODULE);
 	}
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	if (prot_id != IPA_USB_RNDIS)
+		goto other_config;
+
+	if (create_rndis_device(&opts->func_inst)) {
+		pr_err("%s: failed to create device\n", __func__);
+		return -ENODEV;
+	}
+other_config:
+#endif
 
 	gsi = opts->gsi = __gsi[prot_id];
 	opts->gsi->prot_id = prot_id;

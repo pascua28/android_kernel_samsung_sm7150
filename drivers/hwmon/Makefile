@@ -174,5 +174,8 @@ obj-$(CONFIG_SENSORS_XGENE)	+= xgene-hwmon.o
 
 obj-$(CONFIG_PMBUS)		+= pmbus/
 
+# SEC Thermistor
+obj-$(CONFIG_SEC_THERMISTOR)	+= sec_thermistor.o
+
 ccflags-$(CONFIG_HWMON_DEBUG_CHIP) := -DDEBUG
 

@@ -90,4 +90,22 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl, void *arg);
  */
 void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl);
 
+#if defined(CONFIG_SAMSUNG_REAR_TOF) || defined(CONFIG_SAMSUNG_FRONT_TOF)
+void cam_sensor_tof_i2c_read(uint32_t addr, uint32_t *data,
+	enum camera_sensor_i2c_type addr_type,
+	enum camera_sensor_i2c_type data_type);
+void cam_sensor_tof_i2c_write(uint32_t addr, uint32_t data,
+	enum camera_sensor_i2c_type addr_type,
+	enum camera_sensor_i2c_type data_type);
+#endif
+
+#if defined(CONFIG_GC5035_MACRO_OTP_DD_AUTOLOAD)
+/**
+ * @s_ctrl: Sensor ctrl structure
+ *
+ * This API handles the GC5035 Sensor OTP DD Autoload Init
+ */
+int32_t gc5035_otp_dd_autoload_process(struct cam_sensor_ctrl_t *s_ctrl);
+#endif
+
 #endif /* _CAM_SENSOR_CORE_H_ */

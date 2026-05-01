@@ -45,6 +45,11 @@ struct cam_vfe_mux_camif_data {
 	uint32_t                           irq_debug_cnt;
 	uint32_t                           camif_debug;
 	uint32_t                           fps;
+	struct timeval                     sof_ts;
+	struct timeval                     epoch_ts;
+	struct timeval                     eof_ts;
+	struct timeval                     rup_ts;
+	struct timeval                     error_ts;
 };
 
 static int cam_vfe_camif_validate_pix_pattern(uint32_t pattern)
@@ -173,6 +178,15 @@ static int cam_vfe_camif_resource_init(
 		if (rc)
 			CAM_ERR(CAM_ISP, "failed to enable dsp clk");
 	}
+
+	camif_data->sof_ts.tv_sec = 0;
+	camif_data->sof_ts.tv_usec = 0;
+	camif_data->epoch_ts.tv_sec = 0;
+	camif_data->epoch_ts.tv_usec = 0;
+	camif_data->eof_ts.tv_sec = 0;
+	camif_data->eof_ts.tv_usec = 0;
+	camif_data->error_ts.tv_sec = 0;
+	camif_data->error_ts.tv_usec = 0;
 
 	return rc;
 }
@@ -592,9 +606,12 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 	struct cam_isp_resource_node         *camif_node;
 	struct cam_vfe_mux_camif_data        *camif_priv;
 	struct cam_vfe_top_irq_evt_payload   *payload;
+	struct cam_vfe_soc_private           *soc_private = NULL;
 	uint32_t                              irq_status0;
 	uint32_t                              irq_status1;
 	uint32_t                              val;
+	struct timespec64                     ts;
+	uint32_t                              val0, val1;
 
 	if (!handler_priv || !evt_payload_priv) {
 		CAM_ERR(CAM_ISP, "Invalid params");
@@ -604,11 +621,13 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 	camif_node = handler_priv;
 	camif_priv = camif_node->res_priv;
 	payload = evt_payload_priv;
+	soc_private = camif_priv->soc_info->soc_private;
 	irq_status0 = payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS0];
 	irq_status1 = payload->irq_reg_val[CAM_IFE_IRQ_CAMIF_REG_STATUS1];
 
 	CAM_DBG(CAM_ISP, "event ID:%d", payload->evt_id);
 	CAM_DBG(CAM_ISP, "irq_status_0 = %x", irq_status0);
+	CAM_DBG(CAM_ISP, "irq_status_1 = %x", irq_status1);
 
 	switch (payload->evt_id) {
 	case CAM_ISP_HW_EVENT_SOF:
@@ -617,6 +636,11 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 				(camif_priv->irq_debug_cnt <=
 				CAM_VFE_CAMIF_IRQ_SOF_DEBUG_CNT_MAX)) {
 				CAM_INFO_RATE_LIMIT(CAM_ISP, "Received SOF");
+
+				camif_priv->sof_ts.tv_sec =
+					payload->ts.mono_time.tv_sec;
+				camif_priv->sof_ts.tv_usec =
+					payload->ts.mono_time.tv_usec;
 
 				camif_priv->irq_debug_cnt++;
 				if (camif_priv->irq_debug_cnt ==
@@ -627,6 +651,10 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 				}
 			} else {
 				CAM_DBG(CAM_ISP, "Received SOF");
+				camif_priv->sof_ts.tv_sec =
+					payload->ts.mono_time.tv_sec;
+				camif_priv->sof_ts.tv_usec =
+					payload->ts.mono_time.tv_usec;
 			}
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 		}
@@ -634,37 +662,73 @@ static int cam_vfe_camif_handle_irq_bottom_half(void *handler_priv,
 	case CAM_ISP_HW_EVENT_EPOCH:
 		if (irq_status0 & camif_priv->reg_data->epoch0_irq_mask) {
 			CAM_DBG(CAM_ISP, "Received EPOCH");
+			camif_priv->epoch_ts.tv_sec =
+				payload->ts.mono_time.tv_sec;
+			camif_priv->epoch_ts.tv_usec =
+				payload->ts.mono_time.tv_usec;
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 		}
 		break;
 	case CAM_ISP_HW_EVENT_REG_UPDATE:
 		if (irq_status0 & camif_priv->reg_data->reg_update_irq_mask) {
 			CAM_DBG(CAM_ISP, "Received REG_UPDATE_ACK");
+			camif_priv->rup_ts.tv_sec =
+				payload->ts.mono_time.tv_sec;
+			camif_priv->rup_ts.tv_usec =
+				payload->ts.mono_time.tv_usec;
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 		}
 		break;
 	case CAM_ISP_HW_EVENT_EOF:
 		if (irq_status0 & camif_priv->reg_data->eof_irq_mask) {
 			CAM_DBG(CAM_ISP, "Received EOF\n");
+			camif_priv->eof_ts.tv_sec =
+				payload->ts.mono_time.tv_sec;
+			camif_priv->eof_ts.tv_usec =
+				payload->ts.mono_time.tv_usec;
 			ret = CAM_VFE_IRQ_STATUS_SUCCESS;
 		}
 		break;
 	case CAM_ISP_HW_EVENT_ERROR:
-		if (irq_status1 & camif_priv->reg_data->error_irq_mask1 &&
-			payload->enable_reg_dump) {
-			CAM_DBG(CAM_ISP, "Received ERROR\n");
+		if (irq_status1 & camif_priv->reg_data->error_irq_mask1) {
+			CAM_INFO(CAM_ISP, "Received ERROR\n");
+			get_monotonic_boottime64(&ts);
+			CAM_INFO(CAM_ISP,
+				"current monotonic time stamp seconds %lld:%lld",
+				ts.tv_sec, ts.tv_nsec/1000);
+			CAM_INFO(CAM_ISP,
+				"CAMIF ERROR time %lld.%lld",
+				camif_priv->error_ts.tv_sec,
+				camif_priv->error_ts.tv_usec);
+			CAM_INFO(CAM_ISP,
+				"SOF %lld:%lld EPOCH %lld.%lld EOF %lld.%lld RUP %lld.%lld",
+				camif_priv->sof_ts.tv_sec,
+				camif_priv->sof_ts.tv_usec,
+				camif_priv->epoch_ts.tv_sec,
+				camif_priv->epoch_ts.tv_usec,
+				camif_priv->eof_ts.tv_sec,
+				camif_priv->eof_ts.tv_usec,
+				camif_priv->rup_ts.tv_sec,
+				camif_priv->rup_ts.tv_usec);
 			ret = CAM_ISP_HW_ERROR_OVERFLOW;
+			cam_cpas_reg_read(soc_private->cpas_handle[0],
+				CAM_CPAS_REG_CAMNOC, 0x420, true, &val0);
+			cam_cpas_reg_read(soc_private->cpas_handle[0],
+				CAM_CPAS_REG_CAMNOC, 0x820, true, &val1);
+			CAM_INFO(CAM_ISP,
+				"CAMNOC REG ife02_wr offset 0x420: 0x%X ife13_wr offset 0x820: 0x%X",
+				val0, val1);
 			cam_vfe_camif_reg_dump(camif_node->res_priv);
+
+			if (camif_priv->camif_debug &
+				CAMIF_DEBUG_ENABLE_SENSOR_DIAG_STATUS) {
+				val = cam_io_r(camif_priv->mem_base +
+					camif_priv->camif_reg->vfe_diag_sensor_status);
+				CAM_DBG(CAM_ISP, "VFE_DIAG_SENSOR_STATUS: 0x%x",
+					camif_priv->mem_base, val);
+			}
 		} else {
 			ret = CAM_ISP_HW_ERROR_NONE;
-		}
-
-		if (camif_priv->camif_debug &
-			CAMIF_DEBUG_ENABLE_SENSOR_DIAG_STATUS) {
-			val = cam_io_r(camif_priv->mem_base +
-				camif_priv->camif_reg->vfe_diag_sensor_status);
-			CAM_DBG(CAM_ISP, "VFE_DIAG_SENSOR_STATUS: 0x%x",
-				camif_priv->mem_base, val);
 		}
 		break;
 	default:

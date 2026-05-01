@@ -74,6 +74,7 @@
 		.wake_bit = bit,		\
 	}
 
+/* FIXME: don't care wakeup-capabilities cause of lack of information */
 #define SDC_QDSD_PINGROUP(pg_name, ctl, pull, drv)	\
 	{						\
 		.name = #pg_name,			\
@@ -97,8 +98,11 @@
 		.intr_polarity_bit = -1,		\
 		.intr_detection_bit = -1,		\
 		.intr_detection_width = -1,		\
+		.wake_reg = 0x0,			\
+		.wake_bit = -1,				\
 	}
 
+/* FIXME: don't care wakeup-capabilities cause of lack of information */
 #define UFS_RESET(pg_name, offset)				\
 	{						\
 		.name = #pg_name,			\
@@ -122,6 +126,8 @@
 		.intr_polarity_bit = -1,		\
 		.intr_detection_bit = -1,		\
 		.intr_detection_width = -1,		\
+		.wake_reg = 0x0,			\
+		.wake_bit = -1,				\
 	}
 static const struct pinctrl_pin_desc atoll_pins[] = {
 	PINCTRL_PIN(0, "GPIO_0"),

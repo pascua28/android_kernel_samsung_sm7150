@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,7 @@
 #include <linux/stat.h>
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/bug.h>
 
 #include <asm/system_misc.h>
 
@@ -755,6 +756,18 @@ msm_get_vendor(struct device *dev,
 }
 
 static ssize_t
+msm_get_crash(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	pr_err("intentional cdsp runtime failed!\n");
+#ifndef CONFIG_SEC_CDSP_NOT_CRASH_ENG
+	BUG_ON(1);
+#endif /* CONFIG_SEC_CDSP_NOT_CRASH_ENG */
+	return snprintf(buf, PAGE_SIZE, "Qualcomm Technologies, Inc\n");
+}
+
+static ssize_t
 msm_get_raw_id(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
@@ -1230,6 +1243,9 @@ static struct device_attribute msm_soc_attr_raw_id =
 static struct device_attribute msm_soc_attr_vendor =
 	__ATTR(vendor, 0444, msm_get_vendor,  NULL);
 
+static struct device_attribute msm_soc_attr_crash =
+	__ATTR(crash, 0444, msm_get_crash,  NULL);
+
 static struct device_attribute msm_soc_attr_build_id =
 	__ATTR(build_id, 0444, msm_get_build_id, NULL);
 
@@ -1487,6 +1503,7 @@ static void * __init setup_dummy_socinfo(void)
 static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 {
 	device_create_file(msm_soc_device, &msm_soc_attr_vendor);
+	device_create_file(msm_soc_device, &msm_soc_attr_crash);
 	device_create_file(msm_soc_device, &image_version);
 	device_create_file(msm_soc_device, &image_variant);
 	device_create_file(msm_soc_device, &image_crm_version);
@@ -1607,6 +1624,7 @@ static int __init socinfo_init_sysfs(void)
 
 late_initcall(socinfo_init_sysfs);
 
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 static void socinfo_print(void)
 {
 	uint32_t f_maj = SOCINFO_VERSION_MAJOR(socinfo_format);
@@ -1793,6 +1811,7 @@ static void socinfo_print(void)
 		break;
 	}
 }
+#endif
 
 static void socinfo_select_format(void)
 {
@@ -1841,7 +1860,9 @@ int __init socinfo_init(void)
 
 	cur_cpu = cpu_of_id[socinfo->v0_1.id].generic_soc_type;
 	boot_stats_init();
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 	socinfo_print();
+#endif
 	arch_read_hardware_id = msm_read_hardware_id;
 	socinfo_init_done = true;
 

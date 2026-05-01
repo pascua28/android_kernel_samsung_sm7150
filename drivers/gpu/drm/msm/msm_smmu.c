@@ -29,6 +29,10 @@
 #include "msm_mmu.h"
 #include "sde_dbg.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include "ss_dsi_panel_common.h"
+#endif
+
 #ifndef SZ_4G
 #define SZ_4G	(((size_t) SZ_1G) * 4)
 #endif
@@ -224,6 +228,9 @@ static int msm_smmu_map_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 	struct msm_smmu_client *client = msm_smmu_to_client(smmu);
 	unsigned long attrs = 0x0;
 	int ret;
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	int retry_cnt;
+#endif
 
 	if (!sgt || !client) {
 		DRM_ERROR("sg table is invalid\n");
@@ -237,6 +244,21 @@ static int msm_smmu_map_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 	if (!(flags & MSM_BO_EXTBUF)) {
 		ret = dma_map_sg_attrs(client->dev, sgt->sgl, sgt->nents, dir,
 				attrs);
+
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+		if (!ret && !in_interrupt()) {
+			for (retry_cnt = 0; retry_cnt < 62 ; retry_cnt++) {
+				/* To wait free page by memory reclaim*/
+				usleep_range(16000, 16000);
+
+				pr_err("dma map sg failed : retry (%d)\n", retry_cnt);
+				ret = dma_map_sg_attrs(client->dev, sgt->sgl, sgt->nents, dir,
+					attrs);
+				if (!ret)
+					break;
+			}
+		}
+#endif
 		if (!ret) {
 			DRM_ERROR("dma map sg failed\n");
 			return -ENOMEM;
@@ -250,6 +272,14 @@ static int msm_smmu_map_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 		SDE_EVT32(sgt->sgl->dma_address, sgt->sgl->dma_length,
 				dir, attrs, client->secure);
 	}
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (sec_debug_is_enabled() && sgt && sgt->sgl)
+		ss_smmu_debug_map(SMMU_RT_DISPLAY_DEBUG, 0, NULL, sgt);
+#elif defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	if (sec_debug_is_enabled() && sgt && sgt->sgl)
+		ss_smmu_debug_map(SMMU_RT_DISPLAY_DEBUG, sgt);
+#endif
 
 	return 0;
 }
@@ -273,6 +303,14 @@ static void msm_smmu_unmap_dma_buf(struct msm_mmu *mmu, struct sg_table *sgt,
 		SDE_EVT32(sgt->sgl->dma_address, sgt->sgl->dma_length,
 				dir, client->secure);
 	}
+
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (sec_debug_is_enabled() && sgt && sgt->sgl)
+		ss_smmu_debug_unmap(SMMU_RT_DISPLAY_DEBUG, sgt);
+#elif defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	if (sec_debug_is_enabled() && sgt && sgt->sgl)
+		ss_smmu_debug_unmap(SMMU_RT_DISPLAY_DEBUG, sgt);
+#endif
 
 	if (!(flags & MSM_BO_EXTBUF))
 		dma_unmap_sg(client->dev, sgt->sgl, sgt->nents, dir);
@@ -452,7 +490,14 @@ static int msm_smmu_fault_handler(struct iommu_domain *domain,
 	DRM_ERROR("SMMU device:%s", client->dev ? client->dev->kobj.name : "");
 
 	/* generate dump, but no panic */
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	ss_smmu_debug_log();
+#endif
+	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus", "panic"); // case 03250922
+#else
 	SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus");
+#endif
 
 	/*
 	 * return -ENOSYS to allow smmu driver to dump out useful

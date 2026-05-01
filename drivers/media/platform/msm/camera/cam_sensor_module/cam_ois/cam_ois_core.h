@@ -37,6 +37,11 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *e_ctrl, void *arg);
  * This API handles the shutdown ioctl/close
  */
 void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl);
-
+#if defined(CONFIG_SAMSUNG_OIS_MCU_STM32)
+int cam_ois_power_up(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl);
+int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
+	struct i2c_settings_array *i2c_set);
+#endif
 #endif
 /* _CAM_OIS_CORE_H_ */

@@ -392,6 +392,42 @@ static void rtc_alarm_disable(struct rtc_device *rtc)
 	rtc->ops->alarm_irq_enable(rtc->dev.parent, false);
 }
 
+#ifdef CONFIG_RTC_AUTO_PWRON
+int rtc_set_bootalarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
+{
+    int err;
+
+	if (!rtc->ops) {
+		dev_err(&rtc->dev, "ops not exist\n");
+		err = -ENODEV;
+	} else if (!rtc->ops->set_bootalarm) {
+		dev_err(&rtc->dev, "bootalarm func not exist\n");
+		err = -EINVAL;
+	} else
+		err = rtc->ops->set_bootalarm(rtc->dev.parent, alarm);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_set_bootalarm);
+
+int rtc_get_bootalarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
+{
+    int err;
+
+	if (!rtc->ops) {
+		dev_err(&rtc->dev, "ops not exist\n");
+		err = -ENODEV;
+	} else if (!rtc->ops->read_bootalarm) {
+		dev_err(&rtc->dev, "bootalarm func not exist\n");
+		err = -EINVAL;
+	} else
+		err = rtc->ops->read_bootalarm(rtc->dev.parent, alarm);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(rtc_get_bootalarm);
+#endif
+
 /* Called once per device from rtc_device_register */
 int rtc_initialize_alarm(struct rtc_device *rtc, struct rtc_wkalrm *alarm)
 {

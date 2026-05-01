@@ -16,6 +16,7 @@
 #include <linux/sched/autogroup.h>
 #include <net/net_namespace.h>
 #include <linux/sched/rt.h>
+#include <linux/task_integrity.h>
 #include <linux/livepatch.h>
 #include <linux/mm_types.h>
 
@@ -134,6 +135,9 @@ extern struct cred init_cred;
 #else
 # define INIT_VTIME(tsk)
 #endif
+
+# define INIT_INTEGRITY(tsk)
+# define INIT_TASK_INTEGRITY(integrity)
 
 #define INIT_TASK_COMM "swapper"
 

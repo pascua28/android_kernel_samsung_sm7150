@@ -39,6 +39,12 @@
 #define __page_aligned_data	__section(.data..page_aligned) __aligned(PAGE_SIZE)
 #define __page_aligned_bss	__section(.bss..page_aligned) __aligned(PAGE_SIZE)
 
+#define __page_aligned_rkp_bss		__page_aligned_bss
+#define __rkp_ro
+
+#define __kdp_ro
+#define __lsm_ro_after_init_kdp __lsm_ro_after_init
+
 /*
  * For assembly routines.
  *

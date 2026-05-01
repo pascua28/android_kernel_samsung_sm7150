@@ -89,6 +89,9 @@ static void fifo_rx_peak(struct fifo_pipe *pipe,
 	tail += offset;
 	if (tail >= pipe->length)
 		tail -= pipe->length;
+		
+	if (WARN_ON_ONCE(tail > pipe->length))
+		return;
 
 	if (WARN_ON_ONCE(tail > pipe->length))
 		return;

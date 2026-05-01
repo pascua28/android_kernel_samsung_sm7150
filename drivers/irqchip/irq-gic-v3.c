@@ -46,6 +46,9 @@
 #include <linux/notifier.h>
 
 #include "irq-gic-common.h"
+#ifdef CONFIG_SEC_PM
+#include <linux/wakeup_reason.h>
+#endif
 
 struct redist_region {
 	void __iomem		*redist_base;
@@ -456,6 +459,20 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 		enabled = readl_relaxed(base + GICD_ICENABLER + i * 4);
 		pending[i] = readl_relaxed(base + GICD_ISPENDR + i * 4);
 		pending[i] &= enabled;
+#ifdef CONFIG_SEC_PM
+		if (pending[i]) {
+			int j, irq;
+
+			for (j = 0; j < 32; j++) {
+				if (pending[i] & 0x01 << j) {
+					irq = irq_find_mapping(gic_data.domain, (i * 32) + 1);
+					log_irq_wakeup_reason(irq);
+				}
+			}
+		}
+#else
+		pr_err("Pending irqs[%d] %x\n", j, pending[j]);
+#endif
 	}
 
 	for (i = find_first_bit((unsigned long *)pending, gic->irq_nr);

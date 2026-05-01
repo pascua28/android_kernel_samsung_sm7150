@@ -422,6 +422,7 @@ int cam_res_mgr_gpio_request(struct device *dev, uint gpio,
 	 * These two situation both need request gpio.
 	 */
 	if (!found) {
+		CAM_ERR(CAM_SENSOR, "gpio %d dir %ld label:%s", gpio, flags, label);
 		rc = gpio_request_one(gpio, flags, label);
 		if (rc) {
 			CAM_ERR(CAM_RES, "gpio %d:%s request fails",
@@ -538,8 +539,10 @@ static void cam_res_mgr_gpio_free(struct device *dev, uint gpio)
 		mutex_unlock(&cam_res->gpio_res_lock);
 	}
 
-	if (need_free)
+	if (need_free) {
 		gpio_free(gpio);
+		CAM_ERR(CAM_SENSOR, "gpio %d", gpio);
+	}
 }
 
 void cam_res_mgr_gpio_free_arry(struct device *dev,

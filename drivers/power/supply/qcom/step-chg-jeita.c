@@ -19,6 +19,9 @@
 #include <linux/slab.h>
 #include <linux/pmic-voter.h>
 #include "step-chg-jeita.h"
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#include "../../../battery_qc/include/sec_battery_qc.h"
+#endif
 
 #define STEP_CHG_VOTER		"STEP_CHG_VOTER"
 #define JEITA_VOTER		"JEITA_VOTER"
@@ -28,6 +31,13 @@
 			&& (value) >= (right)) \
 		|| ((left) <= (right) && (left) <= (value) \
 			&& (value) <= (right)))
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_ENG_BATTERY_CONCEPT)
+int			step_chg_test_low[3];
+int			step_chg_test_high[3];
+int			step_chg_test_val[3];
+bool			update_step;
+#endif
 
 struct step_chg_cfg {
 	struct step_chg_jeita_param	param;
@@ -83,12 +93,40 @@ struct step_chg_info {
 
 static struct step_chg_info *the_chip;
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#if defined(CONFIG_SEC_FACTORY)
+#define STEP_CHG_HYSTERISIS_DELAY_US		1000000 /* 1 sec */
+#else
+#define STEP_CHG_HYSTERISIS_DELAY_US		7000000 /* 7 secs */
+#endif
+#else /* !CONFIG_BATTERY_SAMSUNG_USING_QC */
 #define STEP_CHG_HYSTERISIS_DELAY_US		5000000 /* 5 secs */
+#endif
 
 #define BATT_HOT_DECIDEGREE_MAX			600
 #define GET_CONFIG_DELAY_MS		2000
 #define GET_CONFIG_RETRY_COUNT		50
 #define WAIT_BATT_ID_READY_MS		200
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+int swelling_index[SWELLING_TYPE_CNT][JEITA_MAX] = {
+	{-1, 0, 1, 2, 3},	/* X - COOL2 - COOL1 - NORMAL - WARM */
+	{0, 1, 2, 3, 4},	/* COOL3 - COOL2 - COOL1 - NORMAL - WARM */
+};
+
+int swelling_type;
+static int step_max;
+static int factory_step_current;
+
+int get_factory_step_max(void)
+{
+	return step_max;
+}
+int get_factory_step_current(void)
+{
+	return factory_step_current;
+}
+#endif
 
 static bool is_batt_available(struct step_chg_info *chip)
 {
@@ -222,6 +260,24 @@ int read_range_data_from_node(struct device_node *node,
 			ranges[i].value = max_value;
 	}
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if (strcmp(prop_str, "qcom,jeita-fcc-ranges") == 0) {
+		swelling_type = tuples - DEFAULT_SWELLING_CNT;
+
+		if ((swelling_type < 0) || (swelling_type >= SWELLING_TYPE_CNT)) {
+			pr_info("%s: invalid swelling_type : %d\n", __func__, swelling_type);
+			swelling_type = 0;
+		}
+		
+		pr_info("%s: swelling_type : %d\n", __func__, swelling_type);
+	}
+	if (strcmp(prop_str, "qcom,step-chg-ranges") == 0) {
+		step_max = tuples - 1;
+		factory_step_current = ranges[step_max].value;
+		pr_info("%s: factory step max: %d, current: %d\n", __func__, step_max, factory_step_current);
+	}
+#endif
+
 	return rc;
 clean:
 	memset(ranges, 0, tuples * sizeof(struct range_data));
@@ -314,6 +370,9 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 		chip->step_chg_config->param.prop_name = "OCV";
 		chip->step_chg_config->param.hysteresis = 0;
 		chip->step_chg_config->param.use_bms = true;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		chip->step_chg_config->param.hysteresis = 0;
+#endif
 	}
 
 	chip->vbat_avg_based_step_chg =
@@ -363,6 +422,22 @@ static int get_step_chg_jeita_setting_from_profile(struct step_chg_info *chip)
 	return rc;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_ENG_BATTERY_CONCEPT)
+void update_step_chg_data(int t[])
+{
+	step_chg_test_low[0] = t[0] * 1000;
+	step_chg_test_high[0] = t[1] * 1000;
+	step_chg_test_val[0] = t[2] * 1000;
+	step_chg_test_low[1] = t[3] * 1000;
+	step_chg_test_high[1] = t[4] * 1000;
+	step_chg_test_val[1] = t[5] * 1000;
+	step_chg_test_low[2] = t[6] * 1000;
+	step_chg_test_high[2] = t[7] * 1000;
+	step_chg_test_val[2] = t[8] * 1000;
+	update_step = true;
+}
+#endif
+
 static void get_config_work(struct work_struct *work)
 {
 	struct step_chg_info *chip = container_of(work,
@@ -411,8 +486,17 @@ reschedule:
 
 static int get_val(struct range_data *range, int hysteresis, int current_index,
 		int threshold,
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		int change_rechg, struct step_chg_info *chip,
+#endif
 		int *new_index, int *val)
 {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	struct sec_battery_info *battery = get_sec_battery();
+	union power_supply_propval pval = {0, };
+	int rc = 0;
+	int rechg_vbat_cool;
+#endif
 	int i;
 
 	*new_index = -EINVAL;
@@ -461,32 +545,111 @@ static int get_val(struct range_data *range, int hysteresis, int current_index,
 	 * newfound value. There is no hysterisis from out of range
 	 * to in range transition
 	 */
-	if (current_index == -EINVAL)
-		return 0;
+	if (current_index != -EINVAL) {
 
 	/*
 	 * Check for hysteresis if it in the neighbourhood
 	 * of our current index.
 	 */
-	if (*new_index == current_index + 1) {
-		if (threshold < range[*new_index].low_threshold + hysteresis) {
-			/*
-			 * Stay in the current index, threshold is not higher
-			 * by hysteresis amount
-			 */
-			*new_index = current_index;
-			*val = range[current_index].value;
-		}
-	} else if (*new_index == current_index - 1) {
-		if (threshold > range[*new_index].high_threshold - hysteresis) {
-			/*
-			 * stay in the current index, threshold is not lower
-			 * by hysteresis amount
-			 */
-			*new_index = current_index;
-			*val = range[current_index].value;
+		if (*new_index == current_index + 1) {
+			if (threshold < range[*new_index].low_threshold + hysteresis) {
+				/*
+			 	 * Stay in the current index, threshold is not higher
+			 	 * by hysteresis amount
+				*/
+				*new_index = current_index;
+				*val = range[current_index].value;
+			}
+		} else if (*new_index == current_index - 1) {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			if (hysteresis == 0) 		/* Hysteresis 0 is only for step-chg */
+				hysteresis = 100000;
+#endif
+			if (threshold > range[*new_index].high_threshold - hysteresis) {
+				/*
+				 * stay in the current index, threshold is not lower
+			 	 * by hysteresis amount
+			 	 */
+				*new_index = current_index;
+				*val = range[current_index].value;
+			}
 		}
 	}
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	if (change_rechg && (*new_index != current_index)) { /* COOL3 - COOL2 - COOL1 - NORMAL - WARM */
+		sec_bat_set_current_event(0, SEC_BAT_CURRENT_EVENT_SWELLING_MODE);
+		rc = power_supply_get_property(chip->bms_psy,
+				POWER_SUPPLY_PROP_VOLTAGE_MAX, &pval);
+			if (rc < 0) {
+				pr_err("get recharge Vbat failed, rc=%d\n", rc);
+				rechg_vbat_cool = RECHG_COOL;
+			} else {
+				rechg_vbat_cool = pval.intval / 1000 - 150; //mv
+			}
+		
+		if (*new_index == swelling_index[swelling_type][JEITA_COOL1]) {
+			pval.intval = rechg_vbat_cool;
+			sec_bat_set_current_event(
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING,
+					(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD |
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING));
+		} else if (*new_index == swelling_index[swelling_type][JEITA_COOL2]) {
+			pval.intval = rechg_vbat_cool;
+			sec_bat_set_current_event(
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND,
+					(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD |
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING));
+		} else if (*new_index == swelling_index[swelling_type][JEITA_COOL3]) {
+			pval.intval = rechg_vbat_cool;
+			sec_bat_set_current_event(
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD,
+					(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD |
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING));
+		} else if (*new_index == swelling_index[swelling_type][JEITA_WARM]) {
+			pval.intval = RECHG_WARM;
+			sec_bat_set_current_event(
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING,
+					(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD |
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING));
+		} else { /* current_index == JEITA_NORMAL */
+			if (!is_usb_available(chip)) {
+				pval.intval = RECHG_NORMAL;
+			} else {
+				rc = power_supply_get_property(chip->usb_psy,
+					(enum power_supply_property)POWER_SUPPLY_EXT_FIXED_RECHARGE_VBAT, &pval);
+				if (rc < 0) {
+					pr_err("get recharge Vbat failed, rc=%d\n", rc);
+					pval.intval = RECHG_NORMAL;
+				}
+			}
+			sec_bat_set_current_event(0,
+					(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND |
+					SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD |
+					SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING));
+		}
+
+		pr_info("%s: index = %d -> %d, rechg voltage = %d\n",
+				__func__, current_index, *new_index, pval.intval);
+		rc = power_supply_set_property(chip->batt_psy,
+				POWER_SUPPLY_PROP_RECHARGE_VBAT, &pval);
+		if (rc < 0)
+			pr_err("Set recharge Vbat failed, rc=%d\n", rc);
+		if (!battery) {
+			pr_info("%s: return index = %d -> %d\n",
+				__func__, *new_index, current_index);
+			*new_index = current_index;
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -536,13 +699,62 @@ static void taper_fcc_step_chg(struct step_chg_info *chip, int index,
 static int handle_step_chg_config(struct step_chg_info *chip)
 {
 	union power_supply_propval pval = {0, };
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	union power_supply_propval val = {0, };
+	struct sec_battery_info *battery = get_sec_battery();
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+	int i = 0;
+#endif
+#if defined(CONFIG_SEC_FACTORY)
+	static int count = 0;
+#endif
+#endif
 	int rc = 0, fcc_ua = 0, current_index;
 	u64 elapsed_us;
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+	if (update_step) {
+		for (i = 0; i < 3; i++) {
+			chip->step_chg_config->fcc_cfg[i].low_threshold = step_chg_test_low[i];
+			chip->step_chg_config->fcc_cfg[i].high_threshold = step_chg_test_high[i];
+			chip->step_chg_config->fcc_cfg[i].value = step_chg_test_val[i];
+			pr_info("update_step_chg_date, step %d : %d %d %d\n",
+					i + 1,
+					chip->step_chg_config->fcc_cfg[i].low_threshold,
+					chip->step_chg_config->fcc_cfg[i].high_threshold,
+					chip->step_chg_config->fcc_cfg[i].value);
+		}
+		update_step = false;
+	}
+
+#endif
+	if (battery) {
+		if(is_slate_mode(battery))
+			chip->step_index = 0;
+	}
+	if (!is_input_present(chip)) {
+		chip->step_index = 0;
+		val.intval = chip->step_index;
+		rc = power_supply_set_property(chip->batt_psy,
+				(enum power_supply_property)POWER_SUPPLY_EXT_PROP_DIRECT_CHARGING_STEP, &val);
+		if (rc < 0)
+			pr_err("Set direct charging step failed, rc=%d\n", rc);
+		val.intval = -1;
+		rc = power_supply_set_property(chip->batt_psy,
+				(enum power_supply_property)POWER_SUPPLY_EXT_PROP_DIRECT_CHARGING_VOL, &val);
+		if (rc < 0)
+			pr_err("Set direct charging vol failed, rc=%d\n", rc);
+	}
+#endif
 	elapsed_us = ktime_us_delta(ktime_get(), chip->step_last_update_time);
 	/* skip processing, event too early */
 	if (elapsed_us < STEP_CHG_HYSTERISIS_DELAY_US)
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
 		return 0;
+#else
+	goto reschedule;
+#endif
 
 	rc = power_supply_get_property(chip->batt_psy,
 		POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED, &pval);
@@ -575,6 +787,9 @@ static int handle_step_chg_config(struct step_chg_info *chip)
 			chip->step_chg_config->param.hysteresis,
 			chip->step_index,
 			pval.intval,
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			NOT_CHANGE_RECHG, chip,
+#endif
 			&chip->step_index,
 			&fcc_ua);
 	if (rc < 0) {
@@ -586,12 +801,49 @@ static int handle_step_chg_config(struct step_chg_info *chip)
 
 	/* Do not drop step-chg index, if input supply is present */
 	if (is_input_present(chip)) {
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		if (chip->step_index < current_index){	
+			chip->step_index = current_index;
+			fcc_ua = chip->step_chg_config->fcc_cfg[current_index].value;
+		}
+#else
 		if (chip->step_index < current_index)
 			chip->step_index = current_index;
+#endif
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+		count = 0;
+#endif
 	} else {
 		chip->step_index = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+		fcc_ua = chip->step_chg_config->fcc_cfg[chip->step_index].value;
+#endif
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC) && defined(CONFIG_SEC_FACTORY)
+		pval.intval = -18;
+		count++;
+		pr_err("Error code: %d, count: %d\n", pval.intval, count);
+		if (count < 10) {
+			return 0;
+		} else {
+			pr_err("TEST FAIL: %d, count: %d\n", pval.intval, count);
+		}
+#endif
 	}
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	pr_info("voltage: %d, step_index: %d\n", pval.intval, chip->step_index);
+	val.intval = chip->step_index;
+	rc = power_supply_set_property(chip->batt_psy,
+			(enum power_supply_property)POWER_SUPPLY_EXT_PROP_DIRECT_CHARGING_STEP, &val);
+	if (rc < 0)
+		pr_err("Set direct charging step failed, rc=%d\n", rc);
+	rc = power_supply_set_property(chip->batt_psy,
+			(enum power_supply_property)POWER_SUPPLY_EXT_PROP_DIRECT_CHARGING_VOL, &pval);
+	if (rc < 0)
+		pr_err("Set direct charging vol failed, rc=%d\n", rc);
+#endif
 	if (!chip->fcc_votable)
 		chip->fcc_votable = find_votable("FCC");
 	if (!chip->fcc_votable)
@@ -619,6 +871,9 @@ static int handle_jeita(struct step_chg_info *chip)
 {
 	union power_supply_propval pval = {0, };
 	int rc = 0, fcc_ua = 0, fv_uv = 0;
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	int pre_fcc_index = 0, pre_fv_index = 0;
+#endif
 	u64 elapsed_us;
 
 	rc = power_supply_get_property(chip->batt_psy,
@@ -655,11 +910,16 @@ static int handle_jeita(struct step_chg_info *chip)
 				chip->jeita_fcc_config->param.prop_name, rc);
 		return rc;
 	}
-
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	pre_fcc_index = chip->jeita_fcc_index;
+#endif
 	rc = get_val(chip->jeita_fcc_config->fcc_cfg,
 			chip->jeita_fcc_config->param.hysteresis,
 			chip->jeita_fcc_index,
 			pval.intval,
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			CHANGE_RECHG, chip,
+#endif
 			&chip->jeita_fcc_index,
 			&fcc_ua);
 	if (rc < 0)
@@ -672,11 +932,16 @@ static int handle_jeita(struct step_chg_info *chip)
 		return -EINVAL;
 
 	vote(chip->fcc_votable, JEITA_VOTER, fcc_ua ? true : false, fcc_ua);
-
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	pre_fv_index = chip->jeita_fv_index;
+#endif
 	rc = get_val(chip->jeita_fv_config->fv_cfg,
 			chip->jeita_fv_config->param.hysteresis,
 			chip->jeita_fv_index,
 			pval.intval,
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+			NOT_CHANGE_RECHG, chip,
+#endif
 			&chip->jeita_fv_index,
 			&fv_uv);
 	if (rc < 0)
@@ -717,11 +982,27 @@ static int handle_jeita(struct step_chg_info *chip)
 	}
 
 set_jeita_fv:
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+/*should notice smb5-lib enter swelling mode before change FV, to avoid vatt OVP*/
+	if(pre_fcc_index != chip->jeita_fcc_index || pre_fv_index != chip->jeita_fv_index){
+		pr_info("%s: fcc_index = %d -> %d fv_index = %d -> %d \n",
+				__func__, pre_fcc_index, chip->jeita_fcc_index, pre_fv_index, chip->jeita_fv_index);
+		pval.intval = chip->jeita_fcc_index;
+		rc = power_supply_set_property(chip->batt_psy,
+				(enum power_supply_property)POWER_SUPPLY_EXT_PROP_CHG_SWELLING_STATE, &pval);
+	}
+#endif
 	vote(chip->fv_votable, JEITA_VOTER, fv_uv ? true : false, fv_uv);
-
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+/*start charge for warm swelling recovery*/
+	if(pre_fv_index == 1 && chip->jeita_fv_index == 0) {
+		pval.intval = 0;
+		rc = power_supply_set_property(chip->batt_psy,
+				POWER_SUPPLY_PROP_FORCE_RECHARGE, &pval);
+	}
+#endif
 update_time:
 	chip->jeita_last_update_time = ktime_get();
-
 	return 0;
 }
 
@@ -769,11 +1050,14 @@ static void status_change_work(struct work_struct *work)
 		goto exit_work;
 
 	handle_battery_insertion(chip);
-
-	/* skip elapsed_us debounce for handling battery temperature */
-	rc = handle_jeita(chip);
-	if (rc < 0)
-		pr_err("Couldn't handle sw jeita rc = %d\n", rc);
+	if (!is_input_present(chip)) {
+		chip->jeita_fcc_index = -EINVAL;
+	} else {
+		/* skip elapsed_us debounce for handling battery temperature */
+		rc = handle_jeita(chip);
+		if (rc < 0)
+			pr_err("Couldn't handle sw jeita rc = %d\n", rc);
+	}
 
 	rc = handle_step_chg_config(chip);
 	if (rc < 0)
@@ -790,7 +1074,6 @@ static void status_change_work(struct work_struct *work)
 						false, 0);
 		}
 	}
-
 exit_work:
 	__pm_relax(chip->step_chg_ws);
 }
@@ -869,6 +1152,13 @@ int qcom_step_chg_init(struct device *dev,
 	chip->step_chg_config->param.psy_prop = POWER_SUPPLY_PROP_VOLTAGE_NOW;
 	chip->step_chg_config->param.prop_name = "VBATT";
 	chip->step_chg_config->param.hysteresis = 100000;
+
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+	chip->step_chg_config->param.hysteresis = 0;
+#if defined(CONFIG_ENG_BATTERY_CONCEPT)
+	update_step = false;
+#endif
+#endif
 
 	chip->jeita_fcc_config = devm_kzalloc(dev,
 			sizeof(struct jeita_fcc_cfg), GFP_KERNEL);

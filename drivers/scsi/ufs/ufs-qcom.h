@@ -362,6 +362,15 @@ struct ufs_qcom_host {
 	struct ufs_vreg *vccq_parent;
 	bool work_pending;
 	bool is_phy_pwr_on;
+
+	/* hw reset info. */
+	unsigned int hw_reset_count;
+	unsigned long last_hw_reset;
+	u32 hw_reset_saved_err;
+	u32 hw_reset_saved_uic_err;
+	unsigned long hw_reset_outstanding_tasks;
+	unsigned long hw_reset_outstanding_reqs;
+	struct ufs_stats hw_reset_ufs_stats;
 };
 
 static inline u32

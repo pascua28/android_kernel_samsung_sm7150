@@ -4679,6 +4679,17 @@ int msm_comm_try_get_bufreqs(struct msm_vidc_inst *inst)
 		}
 	}
 
+	/* Buffer size will be double when the resolution is
+	 * 360p < resolution <= 720p
+	 */
+	for (i = 0; i < HAL_BUFFER_MAX; i++) {
+		if ((inst->buff_req.buffer[i].buffer_type == HAL_BUFFER_OUTPUT) &&
+				(inst->buff_req.buffer[i].buffer_size >= 175000 &&
+				inst->buff_req.buffer[i].buffer_size <= 900000)) {
+			inst->buff_req.buffer[i].buffer_size *= 2;
+		}
+	}
+
 	dprintk(VIDC_DBG, "Buffer requirements driver adjusted:\n");
 	dprintk(VIDC_DBG, "%15s %8s %8s %8s %8s\n",
 		"buffer type", "count", "mincount_host", "mincount_fw", "size");
@@ -5593,6 +5604,46 @@ static int msm_vidc_load_supported(struct msm_vidc_inst *inst)
 	return 0;
 }
 
+static int msm_vidc_check_mbpf_supported(struct msm_vidc_inst *inst)
+{
+	u32 mbpf = 0;
+	struct msm_vidc_core *core;
+	struct msm_vidc_inst *temp;
+	struct msm_vidc_capability *capability;
+
+	if (!inst || !inst->core)
+		return -EINVAL;
+
+	core = inst->core;
+	capability = &inst->capability;
+
+	if (!capability->mbs_per_frame.max) {
+		dprintk(VIDC_DBG, "%s: max mbpf not available\n",
+			__func__);
+		return 0;
+	}
+
+	mutex_lock(&core->lock);
+	list_for_each_entry(temp, &core->instances, list) {
+		/* ignore invalid and completed session */
+		if (temp->state == MSM_VIDC_CORE_INVALID ||
+			temp->state >= MSM_VIDC_STOP_DONE)
+			continue;
+		/* ignore thumbnail session */
+		if (is_thumbnail_session(temp))
+			continue;
+		mbpf += NUM_MBS_PER_FRAME(
+                        inst->prop.height[OUTPUT_PORT],
+                        inst->prop.width[OUTPUT_PORT]);
+	}
+	mutex_unlock(&core->lock);
+	if (mbpf > 2*capability->mbs_per_frame.max) {
+		msm_vidc_print_running_insts(inst->core);
+		return -EBUSY;
+	}
+	return 0;
+}
+
 int msm_vidc_check_scaling_supported(struct msm_vidc_inst *inst)
 {
 	u32 x_min, x_max, y_min, y_max;
@@ -5734,6 +5785,8 @@ static int msm_vidc_check_image_session_capabilities(struct msm_vidc_inst *inst)
 	return rc;
 }
 
+
+
 int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 {
 	struct msm_vidc_capability *capability;
@@ -5755,7 +5808,11 @@ int msm_vidc_check_session_supported(struct msm_vidc_inst *inst)
 			"%s: Hardware is overloaded\n", __func__);
 		return rc;
 	}
-
+	
+	rc = msm_vidc_check_mbpf_supported(inst);
+	if (rc)
+		return rc;
+	
 	if (!is_thermal_permissible(core)) {
 		dprintk(VIDC_WARN,
 			"Thermal level critical, stop all active sessions!\n");

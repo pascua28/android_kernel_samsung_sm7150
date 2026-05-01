@@ -100,8 +100,11 @@ static int cam_vfe_top_set_hw_clk_rate(
 	struct cam_hw_soc_info        *soc_info = NULL;
 	int                            i, rc = 0;
 	unsigned long                  max_clk_rate = 0;
+	struct cam_vfe_soc_private    *soc_private = NULL;
 
 	soc_info = top_priv->common_data.soc_info;
+	soc_private =
+		(struct cam_vfe_soc_private *)soc_info->soc_private;
 
 	for (i = 0; i < CAM_VFE_TOP_VER2_MUX_MAX; i++) {
 		if (top_priv->req_clk_rate[i] > max_clk_rate)
@@ -110,10 +113,10 @@ static int cam_vfe_top_set_hw_clk_rate(
 	if (max_clk_rate == top_priv->hw_clk_rate)
 		return 0;
 
-	CAM_DBG(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%llu",
+	CAM_INFO(CAM_ISP, "VFE: Clock name=%s idx=%d clk=%llu",
 		soc_info->clk_name[soc_info->src_clk_idx],
 		soc_info->src_clk_idx, max_clk_rate);
-
+	soc_private->ife_clk_src = max_clk_rate;
 	rc = cam_soc_util_set_src_clk_rate(soc_info, max_clk_rate);
 
 	if (!rc)

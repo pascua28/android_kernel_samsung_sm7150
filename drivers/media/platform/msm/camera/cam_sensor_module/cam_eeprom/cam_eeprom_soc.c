@@ -310,11 +310,16 @@ int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 
 	rc = of_property_read_string(of_node, "eeprom-name",
 		&soc_private->eeprom_name);
+
+	CAM_INFO(CAM_EEPROM, "eepromName: %s", soc_private->eeprom_name);
+
 	if (rc < 0) {
-		CAM_DBG(CAM_EEPROM, "kernel probe is not enabled");
+		CAM_INFO(CAM_EEPROM, "kernel probe is not enabled");
 		e_ctrl->userspace_probe = true;
 	}
 
+	CAM_INFO(CAM_EEPROM, "VR:: Cell Index: %d Userspace_probe: %d",
+		e_ctrl->soc_info.index, e_ctrl->userspace_probe);
 	if (e_ctrl->io_master_info.master_type == CCI_MASTER) {
 		rc = of_property_read_u32(of_node, "cci-master",
 			&e_ctrl->cci_i2c_master);
@@ -323,10 +328,9 @@ int cam_eeprom_parse_dt(struct cam_eeprom_ctrl_t *e_ctrl)
 			rc = -EFAULT;
 			return rc;
 		}
-
 		rc = of_property_read_u32(of_node, "cci-device",
 			&e_ctrl->cci_num);
-		CAM_DBG(CAM_ACTUATOR, "cci-device %d, rc %d",
+		CAM_DBG(CAM_EEPROM, "cci-device %d, rc %d",
 			e_ctrl->cci_num, rc);
 		if (rc < 0) {
 			/* Set default master 0 */

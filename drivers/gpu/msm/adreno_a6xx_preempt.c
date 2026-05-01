@@ -248,7 +248,184 @@ static struct adreno_ringbuffer *a6xx_next_ringbuffer(
 
 	return NULL;
 }
+#ifndef CONFIG_ARCH_SEC_SM7150
+void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
+{
+	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
+	struct kgsl_iommu *iommu = KGSL_IOMMU_PRIV(device);
+	struct adreno_ringbuffer *next;
+	uint64_t ttbr0, gpuaddr;
+	unsigned int contextidr, cntl;
+	unsigned long flags;
+	struct adreno_preemption *preempt = &adreno_dev->preempt;
+	struct gmu_dev_ops *gmu_dev_ops = GMU_DEVICE_OPS(device);
 
+	cntl = (((preempt->preempt_level << 6) & 0xC0) |
+		((preempt->skipsaverestore << 9) & 0x200) |
+		((preempt->usesgmem << 8) & 0x100) | 0x1);
+
+	/* Put ourselves into a possible trigger state */
+	if (!adreno_move_preempt_state(adreno_dev,
+		ADRENO_PREEMPT_NONE, ADRENO_PREEMPT_START))
+		return;
+
+	/* Get the next ringbuffer to preempt in */
+	next = a6xx_next_ringbuffer(adreno_dev);
+
+	/*
+	 * Nothing to do if every ringbuffer is empty or if the current
+	 * ringbuffer is the only active one
+	 */
+	if (next == NULL || next == adreno_dev->cur_rb) {
+		/*
+		 * Update any critical things that might have been skipped while
+		 * we were looking for a new ringbuffer
+		 */
+
+		if (next != NULL) {
+			_update_wptr(adreno_dev, false);
+
+			mod_timer(&adreno_dev->dispatcher.timer,
+				adreno_dev->cur_rb->dispatch_q.expires);
+		}
+
+		adreno_set_preempt_state(adreno_dev, ADRENO_PREEMPT_NONE);
+		return;
+	}
+
+	/* Turn off the dispatcher timer */
+	del_timer(&adreno_dev->dispatcher.timer);
+
+	/*
+	 * This is the most critical section - we need to take care not to race
+	 * until we have programmed the CP for the switch
+	 */
+
+	spin_lock_irqsave(&next->preempt_lock, flags);
+
+	/*
+	 * Get the pagetable from the pagetable info.
+	 * The pagetable_desc is allocated and mapped at probe time, and
+	 * preemption_desc at init time, so no need to check if
+	 * sharedmem accesses to these memdescs succeed.
+	 */
+	kgsl_sharedmem_readq(&next->pagetable_desc, &ttbr0,
+		PT_INFO_OFFSET(ttbr0));
+	kgsl_sharedmem_readl(&next->pagetable_desc, &contextidr,
+		PT_INFO_OFFSET(contextidr));
+
+	kgsl_sharedmem_writel(device, &next->preemption_desc,
+		PREEMPT_RECORD(wptr), next->wptr);
+
+	spin_unlock_irqrestore(&next->preempt_lock, flags);
+
+	/* And write it to the smmu info */
+	kgsl_sharedmem_writeq(device, &iommu->smmu_info,
+		PREEMPT_SMMU_RECORD(ttbr0), ttbr0);
+	kgsl_sharedmem_writel(device, &iommu->smmu_info,
+		PREEMPT_SMMU_RECORD(context_idr), contextidr);
+
+	kgsl_sharedmem_readq(&preempt->scratch, &gpuaddr,
+			next->id * sizeof(u64));
+
+	/*
+	 * Set a keepalive bit before the first preemption register write.
+	 * This is required since while each individual write to the context
+	 * switch registers will wake the GPU from collapse, it will not in
+	 * itself cause GPU activity. Thus, the GPU could technically be
+	 * re-collapsed between subsequent register writes leading to a
+	 * prolonged preemption sequence. The keepalive bit prevents any
+	 * further power collapse while it is set.
+	 * It is more efficient to use a keepalive+wake-on-fence approach here
+	 * rather than an OOB. Both keepalive and the fence are effectively
+	 * free when the GPU is already powered on, whereas an OOB requires an
+	 * unconditional handshake with the GMU.
+	 */
+	if (gmu_core_isenabled(device))
+		gmu_core_regrmw(device, A6XX_GMU_AO_SPARE_CNTL, 0x0, 0x2);
+
+	/*
+	 * Fenced writes on this path will make sure the GPU is woken up
+	 * in case it was power collapsed by the GMU.
+	 */
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_PRIV_NON_SECURE_RESTORE_ADDR_LO,
+		lower_32_bits(next->preemption_desc.gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_PRIV_NON_SECURE_RESTORE_ADDR_HI,
+		upper_32_bits(next->preemption_desc.gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_PRIV_SECURE_RESTORE_ADDR_LO,
+		lower_32_bits(next->secure_preemption_desc.gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_PRIV_SECURE_RESTORE_ADDR_HI,
+		upper_32_bits(next->secure_preemption_desc.gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_NON_PRIV_RESTORE_ADDR_LO,
+		lower_32_bits(gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	if (adreno_gmu_fenced_write(adreno_dev,
+		ADRENO_REG_CP_CONTEXT_SWITCH_NON_PRIV_RESTORE_ADDR_HI,
+		upper_32_bits(gpuaddr),
+		FENCE_STATUS_WRITEDROPPED1_MASK))
+		goto err;
+
+	/*
+	 * Above fence writes will make sure GMU comes out of
+	 * IFPC state if its was in IFPC state but it doesn't
+	 * guarantee that GMU FW actually moved to ACTIVE state
+	 * i.e. wake-up from IFPC is complete.
+	 * Wait for GMU to move to ACTIVE state before triggering
+	 * preemption. This is require to make sure CP doesn't
+	 * interrupt GMU during wake-up from IFPC.
+	 */
+	if (GMU_DEV_OP_VALID(gmu_dev_ops, wait_for_active_transition))
+		if (gmu_dev_ops->wait_for_active_transition(adreno_dev))
+			goto err;
+
+	adreno_dev->next_rb = next;
+
+	/* Start the timer to detect a stuck preemption */
+	mod_timer(&adreno_dev->preempt.timer,
+		jiffies + msecs_to_jiffies(ADRENO_PREEMPT_TIMEOUT));
+
+	adreno_set_preempt_state(adreno_dev, ADRENO_PREEMPT_TRIGGERED);
+
+	/* Trigger the preemption */
+	if (adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_PREEMPT, cntl,
+		FENCE_STATUS_WRITEDROPPED1_MASK)) {
+		adreno_dev->next_rb = NULL;
+		del_timer(&adreno_dev->preempt.timer);
+		goto err;
+	}
+
+	trace_adreno_preempt_trigger(adreno_dev->cur_rb, adreno_dev->next_rb, cntl);
+
+	return;
+err:
+
+	/* If fenced write fails, set the fault and trigger recovery */
+	adreno_set_preempt_state(adreno_dev, ADRENO_PREEMPT_NONE);
+	adreno_set_gpu_fault(adreno_dev, ADRENO_GMU_FAULT);
+	adreno_dispatcher_schedule(device);
+	/* Clear the keep alive */
+	gmu_core_regrmw(device, A6XX_GMU_AO_SPARE_CNTL, 0x2, 0x0);
+}
+#else
 void a6xx_preemption_trigger(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
@@ -427,7 +604,7 @@ err:
 	if (gmu_core_gpmu_isenabled(device))
 		gmu_core_regrmw(device, A6XX_GMU_AO_SPARE_CNTL, 0x2, 0x0);
 }
-
+#endif
 void a6xx_preemption_callback(struct adreno_device *adreno_dev, int bit)
 {
 	unsigned int status;

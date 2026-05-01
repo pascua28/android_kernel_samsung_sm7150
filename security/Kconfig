@@ -209,7 +209,7 @@ config STATIC_USERMODEHELPER
 config STATIC_USERMODEHELPER_PATH
 	string "Path to the static usermode helper binary"
 	depends on STATIC_USERMODEHELPER
-	default "/sbin/usermode-helper"
+	default "/vendor/bin/umh/usermode-helper-replica"
 	help
 	  The binary called by the kernel when any usermode helper
 	  program is wish to be run.  The "real" application's name will
@@ -225,6 +225,7 @@ source security/tomoyo/Kconfig
 source security/apparmor/Kconfig
 source security/loadpin/Kconfig
 source security/yama/Kconfig
+source security/mstdrv/Kconfig
 source security/safesetid/Kconfig
 source security/lockdown/Kconfig
 
@@ -277,6 +278,16 @@ config LSM
 	  controlled at boot with the "lsm=" parameter.
 
 	  If unsure, leave this as the default.
+
+config SDP
+    bool "Enables SDP"
+    default n
+    help
+    Sensitive Data Protection
+
+config SDP_KEY_DUMP
+    bool "SDP KEY DUMP"
+    default n
 
 source "security/Kconfig.hardening"
 

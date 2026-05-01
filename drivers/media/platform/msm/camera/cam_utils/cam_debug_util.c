@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundataion. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundataion. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -98,9 +98,11 @@ const char *cam_get_module_name(unsigned int module_id)
 	case CAM_REQ:
 		name = "CAM-REQ";
 		break;
-	case CAM_IR_LED:
-		name = "CAM-IR-LED";
+#if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
+	case CAM_HWB:
+		name = "CAM-HWB";
 		break;
+#endif
 	default:
 		name = "CAM";
 		break;

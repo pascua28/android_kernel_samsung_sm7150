@@ -1444,7 +1444,10 @@ int32_t npu_host_load_network_v2(struct npu_client *client,
 	struct ipc_cmd_load_pkt_v2 *load_packet = NULL;
 	struct npu_host_ctx *host_ctx = &npu_dev->host_ctx;
 	uint32_t num_patch_params, pkt_size;
+	uint32_t retry_cnt = 5;
+	bool need_retry = false;
 
+retry_load:
 	ret = fw_init(npu_dev);
 	if (ret)
 		return ret;
@@ -1522,6 +1525,7 @@ int32_t npu_host_load_network_v2(struct npu_client *client,
 	if (!ret) {
 		pr_err_ratelimited("npu: NPU_IPC_CMD_LOAD time out\n");
 		ret = -ETIMEDOUT;
+		need_retry = true;
 		goto error_free_network;
 	}
 
@@ -1551,6 +1555,12 @@ error_free_network:
 err_deinit_fw:
 	mutex_unlock(&host_ctx->lock);
 	fw_deinit(npu_dev, false, true);
+	if (need_retry && retry_cnt > 0) {
+		pr_err("retry load network: retry_cnt %d\n", retry_cnt);
+		retry_cnt--;
+		need_retry = false;
+		goto retry_load;
+	}
 	return ret;
 }
 

@@ -23,6 +23,9 @@
 #include <net/inetpeer.h>
 #include <net/fib_notifier.h>
 
+
+#include <linux/netlog.h>
+
 #ifdef CONFIG_IPV6_MULTIPLE_TABLES
 #define FIB6_TABLE_HASHSZ 256
 #else

@@ -237,7 +237,6 @@ pte_ok:
 #endif
 
 	*ptep = pte;
-
 	/*
 	 * Only if the new pte is valid and kernel, otherwise TLB maintenance
 	 * or update_mmu_cache() have the necessary barriers.

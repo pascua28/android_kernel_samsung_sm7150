@@ -22,6 +22,11 @@
 #define SD_WRITE_SAME_TIMEOUT	(120 * HZ)
 
 /*
+ * In case of UFS device, use this timeout value
+ */
+#define SD_UFS_TIMEOUT		(10 * HZ)
+
+/*
  * Number of allowed retries
  */
 #define SD_MAX_RETRIES		5
@@ -118,6 +123,14 @@ struct scsi_disk {
 	unsigned	urswrz : 1;
 	unsigned	security : 1;
 	unsigned	ignore_medium_access_errors : 1;
+#ifdef CONFIG_USB_STORAGE_DETECT
+	wait_queue_head_t	 delay_wait;
+	struct completion	scanning_done;
+	struct task_struct *th;
+	int		thread_remove;
+	int		async_end;
+	int		prv_media_present;
+#endif
 };
 #define to_scsi_disk(obj) container_of(obj,struct scsi_disk,dev)
 

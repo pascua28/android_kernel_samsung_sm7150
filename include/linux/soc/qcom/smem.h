@@ -12,4 +12,8 @@ void *qcom_smem_get(unsigned host, unsigned item, size_t *size);
 int qcom_smem_get_free_space(unsigned host);
 phys_addr_t qcom_smem_virt_to_phys(void *addr);
 
+#define	SMEM_ID_VENDOR0		134
+#define	SMEM_ID_VENDOR1		135
+#define	SMEM_ID_VENDOR2		136
+
 #endif

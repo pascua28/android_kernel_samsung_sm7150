@@ -938,6 +938,18 @@ int adreno_iommu_set_pt_ctx(struct adreno_ringbuffer *rb,
 		else
 			result = _set_ctxt_gpu(rb, drawctxt);
 
+	/*
+	 * In case ctxt switch fails, revert the pagetable back to the
+	 * original. Not reverting the pagetable will lead to incorrect
+	 * hardware state in the ringbuffer.
+	 */
+	if (result && (new_pt != cur_pt)) {
+		if (cpu_path)
+			result = _set_pagetable_cpu(rb, cur_pt);
+		else
+			result = _set_pagetable_gpu(rb, cur_pt);
+	}
+
 		return result;
 	}
 
