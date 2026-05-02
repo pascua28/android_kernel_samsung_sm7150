@@ -23,9 +23,54 @@ fw-external-y := $(subst $(quote),,$(CONFIG_EXTRA_FIRMWARE))
 # accurate. In the latter case it doesn't matter -- it'll use $(fw-shipped-all).
 # But be aware that the config file might not be included at all.
 
+fw-external-$(CONFIG_TOUCHSCREEN_IST40XX) += tsp_imagis/ist40xx_r1.bin tsp_imagis/ist40xx_r1_cmcs.bin \
+						tsp_imagis/ist40xx_a70.bin tsp_imagis/ist40xx_a70_cmcs.bin tsp_imagis/ist40xx_a70s.bin tsp_imagis/ist40xx_a70s_cmcs.bin
+						
+fw-external-$(CONFIG_TOUCHSCREEN_MELFAS_MSS100) += tsp_melfas/mss100_a70s.bin
+
+fw-external-$(CONFIG_TOUCHSCREEN_SEC_TS_Y771) += tsp_sec/y771_a71.bin tsp_sec/y771_a71_1l.bin tsp_sec/y771_m51.bin tsp_sec/y771_m51_sdc.bin
+
 fw-external-$(CONFIG_TOUCHSCREEN_ZINITIX_ZT7650) += tsp_zinitix/zt7650_a52.bin tsp_zinitix/zt7650_a72.bin tsp_zinitix/zt7650_a72_3rd.bin
 
-fw-external-$(CONFIG_TOUCHSCREEN_STM_FTS5CU56A) += tsp_stm/fts5cu56a_a52.bin tsp_stm/fts5cu56a_a72.bin
+fw-external-$(CONFIG_TOUCHSCREEN_STM_FTS5CU56A) += tsp_stm/fts5cu56a_a52.bin tsp_stm/fts5cu56a_a72.bin tsp_stm/fts5cu56a_m42.bin
+fw-external-$(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83102) += tsp_himax/hx83102e_gts6litereresh.bin
+
+ifdef CONFIG_SEC_A70Q_PROJECT
+ifdef CONFIG_SEC_A70Q_USA_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t346_a70q_usa.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t346_a70q_sub_usa.bin
+else
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t346_a70q_eur.bin
+endif
+else ifdef CONFIG_SEC_A70SQ_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t356_a70sq.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t356_a70sq_sub.bin
+else ifdef CONFIG_SEC_A71_PROJECT
+ifdef CONFIG_SEC_A71_CAN_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t356_a71_can.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t356_a71_sub_can.bin
+else
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t356_a71.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t356_a71_sub.bin
+endif
+else ifdef CONFIG_SEC_M41_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t356_m41.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t356_m41_sub.bin
+else ifdef CONFIG_SEC_M51_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t356_m51.bin
+fw-external-$(CONFIG_SENSORS_A96T3X6_SUB) += abov/a96t356_m51_sub.bin
+else ifdef CONFIG_SEC_A70S_PROJECT
+fw-external-$(CONFIG_SENSORS_A96T3X6) += abov/a96t346_a70q_eur.bin
+endif
+
+fw-external-$(CONFIG_TOUCHSCREEN_NOVATEK_NT36672) += tsp_novatek/nt36672_a60.bin tsp_novatek/nt36672_m40.bin \
+						tsp_novatek/nt36672_a60_tianma.bin
+
+fw-external-$(CONFIG_EPEN_WACOM_WEZ01) += epen/w9021_gts6lite.bin
+fw-external-$(CONFIG_EPEN_WACOM_W9019) += epen/w9019_gts6lite.bin
+
+#touch based grip sensor
+fw-shipped-$(CONFIG_SENSORS_TC3XXK_A60) += coreriver/tc305k_a60_grip.fw
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
