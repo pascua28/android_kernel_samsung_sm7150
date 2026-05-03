@@ -332,7 +332,6 @@ static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu,
 	*max = max_cap;
 
 	*util = boosted_cpu_util(cpu, &loadcpu->walt_load);
-	*util = apply_dvfs_headroom(util, cpu);
 
 	if (likely(use_pelt())) {
 		sched_avg_update(rq);
@@ -341,7 +340,7 @@ static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu,
 			delta = 0;
 		rt = div64_u64(rq->rt_avg, sched_avg_period() + delta);
 		rt = (rt * max_cap) >> SCHED_CAPACITY_SHIFT;
-		*util = min(*util + rt, max_cap);
+		*util = min(apply_dvfs_headroom(*util, cpu) + rt, max_cap);
 	}
 }
 
