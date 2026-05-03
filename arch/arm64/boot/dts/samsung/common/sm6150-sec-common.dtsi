@@ -126,7 +126,7 @@
 
 &soc{
     input_booster {
-        status = "okay";
+        status = "disabled";
         compatible = "input_booster";
         #address-cells = <1>;
         #size-cells = <0>;
