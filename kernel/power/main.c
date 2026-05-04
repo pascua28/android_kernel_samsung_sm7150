@@ -835,7 +835,35 @@ static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
 					struct kobj_attribute *attr,
 					const char *buf, size_t n)
 {
-	return n;
+	int val;
+	ssize_t ret = -EINVAL;
+
+	if (sscanf(buf, "%d", &val) != 1) {
+		pr_err("%s: Invalid cpufreq format\n", __func__);
+		goto out;
+	}
+
+	mutex_lock(&cpufreq_limit_mutex);
+	if (cpufreq_min_hd) {
+		cpufreq_limit_put(cpufreq_min_hd);
+		cpufreq_min_hd = NULL;
+	}
+
+	if (val != -1) {
+		cpufreq_min_hd = cpufreq_limit_min_freq(val, "user lock(min)");
+		if (IS_ERR(cpufreq_min_hd)) {
+			pr_err("%s: fail to get the handle\n", __func__);
+			cpufreq_min_hd = NULL;
+		}
+	}
+
+	cpufreq_min_hd ?
+		(cpufreq_min_limit_val = val) : (cpufreq_min_limit_val = -1);
+
+	mutex_unlock(&cpufreq_limit_mutex);
+	ret = n;
+out:
+	return ret;
 }
 
 power_attr(cpufreq_table);
