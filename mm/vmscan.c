@@ -989,7 +989,6 @@ struct reclaim_stat {
 	unsigned nr_activate;
 	unsigned nr_ref_keep;
 	unsigned nr_unmap_fail;
-	unsigned nr_lazyfree_fail;
 };
 
 /*
@@ -1013,7 +1012,6 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 	unsigned nr_immediate = 0;
 	unsigned nr_ref_keep = 0;
 	unsigned nr_unmap_fail = 0;
-	unsigned nr_lazyfree_fail = 0;
 
 	cond_resched();
 
@@ -1229,15 +1227,12 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 		 */
 		if (page_mapped(page)) {
 			enum ttu_flags flags = ttu_flags | TTU_BATCH_FLUSH;
-			bool was_swapbacked = PageSwapBacked(page);
 
 			if (unlikely(PageTransHuge(page)))
 				flags |= TTU_SPLIT_HUGE_PMD;
 
 			if (!try_to_unmap(page, flags, sc->target_vma)) {
 				nr_unmap_fail++;
-				if (!was_swapbacked && PageSwapBacked(page))
-					nr_lazyfree_fail++;
 				goto activate_locked;
 			}
 		}
@@ -1425,7 +1420,6 @@ keep:
 		stat->nr_activate = pgactivate;
 		stat->nr_ref_keep = nr_ref_keep;
 		stat->nr_unmap_fail = nr_unmap_fail;
-		stat->nr_lazyfree_fail = nr_lazyfree_fail;
 	}
 	return nr_reclaimed;
 }
@@ -1440,8 +1434,7 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 		/* Doesn't allow to write out dirty page */
 		.may_writepage = 0,
 	};
-	struct reclaim_stat stat;
-	unsigned long nr_reclaimed;
+	unsigned long ret;
 	struct page *page, *next;
 	LIST_HEAD(clean_pages);
 
@@ -1453,21 +1446,11 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 		}
 	}
 
-	nr_reclaimed = shrink_page_list(&clean_pages, zone->zone_pgdat, &sc,
-			TTU_IGNORE_ACCESS, &stat, true);
+	ret = shrink_page_list(&clean_pages, zone->zone_pgdat, &sc,
+			TTU_IGNORE_ACCESS, NULL, true);
 	list_splice(&clean_pages, page_list);
-	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE, -nr_reclaimed);
-	/*
-	 * Since lazyfree pages are isolated from file LRU from the beginning,
-	 * they will rotate back to anonymous LRU in the end if it failed to
-	 * discard so isolated count will be mismatched.
-	 * Compensate the isolated count for both LRU lists.
-	 */
-	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_ANON,
-			    stat.nr_lazyfree_fail);
-	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE,
-			    -stat.nr_lazyfree_fail);
-	return nr_reclaimed;
+	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE, -ret);
+	return ret;
 }
 
 #ifdef CONFIG_PROCESS_RECLAIM
@@ -1484,21 +1467,14 @@ unsigned long reclaim_pages_from_list(struct list_head *page_list,
 	};
 
 	unsigned long nr_reclaimed;
-	struct page *page, *next;
-	LIST_HEAD(unevictable_pages);
+	struct page *page;
 
-	list_for_each_entry_safe(page, next, page_list, lru) {
-		if (PageUnevictable(page)) {
-			list_move(&page->lru, &unevictable_pages);
-			continue;
-		}
+	list_for_each_entry(page, page_list, lru)
 		ClearPageActive(page);
-	}
 
 	nr_reclaimed = shrink_page_list(page_list, NULL, &sc,
 			TTU_IGNORE_ACCESS, NULL, true);
 
-	list_splice(&unevictable_pages, page_list);
 	while (!list_empty(page_list)) {
 		page = lru_to_page(page_list);
 		list_del(&page->lru);
@@ -2514,7 +2490,6 @@ inline bool need_memory_boosting(struct pglist_data *pgdat)
 	return ret;
 }
 
-
 /*
  * Determine how aggressively the anon and file LRU lists should be
  * scanned.  The relative value of each set of LRU lists is determined
@@ -2610,7 +2585,7 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 			}
 		}
 	}
-	
+
 	if (current_is_kswapd() && need_memory_boosting(pgdat)) {
 		scan_balance = SCAN_FILE;
 		goto out;
