@@ -679,9 +679,6 @@ void input_booster_init(void)
 		return;
 	}
 
-	if (!of_device_is_available(np))
-		return;
-
 	// Geting the count of devices.
 	ndevice_in_dt = of_get_child_count(np);
 	printk("[Input Booster] %s   ndevice_in_dt : %d\n", __FUNCTION__, ndevice_in_dt);
