@@ -87,13 +87,11 @@ static __always_inline bool is_su_allowed(const void **ptr_to_check)
 	if (!!!static_branch_likely(&ksud_sucompat_key))
 		return false;
 #else
-	barrier();
 	if (!ksu_su_compat_enabled)
 		return false;
 #endif // KSU_CAN_USE_JUMP_LABEL
 #endif
 
-	barrier();
 	if (likely(test_thread_flag(TIF_SECCOMP)))
 		return false;
 
@@ -130,7 +128,7 @@ check_ptr:
 	return true;
 }
 
-static __always_inline int ksu_sucompat_user_common(const char __user **filename_user,
+static __always_inline void ksu_sucompat_user_common(const char __user **filename_user,
 				const char *syscall_name,
 				const bool escalate,
 				const uint8_t sym)
@@ -140,7 +138,7 @@ static __always_inline int ksu_sucompat_user_common(const char __user **filename
 
 	// sugar prep
 	uintptr_t *su_p = (uintptr_t *)su;
-	uintptr_t __user *fn_p = (uintptr_t *)*(char **)filename_user;
+	uintptr_t __user *fn_p = (uintptr_t *)untagged_addr(*(char **)filename_user);
 
 	// assert /system/bin/su\0 = 15 bytes.
 	BUILD_BUG_ON(sizeof(su) > 16); // compielr might to pad
@@ -164,35 +162,35 @@ static __always_inline int ksu_sucompat_user_common(const char __user **filename
 
 #ifdef CONFIG_64BIT
 	if (get_user(buf, &fn_p[1]))
-		return 0;
+		return;
 
 	if (likely(!!__builtin_memcmp(&buf, su + sizeof(uintptr_t), sizeof(su) - sizeof(uintptr_t) )))
-		return 0;
+		return;
 #else
 	if (get_user(buf, &fn_p[3]))
-		return 0;
+		return;
 
 	if (likely(!!__builtin_memcmp(&buf, su +  (3 * sizeof(uintptr_t)), sizeof(su) - (3 * sizeof(uintptr_t)) )))
-		return 0;
+		return;
 
 	if (unlikely(get_user(buf, &fn_p[2])))
-		return 0;
+		return;
 
 	if (buf != su_p[2])
-		return 0;
+		return;
 
 	if (unlikely(get_user(buf, &fn_p[1])))
-		return 0;
+		return;
 
 	if (unlikely(buf != su_p[1]))
-		return 0;
+		return;
 #endif
 	// last word
 	if (unlikely(get_user(buf, &fn_p[0])))
-		return 0;
+		return;
 
 	if (unlikely(buf != su_p[0]))
-		return 0;
+		return;
 
 	write_sulog(sym);
 
@@ -203,7 +201,7 @@ static __always_inline int ksu_sucompat_user_common(const char __user **filename
 	ksu_sulog_emit(KSU_SULOG_EVENT_SUCOMPAT, NULL, NULL, GFP_KERNEL);
 #endif
 	if (!!escape_with_root_profile())
-		return 0;
+		return;
 
 	// NOTE: we only check file existence, not exec success!
 	struct path kpath;
@@ -213,13 +211,13 @@ static __always_inline int ksu_sucompat_user_common(const char __user **filename
 	path_put(&kpath);
 	pr_info("%s su->ksud!\n", syscall_name);
 	*filename_user = ksud_user_path();
-	return 0;
+	return;
 
 no_ksud:
 no_escalate:
 	pr_info("%s su->sh!\n", syscall_name);
 	*filename_user = sh_user_path();
-	return 0;
+	return;
 
 }
 
@@ -229,7 +227,8 @@ SUCOMPAT_HOOK_TYPE ksu_handle_faccessat(int *dfd, const char __user **filename_u
 	if (!is_su_allowed((const void **)filename_user))
 		return 0;
 
-	return ksu_sucompat_user_common(filename_user, "faccessat", false, 'a');
+	ksu_sucompat_user_common(filename_user, "faccessat", false, 'a');
+	return 0;
 }
 
 // sys_newfstatat, sys_fstat64
@@ -238,14 +237,13 @@ SUCOMPAT_HOOK_TYPE ksu_handle_stat(int *dfd, const char __user **filename_user, 
 	if (!is_su_allowed((const void **)filename_user))
 		return 0;
 
-	return ksu_sucompat_user_common(filename_user, "newfstatat", false, 's');
+	ksu_sucompat_user_common(filename_user, "newfstatat", false, 's');
+	return 0;
 }
 
 // sys_execve, compat_sys_execve
-// NOTE: not offerred on manual hooks as do_execve is better
-static __always_inline int ksu_handle_execve_sucompat(int *fd, const char __user **filename_user, void *argv, void *envp, int *flags)
+SUCOMPAT_HOOK_TYPE ksu_handle_execve(const char __user **filename_user, void *argv, void *envp)
 {
-	sys_execve_escape_ksud((void *)filename_user);
 
 #ifdef CONFIG_KSU_FEATURE_ADBROOT
 	ksu_adb_root_handle_execve((void *)filename_user, (void *)envp);
@@ -254,20 +252,20 @@ static __always_inline int ksu_handle_execve_sucompat(int *fd, const char __user
 	if (!is_su_allowed((const void **)filename_user))
 		return 0;
 
-	return ksu_sucompat_user_common(filename_user, "sys_execve", true, 'x');
+	ksu_sucompat_user_common(filename_user, "sys_execve", true, 'x');
+	return 0;
 }
 
 #ifndef CONFIG_KSU_TAMPER_SYSCALL_TABLE
-static __always_inline int ksu_sucompat_kernel_common(void **filename_ptr, void *argv, void *envp, const char *function_name)
+static __always_inline void ksu_sucompat_kernel_common(void **filename_ptr, void *argv, void *envp, const char *function_name)
 {
-	kernel_execve_escape_ksud((void *)filename_ptr);
 
 #ifdef CONFIG_KSU_FEATURE_ADBROOT
 	ksu_adb_root_handle_execveat((void *)filename_ptr, (void *)envp);
 #endif
 
 	if (!is_su_allowed((const void **)filename_ptr))
-		return 0;
+		return;
 
 	// it seems this is actually the slowest part, we peek last word first to speed it up
 	// sugar prep
@@ -282,20 +280,20 @@ static __always_inline int ksu_sucompat_kernel_common(void **filename_ptr, void 
 	// getname_flags pads this so nothing to worry about, dereference with confidence!
 #ifdef CONFIG_64BIT
 	if (likely(!!__builtin_memcmp(&fn_p[1], &su_p[1], sizeof(su) - sizeof(uintptr_t) )))
-		return 0;
+		return;
 #else
 	if (likely(!!__builtin_memcmp(&fn_p[3], &su_p[3], sizeof(su) - (3 * sizeof(uintptr_t)) )))
-		return 0;
+		return;
 
 	if (fn_p[2] != su_p[2])
-		return 0;
+		return;
 
 	if (fn_p[1] != su_p[1])
-		return 0;
+		return;
 #endif
 
 	if (unlikely(fn_p[0] != su_p[0]))
-		return 0;
+		return;
 
 	// we only handle execve here after removing vfs_statx hook for >= 6.1
 	write_sulog('x');
@@ -304,7 +302,7 @@ static __always_inline int ksu_sucompat_kernel_common(void **filename_ptr, void 
 	ksu_sulog_emit(KSU_SULOG_EVENT_SUCOMPAT, NULL, NULL, GFP_KERNEL);
 #endif
 	if (!!escape_with_root_profile())
-		return 0;
+		return;
 
 	// NOTE: we only check file existence, not exec success!
 	struct path kpath;
@@ -314,12 +312,12 @@ static __always_inline int ksu_sucompat_kernel_common(void **filename_ptr, void 
 	path_put(&kpath);
 	pr_info("%s su->ksud!\n", function_name);
 	memcpy(*filename_ptr, KSUD_PATH, sizeof(KSUD_PATH));
-	return 0;
+	return;
 
 no_ksud:
 	pr_info("%s su->sh!\n", function_name);
 	memcpy(*filename_ptr, SH_PATH, sizeof(SH_PATH));
-	return 0;
+	return;
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
@@ -330,13 +328,15 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, voi
 	if (IS_ERR(filename)) // see getname_flags
 		return 0;
 
-	return ksu_sucompat_kernel_common((void **)&filename->name, argv, envp, "do_execveat_common");
+	ksu_sucompat_kernel_common((void **)&filename->name, argv, envp, "do_execveat_common");
+	return 0;
 }
 #else
 // take note: char **filename, for do_execve_common on < 3.14
 int ksu_legacy_execve_sucompat(const char **filename_ptr, void *argv, void *envp)
 {
-	return ksu_sucompat_kernel_common((void **)filename_ptr, argv, envp, "do_execve_common");
+	ksu_sucompat_kernel_common((void **)filename_ptr, argv, envp, "do_execve_common");
+	return 0;
 }
 #endif
 #endif // CONFIG_KSU_TAMPER_SYSCALL_TABLE

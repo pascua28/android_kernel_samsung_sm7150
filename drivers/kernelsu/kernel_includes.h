@@ -174,8 +174,8 @@
 #define strpbrk		__builtin_strpbrk
 #define strrchr		__builtin_strrchr
 #define strspn		__builtin_strspn
-#define strstr		__builtin_strstr
+//#define strstr		__builtin_strstr
 
-#endif // !CONFIG_FORTIFY_SOURCE
+#endif // !CONFIG_KSU_DEBUG
 
 #endif // __KSU_H_KERNEL_INCLUDES

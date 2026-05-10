@@ -165,18 +165,6 @@ static noinline void do_ksu_adb_root_handle_execve(void *filename, void *envp_in
 	return;
 }
 
-struct user_arg_ptr {
-#ifdef CONFIG_COMPAT
-	bool is_compat;
-#endif
-	union {
-		const char __user *const __user *native;
-#ifdef CONFIG_COMPAT
-		const compat_uptr_t __user *compat;
-#endif
-	} ptr;
-};
-
 static noinline void do_ksu_adb_root_handle_execveat(void *filename, void *envp_in)
 {
 	if (likely(test_thread_flag(TIF_SECCOMP)))

@@ -39,28 +39,13 @@ static inline rwlock_t *ksu_get_policy_rwlock() { return &selinux_state.ss->poli
 #elif defined(KSU_COMPAT_HAS_EXPORTED_POLICY_RWLOCK)
 static inline rwlock_t *ksu_get_policy_rwlock() { extern rwlock_t policy_rwlock; return &policy_rwlock; }
 #elif defined(CONFIG_KALLSYMS)
-static noinline rwlock_t *ksu_get_policy_rwlock()
-{
-	static bool already_ran = false;
-
-	static rwlock_t *policy_rwlock_ksym = NULL;
-
-	if (likely(already_ran))
-		return policy_rwlock_ksym;
-
-	policy_rwlock_ksym = (rwlock_t *)kallsyms_lookup_name("policy_rwlock");
-	if (policy_rwlock_ksym)
-		pr_info("apply_kernelsu_rules: policy_rwlock: 0x%lx via ksym\n", (uintptr_t)policy_rwlock_ksym);
-
-	already_ran = true;
-	return policy_rwlock_ksym;
-}
+static noinline rwlock_t *ksu_get_policy_rwlock() { return (rwlock_t *)kallsyms_lookup_name("policy_rwlock"); }
 #else
 static inline rwlock_t *ksu_get_policy_rwlock() { return NULL; }
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) || defined(KSU_COMPAT_HAS_BACKPORTED_CPUS_PTR)
-static inline cpumask_t *ksu_get_current_cpumask_t() { return current->cpus_ptr; }
+static inline const cpumask_t *ksu_get_current_cpumask_t() { return current->cpus_ptr; }
 #else
 static inline cpumask_t *ksu_get_current_cpumask_t() { return &current->cpus_allowed; }
 #endif
@@ -156,8 +141,8 @@ void apply_kernelsu_rules()
 	struct selinux_policy *pol, *old_pol = selinux_state.policy;
 	mutex_lock(&selinux_state.policy_mutex);
 	pol = ksu_dup_sepolicy(rcu_dereference_protected(old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
-	if (!pol) {
-		pr_err("failed to dup selinux_policy\n");
+	if (IS_ERR(pol)) {
+		pr_err("failed to dup selinux_policy: %ld\n", PTR_ERR(pol));
 		goto out_unlock;
 	}
 	db = &pol->policydb;
@@ -193,24 +178,8 @@ out_unlock:
 	write_lock(lock);
 	preempt_enable();
 
-	// we do this dance since both kernel and userspace can trigger this
-	if (likely(current && current->mm))
-		goto has_current_mm;
-
 	apply_kernelsu_rules_fn((void *)db);
-	goto out_unlock;
 
-has_current_mm:
-	;
-	// raise priority of this to the heavens
-	// yes, using CFS is now chosen over setscheduler FIFO
-	int old_nice = task_nice(current);
-	set_user_nice(current, -20);
-
-	apply_kernelsu_rules_fn((void *)db);
-	set_user_nice(current, old_nice);
-
-out_unlock:
 	preempt_disable();
 	write_unlock(lock);
 	set_cpus_allowed_ptr(current, &old_mask);
@@ -535,10 +504,10 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
 	mutex_lock(&selinux_state.policy_mutex);
 
 	old_pol = selinux_state.policy;
-	pol = ksu_dup_sepolicy(rcu_dereference_protected(
-		old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
-	if (!pol) {
-		ret = -ENOMEM;
+	pol = ksu_dup_sepolicy(rcu_dereference_protected(old_pol, lockdep_is_held(&selinux_state.policy_mutex)));
+	if (IS_ERR(pol)) {
+		ret = PTR_ERR(pol);
+		pr_err("ksu_dup_sepolicy err: %d\n", ret);
 		goto out_unlock;
 	}
 	db = &pol->policydb;
@@ -581,6 +550,7 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
 			pr_err("sepol: cmd #%u failed, cmd=%u subcmd=%u.\n", cmd_index, header.cmd, header.subcmd);
 		} else {
 			success_cmd_count++;
+			ksu_add_shit_to_list(header.cmd, args);
 		}
 		cmd_index++;
 	}
@@ -658,6 +628,8 @@ static int handle_sepolicy_fn(void *data)
 		else {
 			pr_info("sepol: cmd #%u success, cmd=%u subcmd=%u.\n", cmd_index, header.cmd, header.subcmd);
 			success_cmd_count++;
+			ksu_add_shit_to_list(header.cmd, args);
+
 		}
 
 		cmd_index++;
@@ -709,22 +681,8 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
 	write_lock(lock);
 	preempt_enable();
 
-	if (likely(current && current->mm))
-		goto has_current_mm;
-
-	ret = handle_sepolicy_fn((void *)&ctx);
-	goto out_unlock;
-
-has_current_mm:
-	;
-	int old_nice = task_nice(current);
-	set_user_nice(current, -20);
-
 	ret = handle_sepolicy_fn((void *)&ctx);
 
-	set_user_nice(current, old_nice);
-
-out_unlock:
 	preempt_disable();
 	write_unlock(lock);
 	set_cpus_allowed_ptr(current, &old_mask);

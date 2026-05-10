@@ -81,30 +81,9 @@ filp_open:
 static inline void ksu_grab_init_session_keyring() {} // no-op
 #endif // KEYS && < 5.2
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-// https://elixir.bootlin.com/linux/v4.14.336/source/fs/read_write.c#L418
-static noinline ssize_t ksu_kernel_read_compat(struct file *p, void *buf, size_t count, loff_t *pos)
-{
-	mm_segment_t old_fs;
-	old_fs = get_fs();
-	set_fs(get_ds());
-	ssize_t result = vfs_read(p, (void __user *)buf, count, pos);
-	set_fs(old_fs);
-	return result;
-}
-// https://elixir.bootlin.com/linux/v4.14.336/source/fs/read_write.c#L512
-static noinline ssize_t ksu_kernel_write_compat(struct file *p, const void *buf, size_t count, loff_t *pos)
-{
-	mm_segment_t old_fs;
-	old_fs = get_fs();
-	set_fs(get_ds());
-	ssize_t res = vfs_write(p, (__force const char __user *)buf, count, pos);
-	set_fs(old_fs);
-	return res;
-}
-#define kernel_read ksu_kernel_read_compat
-#define kernel_write ksu_kernel_write_compat
-#endif // < 4.14
+#ifndef __ro_after_init
+#define __ro_after_init
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 #define d_inode(dentry) ((dentry)->d_inode)
@@ -206,6 +185,24 @@ static inline void ksu_static_key_disable(struct static_key *key)
 #endif // < 4.3
 #endif // >= 3.4 && CONFIG_JUMP_LABEL
 
+struct user_arg_ptr {
+#ifdef CONFIG_COMPAT
+	bool is_compat;
+#endif
+	union {
+		const char __user *const __user *native;
+#ifdef CONFIG_COMPAT
+		const compat_uptr_t __user *compat;
+#endif
+	} ptr;
+};
+
+#ifndef untagged_addr
+#define untagged_addr(addr) (addr)
+#endif
+
+extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
+
 /**
  * ksu_copy_from_user_retry
  * try nofault copy first, if it fails, try with plain
@@ -223,7 +220,9 @@ static __always_inline long ksu_copy_from_user_retry(void *to, const void __user
 	return copy_from_user(to, from, count);
 }
 
-extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
+#ifndef __nocfi
+#define __nocfi
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0) // caller is reponsible for sanity!
 static inline void ksu_zeroed_strncpy(char *dest, const char *src, size_t count)
@@ -268,11 +267,8 @@ __weak char *bin2hex(char *dst, const void *src, size_t count)
 #define file_inode(f) ((f)->f_path.dentry->d_inode)
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0) && !defined(KSU_HAS_SELINUX_INODE)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0) && !defined(CONFIG_LSM)
 #define selinux_inode(inode) ((inode)->i_security)
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0) && !defined(KSU_HAS_SELINUX_CRED)
 #define selinux_cred(cred) ((cred)->security)
 #endif
 
@@ -322,9 +318,30 @@ static inline u64 ksu_ktime_get_ns(void) { return ktime_to_ns(ktime_get()); }
 #endif
 #endif
 
-#ifndef untagged_addr
-#define untagged_addr(addr) (addr)
-#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
+// https://elixir.bootlin.com/linux/v4.14.336/source/fs/read_write.c#L418
+static noinline ssize_t ksu_kernel_read_compat(struct file *p, void *buf, size_t count, loff_t *pos)
+{
+	mm_segment_t old_fs;
+	old_fs = get_fs();
+	set_fs(get_ds());
+	ssize_t result = vfs_read(p, (void __user *)buf, count, pos);
+	set_fs(old_fs);
+	return result;
+}
+// https://elixir.bootlin.com/linux/v4.14.336/source/fs/read_write.c#L512
+static noinline ssize_t ksu_kernel_write_compat(struct file *p, const void *buf, size_t count, loff_t *pos)
+{
+	mm_segment_t old_fs;
+	old_fs = get_fs();
+	set_fs(get_ds());
+	ssize_t res = vfs_write(p, (__force const char __user *)buf, count, pos);
+	set_fs(old_fs);
+	return res;
+}
+#define kernel_read ksu_kernel_read_compat
+#define kernel_write ksu_kernel_write_compat
+#endif // < 4.14
 
 static inline void ksu_kfree_byref(void *buf) { kfree(*(void **)buf); }
 

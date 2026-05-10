@@ -727,10 +727,8 @@ long ksu_supercall_handle_ioctl(unsigned int cmd, void __user *argp)
 	for (i = 0; ksu_ioctl_handlers[i].handler; i++) {
 		if (cmd == ksu_ioctl_handlers[i].cmd) {
 			// Check permission first
-			if (ksu_ioctl_handlers[i].perm_check &&
-			    !ksu_ioctl_handlers[i].perm_check()) {
-				pr_warn("ksu ioctl: permission denied for cmd=0x%x uid=%d\n",
-					cmd, current_uid().val);
+			if (ksu_ioctl_handlers[i].perm_check && !ksu_ioctl_handlers[i].perm_check()) {
+				pr_warn("ksu ioctl: permission denied for cmd=0x%x uid=%d\n", cmd, current_uid().val);
 				return -EPERM;
 			}
 			// Execute handler
