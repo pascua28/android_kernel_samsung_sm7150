@@ -93,6 +93,7 @@ module_param_named(print_parsed_dt, print_parsed_dt, bool, 0664);
 
 #ifdef CONFIG_DRM_PANEL
 static bool sleep_disabled = true;
+static bool screen_on = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 static int lpm_drm_panel_notify(struct notifier_block *nb,
 		unsigned long val, void *ptr)
@@ -106,6 +107,9 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 	blank = *(int *)(evdata->data);
 	switch (blank) {
 	case MSM_DRM_BLANK_UNBLANK:
+		if (screen_on)
+			break;
+		screen_on = true;
 		sleep_disabled = true;
 		wake_up_all_idle_cpus();
 		break;
@@ -114,6 +118,9 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 	case MSM_DRM_BLANK_STANDBY:
 	case MSM_DRM_BLANK_SUSPEND:
 	case MSM_DRM_BLANK_POWERDOWN:
+		if (!screen_on)
+			break;
+		screen_on = false;
 		sleep_disabled = false;
 		wake_up_all_idle_cpus();
 		break;
