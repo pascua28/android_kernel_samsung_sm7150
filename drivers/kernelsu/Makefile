@@ -115,14 +115,4 @@ CFLAGS_ksu.o += -fno-stack-protector -fno-stack-check
 CFLAGS_REMOVE_ksu.o += -fsanitize=shadow-call-stack
 endif # CONFIG_KSU_DEBUG
 
-## For susfs stuff ##
-ifeq ($(shell test -e $(srctree)/fs/susfs.c; echo $$?),0)
-$(eval SUSFS_VERSION=$(shell cat $(srctree)/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g'))
-$(info )
-$(info -- SUSFS_VERSION: $(SUSFS_VERSION))
-else
-$(info -- You have not integrated susfs in your kernel yet.)
-$(info -- Read: https://gitlab.com/simonpunk/susfs4ksu)
-endif
-
 # Keep a new line here!! Because someone may append config
