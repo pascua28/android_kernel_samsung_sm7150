@@ -48,6 +48,10 @@
 #include "selinux/selinux.h"
 #include "selinux/sepolicy.h"
 
+#ifdef CONFIG_ARM64
+#include "arm64_bl_insn.h"
+#endif
+
 // unity build
 #include "tiny_sulog.c"
 #include "policy/allowlist.c"
@@ -76,7 +80,18 @@
 #include "sulog/fd.c"
 
 #include "hook/setuid_hook.c"
-#include "hook/core_hook.c"	// lsm
+
+#ifdef CONFIG_KSU_LSM_SECURITY_HOOKS
+	#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+	#include "hook/lsm_hooks_static.c"
+	#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)
+	#include "hook/lsm_hooks_list.c"
+	#else
+	#include "hook/lsm_hooks_ultralegacy.c"
+	#endif
+#else
+	#include "hook/lsm_hooks_manual.c"
+#endif
 
 #include "selinux/selinux.c"
 #include "selinux/sepolicy.c"
@@ -89,6 +104,10 @@
 	#include "hook/syscall_table_hook_arm.c"
 #endif
 #endif /* CONFIG_KSU_TAMPER_SYSCALL_TABLE */
+
+#ifdef CONFIG_KSU_HACK_ARM64_BRANCH_LINK
+#include "hook/branch_link_hook_arm64.c"
+#endif
 
 #if defined(CONFIG_KSU_KPROBES_KSUD) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 #include "hook/kp_ksud.c"
@@ -129,15 +148,20 @@ extern void ksu_supercalls_init();
 #else
 	#define FEAT_5 ""
 #endif
-#if defined(KSU_COMPAT_HAS_EXPORTED_POLICY_RWLOCK)
-	#define FEAT_6 " +policy_rwlock"
+#if defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
+	#define FEAT_6 " +arm64_branch_link"
 #else
 	#define FEAT_6 ""
 #endif
+#if defined(KSU_COMPAT_HAS_EXPORTED_POLICY_RWLOCK)
+	#define FEAT_7 " +policy_rwlock"
+#else
+	#define FEAT_7 ""
+#endif
 
-#define EXTRA_FEATURES FEAT_1 FEAT_2 FEAT_3 FEAT_4 FEAT_5 FEAT_6
+#define EXTRA_FEATURES FEAT_1 FEAT_2 FEAT_3 FEAT_4 FEAT_5 FEAT_6 FEAT_7
 
-int __init kernelsu_init(void)
+static int __init kernelsu_init(void)
 {
 	pr_info("Initialized on: %s (%s) with ksuver: %s%s\n", UTS_RELEASE, UTS_MACHINE, __stringify(KSU_VERSION), EXTRA_FEATURES);
 
@@ -154,6 +178,7 @@ int __init kernelsu_init(void)
 	ksu_cred = prepare_creds();
 	if (!ksu_cred) {
 		pr_err("prepare cred failed!\n");
+		return -ENOSYS;
 	}
 
 	ksu_feature_init();
@@ -187,6 +212,14 @@ int __init kernelsu_init(void)
 	ksu_ksud_init();
 
 	ksu_file_wrapper_init();
+
+#ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
+	ksu_syscall_table_hook_init();
+#endif
+
+#ifdef CONFIG_KSU_HACK_ARM64_BRANCH_LINK
+	ksu_branch_link_patch_init();
+#endif
 
 	return 0;
 }

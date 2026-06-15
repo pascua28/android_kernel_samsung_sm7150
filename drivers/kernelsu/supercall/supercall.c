@@ -53,7 +53,7 @@ static inline int ksu_handle_fd_request(void __user *arg4)
 
 	if (copy_to_user(arg4, &fd, sizeof(fd))) {
 		pr_err("install ksu fd reply err\n");
-		close_fd(fd);
+		ksu_close_fd(fd);
 	}
 
 	return 0;

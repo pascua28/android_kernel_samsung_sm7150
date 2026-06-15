@@ -146,6 +146,25 @@
 #endif
 
 /**
+ * Linux kernel forbids c99 restrict
+ * however we can use builtin's restrict
+ */
+#define restrict __restrict
+
+/**
+ * old compilers does NOT know fallthrough, this is GNU/C23
+ * however we can use a comment and it silences it
+ * ref: https://elixir.bootlin.com/linux/v4.4.302/source/tools/include/linux/compiler.h#L121
+ */
+#ifndef fallthrough
+# if defined(__GNUC__) && __GNUC__ >= 7
+#  define fallthrough __attribute__ ((fallthrough))
+# else
+#  define fallthrough do {} while (0) /* fallthrough */
+# endif
+#endif
+
+/**
  * replace common mem/str functions with builtins
  * so legacy kernels get better inlining and optimized routines (with newer compielrs)
  * a lot of people rice their flags (mcpu/march), this'll be a good reward for them.

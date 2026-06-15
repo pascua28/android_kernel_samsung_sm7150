@@ -33,7 +33,6 @@ static inline struct key *ksu_get_current_session_keyring() { return rcu_derefer
 static inline struct key *ksu_get_current_session_keyring() { return rcu_dereference(current->cred->tgcred->session_keyring); }
 #endif
 
-__attribute__((cold))
 static noinline void ksu_grab_init_session_keyring()
 {
 	if (init_session_keyring)
@@ -85,6 +84,25 @@ static inline void ksu_grab_init_session_keyring() {} // no-op
 #define __ro_after_init
 #endif
 
+extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
+
+/**
+ * ksu_copy_from_user_retry
+ * try nofault copy first, if it fails, try with plain
+ * paramters are the same as copy_from_user
+ * 0 = success
+ */
+extern long copy_from_user_nofault(void *dst, const void __user *src, size_t size);
+static __always_inline long ksu_copy_from_user_retry(void *to, const void __user *from, unsigned long count)
+{
+	long ret = copy_from_user_nofault(to, from, count);
+	if (likely(!ret))
+		return ret;
+
+	// we faulted! fallback to slow path
+	return copy_from_user(to, from, count);
+}
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 #define d_inode(dentry) ((dentry)->d_inode)
 #endif
@@ -121,13 +139,13 @@ static inline void ksu_kvfree(void *buf)
 #define TWA_RESUME 1
 #endif
 
-// this is ksys_close, however that is spotty to use 
-// as 5.10 backported close_fd and rekt ksys_close
-// so we use what it does internally, __close_fd
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
-#define close_fd(fd) __close_fd(current->files, fd)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+#define ksu_close_fd close_fd
+// this is ksys_close, however that is spotty to use, as 5.10 backported close_fd and rekt ksys_close
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0)
+#define ksu_close_fd(fd) __close_fd(current->files, fd)
 #elif LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
-#define close_fd sys_close
+#define ksu_close_fd sys_close
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 6, 0)
@@ -200,25 +218,6 @@ struct user_arg_ptr {
 #ifndef untagged_addr
 #define untagged_addr(addr) (addr)
 #endif
-
-extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
-
-/**
- * ksu_copy_from_user_retry
- * try nofault copy first, if it fails, try with plain
- * paramters are the same as copy_from_user
- * 0 = success
- */
-extern long copy_from_user_nofault(void *dst, const void __user *src, size_t size);
-static __always_inline long ksu_copy_from_user_retry(void *to, const void __user *from, unsigned long count)
-{
-	long ret = copy_from_user_nofault(to, from, count);
-	if (likely(!ret))
-		return ret;
-
-	// we faulted! fallback to slow path
-	return copy_from_user(to, from, count);
-}
 
 #ifndef __nocfi
 #define __nocfi
