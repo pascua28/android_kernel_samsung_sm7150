@@ -3,9 +3,16 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
+#include <linux/susfs.h>
 
 static int cmdline_proc_show(struct seq_file *m, void *v)
 {
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+	if (!susfs_spoof_cmdline_or_bootconfig(m)) {
+		seq_putc(m, '\n');
+		return 0;
+	}
+#endif
 	seq_printf(m, "%s\n", saved_command_line);
 	return 0;
 }
