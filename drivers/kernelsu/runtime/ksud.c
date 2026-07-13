@@ -443,17 +443,9 @@ static noinline void ksu_handle_sys_read_fd(unsigned int fd)
 #define STAT_NATIVE 0
 #define STAT_STAT64 1
 
-static noinline void ksu_common_newfstat_ret(unsigned int fd_int, void **statbuf_ptr, 
+static inline void ksu_common_newfstat_ret(unsigned int fd_int, void **statbuf_ptr, 
 			const int type, const char *syscall_name)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)
-// TODO: fix for OABI. this part has some issues with it
-// however it works on kretprobe. so this issue is really weird.
-// not that important as kernels this old does not have A17
-	if (preemptible())
-		return;
-#endif
-
 	if (!is_init(current_cred()))
 		return;
 
@@ -467,26 +459,12 @@ static noinline void ksu_common_newfstat_ret(unsigned int fd_int, void **statbuf
 	}
 	fput(file);
 
-	pr_info("%s: stat init.rc \n", syscall_name);
-
 	uintptr_t statbuf_ptr_local = (uintptr_t)*(void **)statbuf_ptr;
 	void __user *statbuf = (void __user *)statbuf_ptr_local;
 	if (!statbuf)
 		return;
 
-	void __user *st_size_ptr;
-	long size, new_size;
-	size_t len;
-
-	st_size_ptr = statbuf + offsetof(struct stat, st_size);
-	len = sizeof(long);
-
-#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
-	if (type) {
-		st_size_ptr = statbuf + offsetof(struct stat64, st_size);
-		len = sizeof(long long);
-	}
-#endif
+	pr_info("%s: stat init.rc \n", syscall_name);
 
 	// we do this for kretprobe's reusability
 	// this is pretty short, so nbd
@@ -496,19 +474,57 @@ static noinline void ksu_common_newfstat_ret(unsigned int fd_int, void **statbuf
 		got_flipped = true;
 	}
 
-	if (ksu_copy_from_user_retry(&size, st_size_ptr, len)) {
-		pr_info("%s: read statbuf 0x%lx failed \n", syscall_name, (unsigned long)st_size_ptr);
+// NOTE: Workaround to OABI's (likely) write-alignment issue.
+// weirdly enough dedicated copying with offsetof causes an issue! (somehow byte 44 is misaligned?!)
+// here we copy the whole struct, edit and write it over back!
+#if defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_COMPAT_STAT64)
+
+	if (type == STAT_NATIVE)
+		goto stat_native;
+	
+	struct stat64 k_stat64 = { 0 };
+
+	if (ksu_copy_from_user_retry(&k_stat64, statbuf, sizeof(struct stat64))) {
+		pr_info("%s: read statbuf 0x%lx failed \n", syscall_name, (uintptr_t)statbuf);
 		goto out;
 	}
 
-	new_size = size + ksu_rc_len + module_rc_len;
-	pr_info("%s: adding ksu_rc_len: %ld -> %ld (ksu_rc_len: %ld, module_rc_len: %ld) \n", syscall_name, size, new_size, ksu_rc_len, module_rc_len);
-		
-	if (!copy_to_user(st_size_ptr, &new_size, len))
-		pr_info("%s: added ksu_rc_len \n", syscall_name);
-	else
-		pr_info("%s: add ksu_rc_len failed: statbuf 0x%lx \n", syscall_name, (unsigned long)st_size_ptr);
-	
+	// take note of signed + unsigned math here (ksu_rc_len, module_rc_len are size_t)
+	// st_size is signed long long
+	long long stat64_old_size = (long long)k_stat64.st_size;
+	long long stat64_new_size = stat64_old_size + (long long)ksu_rc_len + (long long)module_rc_len;
+
+	pr_info("%s: adding ksu_rc_len: %lld -> %lld (ksu_rc_len: %zu, module_rc_len: %zu) \n", syscall_name, stat64_old_size, stat64_new_size, ksu_rc_len, module_rc_len);
+
+	k_stat64.st_size = stat64_new_size;
+
+	if (copy_to_user(statbuf, &k_stat64, sizeof(struct stat64)))
+		pr_info("%s: copy_to_user stat64 failed\n", syscall_name);
+
+	goto out;
+
+stat_native:
+#endif
+	;
+
+	struct stat k_stat = { 0 };
+
+	if (ksu_copy_from_user_retry(&k_stat, statbuf, sizeof(struct stat))) {
+		pr_info("%s: read statbuf 0x%lx failed \n", syscall_name, (uintptr_t)statbuf);
+		goto out;
+	}
+
+	// take note of signed + unsigned math here (ksu_rc_len, module_rc_len are size_t)
+	long stat_old_size = (long)k_stat.st_size;
+	long stat_new_size = stat_old_size + (long)ksu_rc_len + (long)module_rc_len;
+
+	pr_info("%s: adding ksu_rc_len: %ld -> %ld (ksu_rc_len: %zu, module_rc_len: %zu) \n", syscall_name, stat_old_size, stat_new_size, ksu_rc_len, module_rc_len);
+
+	k_stat.st_size = stat_new_size;
+
+	if (copy_to_user(statbuf, &k_stat, sizeof(struct stat)))
+		pr_info("%s: copy_to_user stat failed\n", syscall_name);
+
 out:
 	if (got_flipped)
 		preempt_disable();

@@ -1,3 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (C) 2026 \xx
+ *
+ * This file is a downstream extension and NOT affiliated, endorsed by,
+ * or maintained by the official KernelSU developers.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ */
+
 #if !defined(CONFIG_ARM64)
 #error "automated LSM hooking on 6.8+ is only for ARM64!"
 #endif
@@ -43,20 +56,9 @@ main:
 // so we can do this like on x86 where 74 xx to 74 yy
 // bl is call+ret equivalent on x86 though
 
-# if 0
-extern int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags);
-__attribute__((hot))
-static __nocfi int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags)
-{
-	ksu_rename_observer(old_dentry, new_dentry);
-	return security_inode_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
-}
-#endif
-
-// this is EXPORT_SYMBOL, this is stabler.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0) 
 extern int vfs_rename(struct renamedata *rd);
-__attribute__((hot))
-static __nocfi int ksu_vfs_rename(struct renamedata *rd)
+static int ksu_vfs_rename(struct renamedata *rd)
 {
 	int ret = vfs_rename(rd);
 	if (!ret)
@@ -64,11 +66,18 @@ static __nocfi int ksu_vfs_rename(struct renamedata *rd)
 
 	return ret;
 }
+#endif
+
+extern int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags);
+static int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags)
+{
+	ksu_rename_observer(old_dentry, new_dentry);
+	return security_inode_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
+}
 
 // setuid
 extern int security_task_fix_setuid(struct cred *new, const struct cred *old, int flags);
-__attribute__((hot))
-static __nocfi int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
+static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
 {
 	// see sys_setresuid
 	if (flags == LSM_SETID_RES)
@@ -79,8 +88,7 @@ static __nocfi int ksu_task_fix_setuid(struct cred *new, const struct cred *old,
 
 // bprm
 extern int security_bprm_check(struct linux_binprm *bprm);
-__attribute__((hot))
-static __nocfi int ksu_bprm_check(struct linux_binprm *bprm)
+static int ksu_bprm_check(struct linux_binprm *bprm)
 {
 #ifdef CONFIG_KSU_FEATURE_SULOG
 	ksu_sulog_emit_bprm((const char *)bprm->filename);
@@ -90,8 +98,7 @@ static __nocfi int ksu_bprm_check(struct linux_binprm *bprm)
 
 // vfs_read, as security_file_permission is a bit spotty to hook!
 extern ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos);
-__attribute__((hot))
-static __nocfi ssize_t ksu_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
+static ssize_t ksu_vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
 #if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
 #ifdef KSU_CAN_USE_JUMP_LABEL
@@ -106,14 +113,36 @@ static __nocfi ssize_t ksu_vfs_read(struct file *file, char __user *buf, size_t 
 	return vfs_read(file, buf, count, pos);
 }
 
-// setprocattr
+extern int security_file_permission(struct file *file, int mask);
+static int ksu_security_file_permission(struct file *file, int mask)
+{
+#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
+#ifdef KSU_CAN_USE_JUMP_LABEL
+	if (static_branch_likely(&ksud_vfs_read_key))
+		ksu_install_rc_hook(file);
+#else
+	if (unlikely(ksu_vfs_read_hook))
+		ksu_install_rc_hook(file);
+#endif
+#endif
+	return security_file_permission(file, mask);
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0) // setprocattr
 extern int security_setprocattr(int lsmid, const char *name, void *value, size_t size);
-__attribute__((hot))
-static __nocfi int ksu_setprocattr(int lsmid, const char *name, void *value, size_t size)
+static int ksu_setprocattr(int lsmid, const char *name, void *value, size_t size)
 {
 	ksu_hide_setprocattr_inline(name, value, size);
 	return security_setprocattr(lsmid, name, value, size);
 }
+#else
+extern int security_setprocattr(const char *lsm, const char *name, void *value, size_t size);
+static int ksu_setprocattr(const char *lsm, const char *name, void *value, size_t size)
+{
+	ksu_hide_setprocattr_inline(name, value, size);
+	return security_setprocattr(lsm, name, value, size);
+}
+#endif
 
 static void __init ksu_core_init(void)
 {
@@ -121,59 +150,67 @@ static void __init ksu_core_init(void)
 	uintptr_t target_callsite;
 	uintptr_t symbol_addr;
 
-#if 0
-	// rename
-	extern int vfs_rename(struct renamedata *rd);
-	target_callsite = (uintptr_t)&vfs_rename;
-	symbol_addr = (uintptr_t)&security_inode_rename;
-
-	ret = arm64_bl_patch(target_callsite, 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_inode_rename);
-	pr_info("lsm_hijack: security_inode_rename: ret %d \n", ret);
-	symbol_addr = NULL;
+#ifdef CONFIG_KPROBES
+#define ksu_kallsyms_lookup_name kp_cfi_kallsyms_lookup_name
+#else
+#define ksu_kallsyms_lookup_name kallsyms_lookup_name
 #endif
-	// rename
-	extern int do_renameat2(int olddfd, struct filename *from, int newdfd, struct filename *to, unsigned int flags);
-	target_callsite = (uintptr_t)&do_renameat2;
-	symbol_addr = (uintptr_t)&vfs_rename;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 12, 0)
+	target_callsite = ksu_kallsyms_lookup_name("do_renameat2");
+	symbol_addr = ksu_kallsyms_lookup_name("vfs_rename");
 	ret = arm64_bl_patch(target_callsite, 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_vfs_rename);
 	pr_info("lsm_hijack: vfs_rename: ret %d \n", ret);
-	symbol_addr = NULL;
-
-	// setuid
-	extern long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
-	target_callsite = (uintptr_t)&__sys_setresuid;
-	symbol_addr = (uintptr_t)&security_task_fix_setuid;
-
-	ret = arm64_bl_patch(target_callsite, 128 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_task_fix_setuid);
-	pr_info("lsm_hijack: security_task_fix_setuid: ret %d \n", ret);
-	symbol_addr = NULL;
-
-#ifdef CONFIG_KSU_FEATURE_SULOG
-	// bprm, TODO: refine
-	target_callsite = (uintptr_t)kallsyms_lookup_name("bprm_execve");
-	symbol_addr = (uintptr_t)&security_bprm_check;
-	
-	ret = arm64_bl_patch(target_callsite, 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_bprm_check);
-	pr_info("lsm_hijack: security_bprm_check: ret %d \n", ret);
-	symbol_addr = NULL;
+	if (!ret)
+		goto rename_hook_done;
 #endif
 
-	// read
-	extern ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count);
-	target_callsite = (uintptr_t)&ksys_read;
-	symbol_addr = (uintptr_t)&vfs_read;
+	target_callsite = ksu_kallsyms_lookup_name("vfs_rename2"); // 4.19 sdcardfs workaround
+	if (!target_callsite)
+		target_callsite = ksu_kallsyms_lookup_name("vfs_rename");
+	symbol_addr = ksu_kallsyms_lookup_name("security_inode_rename");
+	ret = arm64_bl_patch(target_callsite, 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_inode_rename);
+	pr_info("lsm_hijack: security_inode_rename: ret %d \n", ret);
 
-	ret = arm64_bl_patch(target_callsite, 64 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_vfs_read);
+rename_hook_done:
+	;
+
+	target_callsite = ksu_kallsyms_lookup_name("__sys_setresuid");
+	symbol_addr = ksu_kallsyms_lookup_name("security_task_fix_setuid");
+	ret = arm64_bl_patch(target_callsite, 128 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_task_fix_setuid);
+	pr_info("lsm_hijack: security_task_fix_setuid: ret %d \n", ret);
+
+#ifdef CONFIG_KSU_FEATURE_SULOG
+	symbol_addr = ksu_kallsyms_lookup_name("security_bprm_check");
+	ret = arm64_bl_patch(ksu_kallsyms_lookup_name("bprm_execve"), 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_bprm_check);
+	if (ret)
+		ret = arm64_bl_patch(ksu_kallsyms_lookup_name("search_binary_handler"), 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_bprm_check);
+	if (ret)
+		ret = arm64_bl_patch(ksu_kallsyms_lookup_name("exec_binprm"), 256 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_bprm_check);
+	pr_info("lsm_hijack: security_bprm_check: ret %d \n", ret);
+#endif
+
+#if !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE)
+	symbol_addr = ksu_kallsyms_lookup_name("vfs_read");
+	ret = arm64_bl_patch(ksu_kallsyms_lookup_name("ksys_read"), 64 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_vfs_read);
+	if (ret)
+		ret = arm64_bl_patch(ksu_kallsyms_lookup_name("__arm64_sys_read"), 64 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_vfs_read);
 	pr_info("lsm_hijack: ksys_read: ret %d \n", ret);
-	symbol_addr = NULL;
+	if (!ret)
+		goto read_hook_done;
 
-	// TODO: traverse proc_pid_attr_operations
-	target_callsite = (uintptr_t)kallsyms_lookup_name("proc_pid_attr_write");
-	symbol_addr = (uintptr_t)&security_setprocattr;
+	symbol_addr = ksu_kallsyms_lookup_name("security_file_permission");
+	ret = arm64_bl_patch(ksu_kallsyms_lookup_name("rw_verify_area"), 64 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_security_file_permission);
+	pr_info("lsm_hijack: rw_verify_area: ret %d \n", ret);
 
+read_hook_done:
+	;
+#endif
+
+	target_callsite = ksu_kallsyms_lookup_name("proc_pid_attr_write");
+	symbol_addr = ksu_kallsyms_lookup_name("security_setprocattr");
 	ret = arm64_bl_patch(target_callsite, 64 * sizeof(void *), symbol_addr, (uintptr_t)&ksu_setprocattr);
 	pr_info("lsm_hijack: security_setprocattr: ret %d \n", ret);
-	symbol_addr = NULL;
 
+#undef ksu_kallsyms_lookup_name
 }

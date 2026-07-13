@@ -2,12 +2,12 @@
 
 ## hooking
 - prefer syscalls and LSM always
-- syscall table hooking is implemented but only for !CFI
+- syscall table hooking is implemented
 - on legacy theres no kprobes/kretprobes and syscall tracepoint guarantees
 - theres no guarantee for kallsyms even!
 - lots have random backports left and right, theres no abi stability guarantee at all!
 - theres partial kp/rp support on boot-time hooks
-- theres also experimental ARM64 bl insn inline hooking support. Verified on 6.12 GKI.
+- theres also experimental ARM64 bl insn inline hooking support. Recommended for GKI.
 
 ## sucompat
 - tweaked for downstream

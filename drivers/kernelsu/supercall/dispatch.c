@@ -24,7 +24,10 @@ static int do_get_info(void __user *arg)
 {
 	struct ksu_get_info_cmd cmd = { .version = KERNEL_SU_VERSION, .flags = 0 };
 
-	// NOTE: we do not have LKM support so we don't bother with its flags or late-load
+#ifdef MODULE
+	cmd.flags |= KSU_GET_INFO_FLAG_LKM;
+#endif
+
 	if (is_manager()) {
 		cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;
 	}
@@ -49,7 +52,6 @@ static int do_get_info_legacy(void __user *arg)
 {
 	struct ksu_get_info_legacy_cmd cmd = { .version = KERNEL_SU_VERSION, .flags = 0 };
 
-	// NOTE: we do not have LKM support so we don't bother with its flags or late-load
 	if (is_manager()) {
 		cmd.flags |= KSU_GET_INFO_FLAG_MANAGER;
 	}
@@ -749,7 +751,7 @@ void __init ksu_supercall_dump_commands(void)
 
 	pr_info("KernelSU IOCTL Commands:\n");
 	for (i = 0; ksu_ioctl_handlers[i].handler; i++) {
-		pr_info("  %-18s = 0x%08x\n", ksu_ioctl_handlers[i].name, ksu_ioctl_handlers[i].cmd);
+		pr_info("  %-24s = 0x%08x\n", ksu_ioctl_handlers[i].name, ksu_ioctl_handlers[i].cmd);
 	}
 }
 

@@ -80,8 +80,20 @@ filp_open:
 static inline void ksu_grab_init_session_keyring() {} // no-op
 #endif // KEYS && < 5.2
 
+#ifndef READ_ONCE
+#define READ_ONCE(x) (*(const volatile typeof(x) *)&(x))
+#endif
+
+#ifndef WRITE_ONCE
+#define WRITE_ONCE(x, y) (*(volatile typeof(x) *)&(x) = (typeof(x))(y))
+#endif
+
 #ifndef __ro_after_init
 #define __ro_after_init
+#endif
+
+#ifndef __nocfi
+#define __nocfi
 #endif
 
 extern long copy_from_kernel_nofault(void *dst, const void *src, size_t size);
@@ -216,26 +228,58 @@ struct user_arg_ptr {
 };
 
 #ifndef untagged_addr
+#ifdef CONFIG_ARM64
+static inline __s64 ksu_sign_extend64(__u64 value, int index)
+{
+	__u8 shift = 63 - index;
+	return (__s64)(value << shift) >> shift;
+}
+#define untagged_addr(addr) ksu_sign_extend64(addr, 55)
+#else
 #define untagged_addr(addr) (addr)
 #endif
-
-#ifndef __nocfi
-#define __nocfi
-#endif
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0) // caller is reponsible for sanity!
-static inline void ksu_zeroed_strncpy(char *dest, const char *src, size_t count)
-{
-	// this is actually faster due to dead store elimination
-	// count - 1 as implicit null termination
-	__builtin_memset(dest, 0, count);
-	__builtin_strncpy(dest, src, count - 1);
-}
-#define strscpy_pad ksu_zeroed_strncpy
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 0)
-#define strscpy ksu_zeroed_strncpy
+// not 1:1, no aligned/per-word optimization
+// https://elixir.bootlin.com/linux/v4.3/source/lib/string.c#L154
+__weak ssize_t strscpy(char *dest, const char *src, size_t count)
+{
+	if (!count)
+		return -E2BIG;
+
+	// look for the first null terminator w/in count
+	// alternatively, strnlen?
+	const char *end = __builtin_memchr(src, '\0', count);
+	if (!end)
+		goto no_null_term;
+
+	size_t copy_len = end - src;
+	__builtin_memcpy(dest, src, copy_len);
+	dest[copy_len] = '\0';
+	return copy_len;
+
+no_null_term:
+	__builtin_memcpy(dest, src, count - 1);
+	dest[count - 1] = '\0';
+	return -E2BIG;
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0)
+// https://elixir.bootlin.com/linux/v5.2/source/lib/string.c#L240
+__weak ssize_t strscpy_pad(char *dest, const char *src, size_t count)
+{
+	ssize_t written;
+
+	written = strscpy(dest, src, count);
+	if (written < 0 || written == count - 1)
+		return written;
+
+	memset(dest + written + 1, 0, count - written - 1);
+
+	return written;
+}
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
@@ -292,10 +336,6 @@ __weak void groups_sort(struct group_info *group_info) { } // no-op
 #define EPOLLMSG	0x00000400
 #define EPOLLRDHUP	0x00002000
 #endif // < 4.12 && !EPOLLIN
-
-#ifndef READ_ONCE
-#define READ_ONCE(x) (*(const volatile typeof(x) *)&(x))
-#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION (3, 15, 0)
 #define task_ppid_nr(a) (pid_t)sys_getppid()

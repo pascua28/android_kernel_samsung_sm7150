@@ -11,8 +11,8 @@ MDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 $(info -- KDIR: $(KDIR))
 $(info -- MDIR: $(MDIR))
 
-# compliant to last upstream kernel change as of f0f4539
-CFLAGS_ksu.o += -DKSU_VERSION=32520
+# compliant to last upstream kernel change as of dbff91c
+CFLAGS_ksu.o += -DKSU_VERSION=32546
 
 ifndef KSU_EXPECTED_SIZE
 KSU_EXPECTED_SIZE := 0x033b
@@ -77,6 +77,11 @@ $(info -- KernelSU/compat: backported cpus_ptr found!)
 CFLAGS_ksu.o += -DKSU_COMPAT_HAS_BACKPORTED_CPUS_PTR
 endif
 
+# branch link hook, do_faccessat
+ifeq ($(shell grep "long do_faccessat" $(srctree)/fs/open.c 2>/dev/null | grep -q "flags" 2>/dev/null; echo $$?),0)
+CFLAGS_ksu.o += -DKSU_HAS_FACCESSAT2
+endif
+
 # UL, look for read_iter on f_op struct
 ifeq ($(shell grep -q "read_iter" $(srctree)/include/linux/fs.h 2>/dev/null; echo $$?),0)
 $(info -- KernelSU/compat: f_op->read_iter found!)
@@ -89,10 +94,19 @@ $(info -- KernelSU/compat: iterate_dir found!)
 CFLAGS_ksu.o += -DKSU_HAS_ITERATE_DIR
 endif
 
-CFLAGS_ksu.o += -Wno-implicit-function-declaration -Wno-strict-prototypes -Wno-declaration-after-statement 
-CFLAGS_ksu.o += -Wno-int-conversion -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast
-CFLAGS_ksu.o += -Wno-unused-variable -Wno-unused-function -Wno-format
-CFLAGS_ksu.o += -Wno-macro-redefined
+CFLAGS_ksu.o += $(call cc-option, -Wno-declaration-after-statement)
+CFLAGS_ksu.o += $(call cc-option, -Wno-implicit-function-declaration)
+CFLAGS_ksu.o += $(call cc-option, -Wno-strict-prototypes)
+CFLAGS_ksu.o += $(call cc-option, -Wno-int-conversion)
+CFLAGS_ksu.o += $(call cc-option, -Wno-int-to-pointer-cast)
+CFLAGS_ksu.o += $(call cc-option, -Wno-pointer-to-int-cast)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-variable)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-function)
+CFLAGS_ksu.o += $(call cc-option, -Wno-unused-label)
+CFLAGS_ksu.o += $(call cc-option, -Wno-format)
+CFLAGS_ksu.o += $(call cc-option, -Wno-macro-redefined)
+CFLAGS_ksu.o += $(call cc-option, -Wno-incompatible-pointer-types-discards-qualifiers)
+CFLAGS_ksu.o += $(call cc-option, -Wno-discarded-qualifiers)
 
 # dont be too strict
 CFLAGS_REMOVE_ksu.o += -Werror
@@ -106,7 +120,9 @@ CFLAGS_REMOVE_ksu.o += -fno-builtin
 ifneq ($(CONFIG_KSU_DEBUG),y)
 # strip, remove tracing / profiling
 # comment out if proper backtrace is needed
+CFLAGS_ksu.o += -O3
 CFLAGS_ksu.o += -g0 -fno-unwind-tables -fno-asynchronous-unwind-tables -fomit-frame-pointer
+CFLAGS_ksu.o += $(call cc-option, -momit-leaf-frame-pointer)
 CFLAGS_REMOVE_ksu.o = $(CC_FLAGS_FTRACE)
 CFLAGS_REMOVE_ksu.o += -pg
 
@@ -114,5 +130,11 @@ CFLAGS_REMOVE_ksu.o += -pg
 CFLAGS_ksu.o += -fno-stack-protector -fno-stack-check
 CFLAGS_REMOVE_ksu.o += -fsanitize=shadow-call-stack
 endif # CONFIG_KSU_DEBUG
+
+# Native fallback targets matching the traditional out-of-tree build method
+all:
+	$(MAKE) -C $(KDIR) M=$(MDIR) modules
+clean:
+	$(MAKE) -C $(KDIR) M=$(MDIR) clean
 
 # Keep a new line here!! Because someone may append config
