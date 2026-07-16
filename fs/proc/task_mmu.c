@@ -515,10 +515,6 @@ static int show_vma_header_prefix(struct seq_file *m, unsigned long start,
 	return 0;
 }
 
-#ifdef CONFIG_NOMOUNT
-extern bool nomount_spoof_mmap_metadata(struct inode *inode, dev_t *dev, unsigned long *ino);
-#endif
-
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 {
@@ -535,9 +531,6 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 		struct inode *inode = file_inode(vma->vm_file);
 		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
-#ifdef CONFIG_NOMOUNT
-		nomount_spoof_mmap_metadata(inode, &dev, &ino);
-#endif
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 	}
 
