@@ -3,5 +3,5 @@
 	url = https://android.googlesource.com/platform/system/tools/mkbootimg
 [submodule "KernelSU"]
 	path = KernelSU
-	url = https://github.com/sidex15/KernelSU-Next
+	url = https://github.com/pascua28/xxksu
 	branch = legacy-susfs-v2
