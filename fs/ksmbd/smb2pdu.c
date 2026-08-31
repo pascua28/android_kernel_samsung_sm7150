@@ -8231,24 +8231,6 @@ out:
 	return ret;
 }
 
-static __be32 idev_ipv4_address(struct in_device *idev)
-{
-	__be32 addr = 0;
-
-	struct in_ifaddr *ifa;
-
-	rcu_read_lock();
-	in_dev_for_each_ifa_rcu(ifa, idev) {
-		if (ifa->ifa_flags & IFA_F_SECONDARY)
-			continue;
-
-		addr = ifa->ifa_address;
-		break;
-	}
-	rcu_read_unlock();
-	return addr;
-}
-
 static int fsctl_query_iface_info_ioctl(struct ksmbd_conn *conn,
 					struct smb2_ioctl_rsp *rsp,
 					unsigned int out_buf_len)
@@ -8317,8 +8299,11 @@ ipv6_retry:
 			idev = __in_dev_get_rtnl(netdev);
 			if (!idev)
 				continue;
-			sockaddr_storage->addr4.IPv4address =
-						idev_ipv4_address(idev);
+			for_primary_ifa(idev) {
+					sockaddr_storage->addr4.IPv4address =
+						ifa->ifa_address;
+					break;
+				} endfor_ifa(idev);
 			nbytes += sizeof(struct network_interface_info_ioctl_rsp);
 			ipv4_set = true;
 			goto ipv6_retry;
