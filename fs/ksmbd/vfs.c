@@ -3281,8 +3281,10 @@ void ksmbd_vfs_posix_lock_wait(struct file_lock *flock)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
 	wait_event(flock->c.flc_wait, !flock->c.flc_blocker);
-#else
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 	wait_event(flock->fl_wait, !flock->fl_blocker);
+#else
+	wait_event_interruptible(flock->fl_wait, !flock->fl_next);
 #endif
 }
 
@@ -3291,16 +3293,19 @@ int ksmbd_vfs_posix_lock_wait_timeout(struct file_lock *flock, long timeout)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
 	return wait_event_interruptible_timeout(flock->c.flc_wait,
 						!flock->c.flc_blocker,
-#else
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 	return wait_event_interruptible_timeout(flock->fl_wait,
 						!flock->fl_blocker,
+#else
+	return wait_event_interruptible_timeout(flock->fl_wait,
+						!flock->fl_next,
 #endif
 						timeout);
 }
 
 void ksmbd_vfs_posix_lock_unblock(struct file_lock *flock)
 {
-	locks_delete_block(flock);
+	posix_unblock_lock(flock);
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
