@@ -126,10 +126,14 @@ struct ksmbd_file {
 	bool				is_resilient;
 };
 
-static inline void set_ctx_actor(struct dir_context *ctx,
+static void inline set_ctx_actor(struct dir_context *ctx,
 				 filldir_t actor)
 {
-	ctx->actor = actor;
+	struct dir_context c = {
+		.actor	= actor,
+		.pos	= ctx->pos,
+	};
+	memcpy(ctx, &c, sizeof(struct dir_context));
 }
 
 #define KSMBD_NR_OPEN_DEFAULT BITS_PER_LONG
