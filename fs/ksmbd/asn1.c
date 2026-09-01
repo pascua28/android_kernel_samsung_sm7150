@@ -18,8 +18,8 @@
 #include "asn1.h"
 #include "connection.h"
 #include "auth.h"
-#include "ksmbd_spnego_negtokeninit.asn1.h"
-#include "ksmbd_spnego_negtokentarg.asn1.h"
+#include "ksmbd_spnego_negtokeninit-asn1.h"
+#include "ksmbd_spnego_negtokentarg-asn1.h"
 
 #define SPNEGO_OID_LEN 7
 #define NTLMSSP_OID_LEN  10

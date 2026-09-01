@@ -23,13 +23,19 @@ ksmbd-y :=	unicode.o auth.o vfs.o vfs_cache.o connection.o crypto_ctx.o \
 		mgmt/tree_connect.o mgmt/user_session.o smb_common.o \
 		transport_tcp.o transport_ipc.o
 
-ksmbd-y +=	smb2pdu.o smb2ops.o smb2misc.o ksmbd_spnego_negtokeninit.asn1.o \
-		ksmbd_spnego_negtokentarg.asn1.o asn1.o compat.o
+ksmbd-y +=	smb2pdu.o smb2ops.o smb2misc.o ksmbd_spnego_negtokeninit-asn1.o \
+		ksmbd_spnego_negtokentarg-asn1.o asn1.o compat.o
 
-$(obj)/asn1.o: $(obj)/ksmbd_spnego_negtokeninit.asn1.h $(obj)/ksmbd_spnego_negtokentarg.asn1.h
+$(obj)/asn1.o: $(obj)/ksmbd_spnego_negtokeninit-asn1.h \
+		$(obj)/ksmbd_spnego_negtokentarg-asn1.h
 
-$(obj)/ksmbd_spnego_negtokeninit.asn1.o: $(obj)/ksmbd_spnego_negtokeninit.asn1.c $(obj)/ksmbd_spnego_negtokeninit.asn1.h
-$(obj)/ksmbd_spnego_negtokentarg.asn1.o: $(obj)/ksmbd_spnego_negtokentarg.asn1.c $(obj)/ksmbd_spnego_negtokentarg.asn1.h
+$(obj)/ksmbd_spnego_negtokeninit-asn1.o: \
+		$(obj)/ksmbd_spnego_negtokeninit-asn1.c \
+		$(obj)/ksmbd_spnego_negtokeninit-asn1.h
+
+$(obj)/ksmbd_spnego_negtokentarg-asn1.o: \
+		$(obj)/ksmbd_spnego_negtokentarg-asn1.c \
+		$(obj)/ksmbd_spnego_negtokentarg-asn1.h
 
 ksmbd-$(CONFIG_SMB_INSECURE_SERVER) += smb1pdu.o smb1ops.o smb1misc.o netmisc.o
 ksmbd-$(CONFIG_SMB_SERVER_SMBDIRECT) += transport_rdma.o
