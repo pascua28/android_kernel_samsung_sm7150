@@ -226,7 +226,8 @@ static int ksmbd_tcp_new_connection(struct socket *client_sk)
 	}
 
 	csin = KSMBD_TCP_PEER_SOCKADDR(KSMBD_TRANS(t)->conn);
-	if (kernel_getpeername(client_sk, csin) < 0) {
+	int cslen;
+	if (kernel_getpeername(client_sk, csin, &cslen) < 0) {
 		pr_err("client ip resolution failed\n");
 		rc = -EINVAL;
 		goto out_error;

@@ -206,12 +206,8 @@ static struct genl_family ksmbd_genl_family = {
 static void ksmbd_nl_init_fixup(void)
 {
 	int i;
-
 	for (i = 0; i < ARRAY_SIZE(ksmbd_genl_ops); i++)
-		ksmbd_genl_ops[i].validate = GENL_DONT_VALIDATE_STRICT |
-						GENL_DONT_VALIDATE_DUMP;
-
-	ksmbd_genl_family.policy = ksmbd_nl_policy;
+		ksmbd_genl_ops[i].policy = ksmbd_nl_policy;
 }
 
 static int rpc_context_flags(struct ksmbd_session *sess)
