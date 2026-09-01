@@ -14,6 +14,7 @@
 #include "smb1pdu.h"
 #endif
 #include "mgmt/ksmbd_ida.h"
+#include "mgmt/user_session.h"
 #include "connection.h"
 #include "transport_tcp.h"
 #include "transport_rdma.h"
@@ -39,7 +40,6 @@ void ksmbd_conn_free(struct ksmbd_conn *conn)
 	list_del(&conn->conns_list);
 	up_write(&conn_list_lock);
 
-	xa_destroy(&conn->sessions);
 	kvfree(conn->request_buf);
 	kfree(conn->preauth_info);
 	kfree(conn);
@@ -85,8 +85,9 @@ struct ksmbd_conn *ksmbd_conn_alloc(void)
 	INIT_LIST_HEAD(&conn->async_requests);
 	spin_lock_init(&conn->request_lock);
 	spin_lock_init(&conn->credits_lock);
+
 	ida_init(&conn->async_ida);
-	xa_init(&conn->sessions);
+	INIT_LIST_HEAD(&conn->sessions);
 
 	spin_lock_init(&conn->llist_lock);
 	INIT_LIST_HEAD(&conn->lock_list);
@@ -174,11 +175,23 @@ void ksmbd_conn_unlock(struct ksmbd_conn *conn)
 void ksmbd_all_conn_set_status(u64 sess_id, u32 status)
 {
 	struct ksmbd_conn *conn;
+	struct ksmbd_session *sess;
 
 	down_read(&conn_list_lock);
 	list_for_each_entry(conn, &conn_list, conns_list) {
-		if (conn->binding || xa_load(&conn->sessions, sess_id))
+		if (conn->binding) {
 			WRITE_ONCE(conn->status, status);
+			continue;
+		}
+
+		down_read(&conn->session_lock);
+		list_for_each_entry(sess, &conn->sessions, sessions_list) {
+			if (sess->id == sess_id) {
+				WRITE_ONCE(conn->status, status);
+				break;
+			}
+		}
+		up_read(&conn->session_lock);
 	}
 	up_read(&conn_list_lock);
 }

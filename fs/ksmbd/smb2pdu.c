@@ -79,9 +79,21 @@ static inline bool check_session_id(struct ksmbd_conn *conn, u64 id)
 	return false;
 }
 
-struct channel *lookup_chann_list(struct ksmbd_session *sess, struct ksmbd_conn *conn)
+struct channel *lookup_chann_list(struct ksmbd_session *sess,
+				  struct ksmbd_conn *conn)
 {
-	return xa_load(&sess->ksmbd_chann_list, (long)conn);
+	struct channel *chann;
+
+	down_read(&sess->chann_lock);
+	list_for_each_entry(chann, &sess->ksmbd_chann_list, list) {
+		if (chann->conn == conn) {
+			up_read(&sess->chann_lock);
+			return chann;
+		}
+	}
+	up_read(&sess->chann_lock);
+
+	return NULL;
 }
 
 /**
@@ -104,7 +116,7 @@ int smb2_get_ksmbd_tcon(struct ksmbd_work *work)
 		return 0;
 	}
 
-	if (xa_empty(&work->sess->tree_conns)) {
+	if (list_empty(&work->sess->tree_conns)) {
 		ksmbd_debug(SMB, "NO tree connected\n");
 		return -ENOENT;
 	}
@@ -1556,8 +1568,11 @@ binding_session:
 			if (!chann)
 				return -ENOMEM;
 
+			INIT_LIST_HEAD(&chann->list);
 			chann->conn = conn;
-			xa_store(&sess->ksmbd_chann_list, (long)conn, chann, GFP_KERNEL);
+			down_write(&sess->chann_lock);
+			list_add(&chann->list, &sess->ksmbd_chann_list);
+			up_write(&sess->chann_lock);
 		}
 	}
 
@@ -1639,8 +1654,11 @@ static int krb5_authenticate(struct ksmbd_work *work,
 			if (!chann)
 				return -ENOMEM;
 
+			INIT_LIST_HEAD(&chann->list);
 			chann->conn = conn;
-			xa_store(&sess->ksmbd_chann_list, (long)conn, chann, GFP_KERNEL);
+			down_write(&sess->chann_lock);
+			list_add(&chann->list, &sess->ksmbd_chann_list);
+			up_write(&sess->chann_lock);
 		}
 	}
 
