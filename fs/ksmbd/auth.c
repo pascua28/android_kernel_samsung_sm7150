@@ -85,6 +85,7 @@ str_to_key(unsigned char *str, unsigned char *key)
 		key[i] = (key[i] << 1);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
 static int
 smbhash(unsigned char *out, const unsigned char *in, unsigned char *key)
 {
@@ -102,6 +103,35 @@ smbhash(unsigned char *out, const unsigned char *in, unsigned char *key)
 	memzero_explicit(&ctx, sizeof(ctx));
 	return 0;
 }
+#else
+static int
+smbhash(unsigned char *out, const unsigned char *in, unsigned char *key)
+{
+	int rc;
+	unsigned char key2[8];
+	struct scatterlist sgin, sgout;
+	struct ksmbd_crypto_ctx *ctx;
+
+	str_to_key(key, key2);
+
+	ctx = ksmbd_crypto_ctx_find_ecbdes();
+	if (!ctx) {
+		ksmbd_debug(AUTH, "could not allocate des crypto API\n");
+		return -EINVAL;
+	}
+
+	crypto_blkcipher_setkey(CRYPTO_ECBDES_TFM(ctx), key2, 8);
+
+	sg_init_one(&sgin, in, 8);
+	sg_init_one(&sgout, out, 8);
+
+	rc = crypto_blkcipher_encrypt(CRYPTO_ECBDES(ctx), &sgout, &sgin, 8);
+	if (rc)
+		ksmbd_debug(AUTH, "could not encrypt crypt key rc: %d\n", rc);
+	ksmbd_release_crypto_ctx(ctx);
+	return rc;
+}
+#endif
 
 static int ksmbd_enc_p24(unsigned char *p21, const unsigned char *c8, unsigned char *p24)
 {

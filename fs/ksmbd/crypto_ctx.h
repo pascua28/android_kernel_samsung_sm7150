@@ -36,6 +36,9 @@ struct ksmbd_crypto_ctx {
 
 	struct shash_desc		*desc[CRYPTO_SHASH_MAX];
 	struct crypto_aead		*ccmaes[CRYPTO_AEAD_MAX];
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+	struct blkcipher_desc		*blk_desc[CRYPTO_BLK_MAX];
+#endif
 };
 
 #define CRYPTO_HMACMD5(c)	((c)->desc[CRYPTO_SHASH_HMACMD5])
@@ -58,6 +61,11 @@ struct ksmbd_crypto_ctx {
 #define CRYPTO_GCM(c)		((c)->ccmaes[CRYPTO_AEAD_AES_GCM])
 #define CRYPTO_CCM(c)		((c)->ccmaes[CRYPTO_AEAD_AES_CCM])
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+#define CRYPTO_ECBDES(c)	((c)->blk_desc[CRYPTO_BLK_ECBDES])
+#define CRYPTO_ECBDES_TFM(c)	((c)->blk_desc[CRYPTO_BLK_ECBDES]->tfm)
+#endif
+
 void ksmbd_release_crypto_ctx(struct ksmbd_crypto_ctx *ctx);
 struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_hmacmd5(void);
 struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_hmacsha256(void);
@@ -68,6 +76,11 @@ struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_md4(void);
 struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_md5(void);
 struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_gcm(void);
 struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_ccm(void);
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
+struct ksmbd_crypto_ctx *ksmbd_crypto_ctx_find_ecbdes(void);
+#endif
+
 void ksmbd_crypto_destroy(void);
 int ksmbd_crypto_create(void);
 
