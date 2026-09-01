@@ -52,7 +52,7 @@ struct ksmbd_conn {
 	struct list_head		conns_list;
 	struct rw_semaphore		session_lock;
 	/* smb session 1 per user */
-	struct xarray			sessions;
+	struct list_head		sessions;
 	unsigned long			last_active;
 	/* How many request are running currently */
 	atomic_t			req_running;

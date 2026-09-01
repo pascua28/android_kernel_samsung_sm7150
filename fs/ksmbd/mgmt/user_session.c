@@ -6,7 +6,6 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/rwsem.h>
-#include <linux/xarray.h>
 
 #include "ksmbd_ida.h"
 #include "user_session.h"
@@ -25,19 +24,20 @@ static DECLARE_RWSEM(sessions_table_lock);
 struct ksmbd_session_rpc {
 	int			id;
 	unsigned int		method;
+	struct list_head	list;
 };
 
 static void free_channel_list(struct ksmbd_session *sess)
 {
 	struct channel *chann;
-	unsigned long index;
+	struct channel *tmp;
 
-	xa_for_each(&sess->ksmbd_chann_list, index, chann) {
-		xa_erase(&sess->ksmbd_chann_list, index);
+	down_write(&sess->chann_lock);
+	list_for_each_entry_safe(chann, tmp, &sess->ksmbd_chann_list, list) {
+		list_del(&chann->list);
 		kfree(chann);
 	}
-
-	xa_destroy(&sess->ksmbd_chann_list);
+	up_write(&sess->chann_lock);
 }
 
 static void __session_rpc_close(struct ksmbd_session *sess,
@@ -57,14 +57,14 @@ static void __session_rpc_close(struct ksmbd_session *sess,
 static void ksmbd_session_rpc_clear_list(struct ksmbd_session *sess)
 {
 	struct ksmbd_session_rpc *entry;
-	long index;
+	struct ksmbd_session_rpc *tmp;
 
-	xa_for_each(&sess->rpc_handle_list, index, entry) {
-		xa_erase(&sess->rpc_handle_list, index);
+	down_write(&sess->rpc_lock);
+	list_for_each_entry_safe(entry, tmp, &sess->rpc_handle_list, list) {
+		list_del_init(&entry->list);
 		__session_rpc_close(sess, entry);
 	}
-
-	xa_destroy(&sess->rpc_handle_list);
+	up_write(&sess->rpc_lock);
 }
 
 static int __rpc_method(char *rpc_name)
@@ -106,16 +106,23 @@ int ksmbd_session_rpc_open(struct ksmbd_session *sess, char *rpc_name)
 	entry->id = ksmbd_ipc_id_alloc();
 	if (entry->id < 0)
 		goto free_entry;
-	xa_store(&sess->rpc_handle_list, entry->id, entry, GFP_KERNEL);
+
+	INIT_LIST_HEAD(&entry->list);
+	down_read(&sess->rpc_lock);
+	list_add(&entry->list, &sess->rpc_handle_list);
 
 	resp = ksmbd_rpc_open(sess, entry->id);
-	if (!resp)
+	if (!resp) {
+		list_del_init(&entry->list);
+		up_read(&sess->rpc_lock);
 		goto free_id;
+	}
 
+	up_read(&sess->rpc_lock);
 	kvfree(resp);
 	return entry->id;
+
 free_id:
-	xa_erase(&sess->rpc_handle_list, entry->id);
 	ksmbd_rpc_id_free(entry->id);
 free_entry:
 	kfree(entry);
@@ -126,17 +133,30 @@ void ksmbd_session_rpc_close(struct ksmbd_session *sess, int id)
 {
 	struct ksmbd_session_rpc *entry;
 
-	entry = xa_erase(&sess->rpc_handle_list, id);
-	if (entry)
+	down_write(&sess->rpc_lock);
+	list_for_each_entry(entry, &sess->rpc_handle_list, list) {
+		if (entry->id != id)
+			continue;
+
+		list_del_init(&entry->list);
 		__session_rpc_close(sess, entry);
+		up_write(&sess->rpc_lock);
+		return;
+	}
+	up_write(&sess->rpc_lock);
 }
 
 int ksmbd_session_rpc_method(struct ksmbd_session *sess, int id)
 {
 	struct ksmbd_session_rpc *entry;
 
-	entry = xa_load(&sess->rpc_handle_list, id);
-	return entry ? entry->method : 0;
+	lockdep_assert_held(&sess->rpc_lock);
+	list_for_each_entry(entry, &sess->rpc_handle_list, list) {
+		if (entry->id == id)
+			return entry->method;
+	}
+
+	return 0;
 }
 
 void ksmbd_session_destroy(struct ksmbd_session *sess)
@@ -171,24 +191,24 @@ struct ksmbd_session *__session_lookup(unsigned long long id)
 
 static void ksmbd_expire_session(struct ksmbd_conn *conn)
 {
-	unsigned long id;
 	struct ksmbd_session *sess;
+	struct ksmbd_session *tmp;
 
 	down_write(&conn->session_lock);
-	xa_for_each(&conn->sessions, id, sess) {
-		if (sess->state != SMB2_SESSION_VALID ||
-		    time_after(jiffies,
-			       sess->last_active + SMB2_SESSION_TIMEOUT)) {
-			xa_erase(&conn->sessions, sess->id);
-#ifdef CONFIG_SMB_INSECURE_SERVER
-			if (hash_hashed(&sess->hlist))
-				hash_del(&sess->hlist);
-#else
-			hash_del(&sess->hlist);
-#endif
-			ksmbd_session_destroy(sess);
+	list_for_each_entry_safe(sess, tmp, &conn->sessions, sessions_list) {
+		if (sess->state == SMB2_SESSION_VALID &&
+		    !time_after(jiffies,
+				sess->last_active + SMB2_SESSION_TIMEOUT))
 			continue;
-		}
+
+		list_del_init(&sess->sessions_list);
+#ifdef CONFIG_SMB_INSECURE_SERVER
+		if (hash_hashed(&sess->hlist))
+			hash_del(&sess->hlist);
+#else
+		hash_del(&sess->hlist);
+#endif
+		ksmbd_session_destroy(sess);
 	}
 	up_write(&conn->session_lock);
 }
@@ -199,37 +219,46 @@ int ksmbd_session_register(struct ksmbd_conn *conn,
 	sess->dialect = conn->dialect;
 	memcpy(sess->ClientGUID, conn->ClientGUID, SMB2_CLIENT_GUID_SIZE);
 	ksmbd_expire_session(conn);
-	return xa_err(xa_store(&conn->sessions, sess->id, sess, GFP_KERNEL));
+
+	down_write(&conn->session_lock);
+	list_add(&sess->sessions_list, &conn->sessions);
+	up_write(&conn->session_lock);
+
+	return 0;
 }
 
 static int ksmbd_chann_del(struct ksmbd_conn *conn, struct ksmbd_session *sess)
 {
 	struct channel *chann;
 
-	chann = xa_erase(&sess->ksmbd_chann_list, (long)conn);
-	if (!chann)
-		return -ENOENT;
+	list_for_each_entry(chann, &sess->ksmbd_chann_list, list) {
+		if (chann->conn != conn)
+			continue;
 
-	kfree(chann);
-	return 0;
+		list_del_init(&chann->list);
+		kfree(chann);
+		return 0;
+	}
+
+	return -ENOENT;
 }
 
 void ksmbd_sessions_deregister(struct ksmbd_conn *conn)
 {
 	struct ksmbd_session *sess;
-	unsigned long id;
+	struct ksmbd_session *tmp;
 
 	down_write(&sessions_table_lock);
 	if (conn->binding) {
 		int bkt;
-		struct hlist_node *tmp;
+		struct hlist_node *tmp_hlist;
 
-		hash_for_each_safe(sessions_table, bkt, tmp, sess, hlist) {
+		hash_for_each_safe(sessions_table, bkt, tmp_hlist, sess, hlist) {
 			if (!ksmbd_chann_del(conn, sess) &&
-			    xa_empty(&sess->ksmbd_chann_list)) {
+			    list_empty(&sess->ksmbd_chann_list)) {
 #ifdef CONFIG_SMB_INSECURE_SERVER
-			if (hash_hashed(&sess->hlist))
-				hash_del(&sess->hlist);
+				if (hash_hashed(&sess->hlist))
+					hash_del(&sess->hlist);
 #else
 				hash_del(&sess->hlist);
 #endif
@@ -240,18 +269,17 @@ void ksmbd_sessions_deregister(struct ksmbd_conn *conn)
 	up_write(&sessions_table_lock);
 
 	down_write(&conn->session_lock);
-	xa_for_each(&conn->sessions, id, sess) {
-		unsigned long chann_id;
+	list_for_each_entry_safe(sess, tmp, &conn->sessions, sessions_list) {
 		struct channel *chann;
 
-		xa_for_each(&sess->ksmbd_chann_list, chann_id, chann) {
+		list_for_each_entry(chann, &sess->ksmbd_chann_list, list) {
 			if (chann->conn != conn)
 				ksmbd_conn_set_exiting(chann->conn);
 		}
 
 		ksmbd_chann_del(conn, sess);
-		if (xa_empty(&sess->ksmbd_chann_list)) {
-			xa_erase(&conn->sessions, sess->id);
+		if (list_empty(&sess->ksmbd_chann_list)) {
+			list_del_init(&sess->sessions_list);
 #ifdef CONFIG_SMB_INSECURE_SERVER
 			if (hash_hashed(&sess->hlist))
 				hash_del(&sess->hlist);
@@ -265,16 +293,22 @@ void ksmbd_sessions_deregister(struct ksmbd_conn *conn)
 }
 
 struct ksmbd_session *ksmbd_session_lookup(struct ksmbd_conn *conn,
-					   unsigned long long id)
+					    unsigned long long id)
 {
 	struct ksmbd_session *sess;
 
 	down_read(&conn->session_lock);
-	sess = xa_load(&conn->sessions, id);
-	if (sess)
+	list_for_each_entry(sess, &conn->sessions, sessions_list) {
+		if (sess->id != id)
+			continue;
+
 		sess->last_active = jiffies;
+		up_read(&conn->session_lock);
+		return sess;
+	}
 	up_read(&conn->session_lock);
-	return sess;
+
+	return NULL;
 }
 
 struct ksmbd_session *ksmbd_session_lookup_slowpath(unsigned long long id)
@@ -401,11 +435,14 @@ static struct ksmbd_session *__session_create(int protocol)
 	sess->last_active = jiffies;
 	sess->state = SMB2_SESSION_IN_PROGRESS;
 	set_session_flag(sess, protocol);
-	xa_init(&sess->tree_conns);
-	xa_init(&sess->ksmbd_chann_list);
-	xa_init(&sess->rpc_handle_list);
+	INIT_LIST_HEAD(&sess->tree_conns);
+	INIT_LIST_HEAD(&sess->ksmbd_chann_list);
+	INIT_LIST_HEAD(&sess->rpc_handle_list);
+	INIT_LIST_HEAD(&sess->sessions_list);
 	sess->sequence_number = 1;
 	rwlock_init(&sess->tree_conns_lock);
+	init_rwsem(&sess->chann_lock);
+	init_rwsem(&sess->rpc_lock);
 
 	switch (protocol) {
 #ifdef CONFIG_SMB_INSECURE_SERVER

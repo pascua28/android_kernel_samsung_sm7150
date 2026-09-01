@@ -5,7 +5,6 @@
 
 #include <linux/list.h>
 #include <linux/slab.h>
-#include <linux/xarray.h>
 
 #include "../transport_ipc.h"
 #include "../connection.h"
@@ -24,7 +23,6 @@ ksmbd_tree_conn_connect(struct ksmbd_conn *conn, struct ksmbd_session *sess,
 	struct ksmbd_share_config *sc;
 	struct ksmbd_tree_connect *tree_conn = NULL;
 	struct sockaddr *peer_addr;
-	int ret;
 
 	sc = ksmbd_share_config_get(conn->um, share_name);
 	if (!sc)
@@ -78,12 +76,10 @@ ksmbd_tree_conn_connect(struct ksmbd_conn *conn, struct ksmbd_session *sess,
 	atomic_set(&tree_conn->refcount, 1);
 	init_waitqueue_head(&tree_conn->refcount_q);
 
-	ret = xa_err(xa_store(&sess->tree_conns, tree_conn->id, tree_conn,
-			      GFP_KERNEL));
-	if (ret) {
-		status.ret = -ENOMEM;
-		goto out_error;
-	}
+	write_lock(&sess->tree_conns_lock);
+	list_add(&tree_conn->list, &sess->tree_conns);
+	write_unlock(&sess->tree_conns_lock);
+
 	kvfree(resp);
 	return status;
 
@@ -114,7 +110,7 @@ int ksmbd_tree_conn_disconnect(struct ksmbd_session *sess,
 	int ret;
 
 	write_lock(&sess->tree_conns_lock);
-	xa_erase(&sess->tree_conns, tree_conn->id);
+	list_del_init(&tree_conn->list);
 	write_unlock(&sess->tree_conns_lock);
 
 	if (!atomic_dec_and_test(&tree_conn->refcount))
@@ -132,30 +128,34 @@ struct ksmbd_tree_connect *ksmbd_tree_conn_lookup(struct ksmbd_session *sess,
 						  unsigned int id)
 {
 	struct ksmbd_tree_connect *tcon;
+	struct ksmbd_tree_connect *iter;
 
 	read_lock(&sess->tree_conns_lock);
-	tcon = xa_load(&sess->tree_conns, id);
-	if (tcon) {
-		if (tcon->t_state != TREE_CONNECTED)
+	list_for_each_entry(iter, &sess->tree_conns, list) {
+		if (iter->id != id)
+			continue;
+
+		tcon = iter;
+		if (tcon->t_state != TREE_CONNECTED ||
+		    !atomic_inc_not_zero(&tcon->refcount))
 			tcon = NULL;
-		else if (!atomic_inc_not_zero(&tcon->refcount))
-			tcon = NULL;
+		read_unlock(&sess->tree_conns_lock);
+		return tcon;
 	}
 	read_unlock(&sess->tree_conns_lock);
 
-	return tcon;
+	return NULL;
 }
 
 int ksmbd_tree_conn_session_logoff(struct ksmbd_session *sess)
 {
 	int ret = 0;
-	struct ksmbd_tree_connect *tc;
-	unsigned long id;
+	struct ksmbd_tree_connect *tc, *tmp;
 
 	if (!sess)
 		return -EINVAL;
 
-	xa_for_each(&sess->tree_conns, id, tc) {
+	list_for_each_entry_safe(tc, tmp, &sess->tree_conns, list) {
 		write_lock(&sess->tree_conns_lock);
 		if (tc->t_state == TREE_DISCONNECTED) {
 			write_unlock(&sess->tree_conns_lock);
@@ -167,6 +167,6 @@ int ksmbd_tree_conn_session_logoff(struct ksmbd_session *sess)
 
 		ret |= ksmbd_tree_conn_disconnect(sess, tc);
 	}
-	xa_destroy(&sess->tree_conns);
+
 	return ret;
 }
