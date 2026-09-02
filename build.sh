@@ -8,7 +8,7 @@ build_kernel() {
     export ARCH=arm64
     mkdir out
 
-    export PATH=$(pwd)/llvm-21/bin:$PATH
+    export PATH=$(pwd)/llvm-22/bin:$PATH
 
     BUILD_VAR="-j$(nproc) -C $(pwd) O=$(pwd)/out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
 

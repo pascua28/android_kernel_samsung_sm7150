@@ -37,10 +37,10 @@ jobs:
 
       - name: Download prebuilt Google clang
         run: |
-          wget -O llvm.tar.zst https://github.com/Ylarod/setup-ndk-clang/releases/download/prebuilt/clang-linux-x86-ndk-r29-r563880c.tar.zst
-          mkdir llvm-21; cd llvm-21
-          tar -I unzstd -xf ../llvm.tar.zst
-          rm ../llvm.tar.zst
+          wget -O llvm.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/mirror-goog-main-llvm-toolchain-source/clang-r596125.tar.gz
+          mkdir llvm-22; cd llvm-22
+          tar -xf ../llvm.tar.gz
+          rm ../llvm.tar.gz
           cd ..
 
       # 2. Run your custom bash script
