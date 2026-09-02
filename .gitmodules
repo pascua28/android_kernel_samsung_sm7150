@@ -5,3 +5,6 @@
 	path = KernelSU
 	url = https://github.com/manipvlator/KernelSU-Next
 	branch = syscall
+[submodule "NoMount"]
+	path = NoMount
+	url = https://github.com/maxsteeel/nomount
