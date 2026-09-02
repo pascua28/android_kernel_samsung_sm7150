@@ -749,11 +749,14 @@ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS   += -Os
 else
 KBUILD_CFLAGS   += -O3
-ifeq ($(cc-name),gcc)
-KBUILD_CFLAGS	+= -mcpu=cortex-a76+crc+crypto -mtune=cortex-a76 -march=armv8.2-a+crc+crypto
-endif
 ifeq ($(cc-name),clang)
-KBUILD_CFLAGS	+= -mcpu=cortex-a76+crc+crypto -mtune=cortex-a76 -march=armv8.2-a+crc+crypto
+# Enable hot cold split optimization
+KBUILD_CFLAGS	+= -mllvm -hot-cold-split=true
+# Enable MLGO optimizations for register allocation
+KBUILD_CFLAGS	+= -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS	+= -O3 --plugin-opt=O3
+KBUILD_LDFLAGS	+= -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS	+= -mllvm -enable-ml-inliner=release
 endif
 endif
 
