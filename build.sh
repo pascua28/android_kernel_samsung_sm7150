@@ -13,7 +13,7 @@ build_kernel() {
     export ARCH=arm64
     mkdir out
 
-    export PATH=$(pwd)/llvm-21/bin:$PATH
+    export PATH=$(pwd)/llvm-22/bin:$PATH
 
     KERNEL_MAKE_ENV="DTC_EXT=$(pwd)/tools/dtc CONFIG_BUILD_ARM64_DT_OVERLAY=y"
     BUILD_VAR="-j$(nproc) -C $(pwd) O=$(pwd)/out $KERNEL_MAKE_ENV ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
