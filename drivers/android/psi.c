@@ -16,6 +16,8 @@ __setup("psi=", setup_psi);
 
 static int psi_memory_show(struct seq_file *m, void *v)
 {
+	seq_printf(m, "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n");
+	seq_printf(m, "full avg10=0.00 avg60=0.00 avg300=0.00 total=0\n");
 	return 0;
 }
 
