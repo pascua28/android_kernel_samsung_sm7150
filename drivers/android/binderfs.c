@@ -19,6 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/mount.h>
 #include <linux/parser.h>
+#include <linux/radix-tree.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
