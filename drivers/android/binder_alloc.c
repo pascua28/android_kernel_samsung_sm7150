@@ -38,9 +38,9 @@
 #include <linux/sched/jobctl.h>
 #endif
 
-struct list_lru binder_alloc_lru;
-
 extern int system_server_pid;
+
+struct list_lru binder_alloc_lru;
 
 static DEFINE_MUTEX(binder_alloc_mmap_lock);
 
@@ -411,10 +411,6 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 	size_t size, data_offsets_size;
 	int ret;
 
-#ifdef CONFIG_SAMSUNG_FREECESS
-	struct task_struct *p = NULL;
-#endif
-
 	if (!binder_alloc_get_vma(alloc)) {
 		pr_err("%d: binder_alloc_buf, no vma\n",
 		       alloc->pid);
@@ -438,9 +434,14 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 		return ERR_PTR(-EINVAL);
 	}
 
+	/* Pad 0-size buffers so they get assigned unique addresses */
+	size = max(size, sizeof(void *));
+
 #ifdef CONFIG_SAMSUNG_FREECESS
-	if (is_async && (alloc->free_async_space < 3 * size
-		|| (alloc->free_async_space < alloc->buffer_size / 4))) {
+	if (is_async && (alloc->free_async_space < 3*(size + sizeof(struct binder_buffer))
+		|| (alloc->free_async_space < alloc->buffer_size/4))) {
+		struct task_struct *p;
+
 		rcu_read_lock();
 		p = find_task_by_vpid(alloc->pid);
 		rcu_read_unlock();
@@ -448,9 +449,6 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 			binder_report(p, -1, "free_buffer_full", is_async);
 	}
 #endif
-
-	/* Pad 0-size buffers so they get assigned unique addresses */
-	size = max(size, sizeof(void *));
 
 	if (is_async && alloc->free_async_space < size) {
 		binder_alloc_debug(BINDER_DEBUG_BUFFER_ALLOC,
@@ -560,8 +558,8 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 		alloc->free_async_space -= size;
 		if ((system_server_pid == alloc->pid) && (alloc->free_async_space <= 153600)) { // 150K
 			pr_info("%d: [free_size<150K] binder_alloc_buf size %zd async free %zd\n",
-                                 alloc->pid, size, alloc->free_async_space);
-                }
+				alloc->pid, size, alloc->free_async_space);
+		}
 		if ((system_server_pid == alloc->pid) && (size >= 122880)) { // 120K
 			pr_info("%d: [alloc_size>120K] binder_alloc_buf size %zd async free %zd\n",
 				alloc->pid, size, alloc->free_async_space);
