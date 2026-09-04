@@ -285,21 +285,6 @@ struct binder_frozen_status_info {
 	__u32            async_recv;
 };
 
-/* struct binder_extened_error - extended error information
- * @id:		identifier for the failed operation
- * @command:	command as defined by binder_driver_return_protocol
- * @param:	parameter holding a negative errno value
- *
- * Used with BINDER_GET_EXTENDED_ERROR. This extends the error information
- * returned by the driver upon a failed operation. Userspace can pull this
- * data to properly handle specific error scenarios.
- */
-struct binder_extended_error {
-	__u32	id;
-	__u32	command;
-	__s32	param;
-};
-
 #define BINDER_WRITE_READ		_IOWR('b', 1, struct binder_write_read)
 #define BINDER_SET_IDLE_TIMEOUT		_IOW('b', 3, __s64)
 #define BINDER_SET_MAX_THREADS		_IOW('b', 5, __u32)
@@ -310,11 +295,10 @@ struct binder_extended_error {
 #define BINDER_GET_NODE_DEBUG_INFO	_IOWR('b', 11, struct binder_node_debug_info)
 #define BINDER_GET_NODE_INFO_FOR_REF	_IOWR('b', 12, struct binder_node_info_for_ref)
 #define BINDER_SET_CONTEXT_MGR_EXT	_IOW('b', 13, struct flat_binder_object)
-#define BINDER_SET_SYSTEM_SERVER_PID		_IOW('b', 14, __u32)
-#define BINDER_FREEZE			_IOW('b', 15, struct binder_freeze_info)
-#define BINDER_GET_FROZEN_INFO		_IOWR('b', 16, struct binder_frozen_status_info)
-#define BINDER_ENABLE_ONEWAY_SPAM_DETECTION	_IOW('b', 17, __u32)
-#define BINDER_GET_EXTENDED_ERROR	_IOWR('b', 18, struct binder_extended_error)
+#define BINDER_FREEZE			_IOW('b', 14, struct binder_freeze_info)
+#define BINDER_GET_FROZEN_INFO		_IOWR('b', 15, struct binder_frozen_status_info)
+#define BINDER_ENABLE_ONEWAY_SPAM_DETECTION	_IOW('b', 16, __u32)
+#define BINDER_SET_SYSTEM_SERVER_PID	_IOW('b', 17, __u32)
 
 /*
  * NOTE: Two special error codes you should check for when calling
@@ -429,7 +413,6 @@ enum binder_driver_return_protocol {
 	/*
 	 * binder_transaction_data: the received command.
 	 */
-	 
 
 	BR_ACQUIRE_RESULT = _IOR('r', 4, __s32),
 	/*
@@ -505,7 +488,7 @@ enum binder_driver_return_protocol {
 
 	BR_FROZEN_REPLY = _IO('r', 18),
 	/*
-	 * The target of the last sync transaction (either a bcTRANSACTION or
+	 * The target of the last transaction (either a bcTRANSACTION or
 	 * a bcATTEMPT_ACQUIRE) is frozen.  No parameters.
 	 */
 
@@ -514,11 +497,6 @@ enum binder_driver_return_protocol {
 	 * Current process sent too many oneway calls to target, and the last
 	 * asynchronous transaction makes the allocated async buffer size exceed
 	 * detection threshold.  No parameters.
-	 */
-
-	BR_TRANSACTION_PENDING_FROZEN = _IO('r', 20),
-	/*
-	 * The target of the last async transaction is frozen.  No parameters.
 	 */
 };
 
