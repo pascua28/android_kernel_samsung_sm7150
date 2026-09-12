@@ -3,8 +3,8 @@
 	url = https://android.googlesource.com/platform/system/tools/mkbootimg
 [submodule "KernelSU"]
 	path = KernelSU
-	url = https://github.com/manipvlator/KernelSU-Next
-	branch = syscall
+	url = https://github.com/manipvlator/KernelSU
+	branch = main
 [submodule "NoMount"]
 	path = NoMount
 	url = https://github.com/maxsteeel/nomount
