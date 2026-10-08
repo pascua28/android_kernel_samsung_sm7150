@@ -67,7 +67,6 @@ enum flat_binder_object_flags {
 	 * @FLAT_BINDER_FLAG_ACCEPTS_FDS: whether the node accepts fds.
 	 */
 	FLAT_BINDER_FLAG_ACCEPTS_FDS = 0x100,
-
 	/**
 	 * @FLAT_BINDER_FLAG_SCHED_POLICY_MASK: bit-mask for scheduling policy
 	 *
@@ -89,6 +88,7 @@ enum flat_binder_object_flags {
 	 * scheduling policy from the caller (for synchronous transactions).
 	 */
 	FLAT_BINDER_FLAG_INHERIT_RT = 0x800,
+#ifdef __KERNEL__
 
 	/**
 	 * @FLAT_BINDER_FLAG_TXN_SECURITY_CTX: request security contexts
@@ -97,6 +97,7 @@ enum flat_binder_object_flags {
 	 * context
 	 */
 	FLAT_BINDER_FLAG_TXN_SECURITY_CTX = 0x1000,
+#endif /* __KERNEL__ */
 };
 
 #ifdef BINDER_IPC_32BIT
@@ -272,22 +273,16 @@ struct binder_freeze_info {
 };
 
 struct binder_frozen_status_info {
-	__u32 pid;
+	__u32            pid;
 
 	/* process received sync transactions since last frozen
 	 * bit 0: received sync transaction after being frozen
 	 * bit 1: new pending sync transaction during freezing
 	 */
-	__u32 sync_recv;
+	__u32            sync_recv;
 
 	/* process received async transactions since last frozen */
-	__u32 async_recv;
-};
-
-struct binder_frozen_state_info {
-	binder_uintptr_t cookie;
-	__u32            is_frozen;
-	__u32            reserved;
+	__u32            async_recv;
 };
 
 #define BINDER_WRITE_READ		_IOWR('b', 1, struct binder_write_read)
@@ -364,11 +359,13 @@ struct binder_transaction_data {
 	} data;
 };
 
+#ifdef __KERNEL__
 struct binder_transaction_data_secctx {
 	struct binder_transaction_data transaction_data;
 	binder_uintptr_t secctx;
 };
 
+#endif /* __KERNEL__ */
 struct binder_transaction_data_sg {
 	struct binder_transaction_data transaction_data;
 	binder_size_t buffers_size;
@@ -404,11 +401,13 @@ enum binder_driver_return_protocol {
 	BR_OK = _IO('r', 1),
 	/* No parameters! */
 
+#ifdef __KERNEL__
 	BR_TRANSACTION_SEC_CTX = _IOR('r', 2,
 				      struct binder_transaction_data_secctx),
 	/*
 	 * binder_transaction_data_secctx: the received command.
 	 */
+#endif /* __KERNEL__ */
 	BR_TRANSACTION = _IOR('r', 2, struct binder_transaction_data),
 	BR_REPLY = _IOR('r', 3, struct binder_transaction_data),
 	/*
@@ -483,7 +482,7 @@ enum binder_driver_return_protocol {
 
 	BR_FAILED_REPLY = _IO('r', 17),
 	/*
-	 * The last transaction (either a bcTRANSACTION or
+	 * The the last transaction (either a bcTRANSACTION or
 	 * a bcATTEMPT_ACQUIRE) failed (e.g. out of memory).  No parameters.
 	 */
 
@@ -498,17 +497,6 @@ enum binder_driver_return_protocol {
 	 * Current process sent too many oneway calls to target, and the last
 	 * asynchronous transaction makes the allocated async buffer size exceed
 	 * detection threshold.  No parameters.
-	 */
-
-	BR_FROZEN_BINDER = _IOR('r', 21, struct binder_frozen_state_info),
-	/*
-	 * The cookie and a boolean (is_frozen) that indicates whether the process
-	 * transitioned into a frozen or an unfrozen state.
-	 */
-
-	BR_CLEAR_FREEZE_NOTIFICATION_DONE = _IOR('r', 22, binder_uintptr_t),
-	/*
-	 * void *: cookie
 	 */
 };
 
@@ -593,25 +581,7 @@ enum binder_driver_command_protocol {
 	/*
 	 * binder_transaction_data_sg: the sent command.
 	 */
-
-	BC_REQUEST_FREEZE_NOTIFICATION =
-			_IOW('c', 19, struct binder_handle_cookie),
-	/*
-	 * int: handle
-	 * void *: cookie
-	 */
-
-	BC_CLEAR_FREEZE_NOTIFICATION = _IOW('c', 20,
-					    struct binder_handle_cookie),
-	/*
-	 * int: handle
-	 * void *: cookie
-	 */
-
-	BC_FREEZE_NOTIFICATION_DONE = _IOW('c', 21, binder_uintptr_t),
-	/*
-	 * void *: cookie
-	 */
 };
 
 #endif /* _UAPI_LINUX_BINDER_H */
+
