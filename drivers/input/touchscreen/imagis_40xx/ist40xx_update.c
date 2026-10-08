@@ -1169,8 +1169,8 @@ int ist40xx_auto_bin_update(struct ist40xx_data *data)
 		  __func__, data->tdata->nvdata.tune_fix_ver, data->tdata->afe_base);
 
 	if ((data->tdata->tclm_level > TCLM_LEVEL_CLEAR_NV) &&
-			((data->tdata->nvdata.tune_fix_ver == 0xffff) ||
-			 (data->tdata->afe_base > data->tdata->nvdata.tune_fix_ver))) {
+			((sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata) == 0xffff) ||
+			 (data->tdata->afe_base > sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata)))) {
 			/* tune version up case */
 		sec_tclm_root_of_cal(data->tdata, CALPOSITION_TUNEUP);
 		restore_cal = 1;
