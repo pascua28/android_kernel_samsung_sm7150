@@ -63,16 +63,31 @@ struct sec_cal_position {
 	const char s_name;
 };
 
+#define SEC_TS_NVM_TCLM_DATA_SIZE \
+	(SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT)
+
 struct sec_tclm_nvdata {
 	u8 cal_count;
-	u16 tune_fix_ver;
+	u8 tune_fix_ver[2];
 	u8 cal_position;
 	u8 cal_pos_hist_cnt;
 	u8 cal_pos_hist_lastp;
 	u8 cal_pos_hist_queue[2 * CAL_HISTORY_QUEUE_MAX];
-	u8 cal_fail_falg; /* pass : 1 fail : etc */ 
-	u8 cal_fail_cnt; /* history cnt */ 
+	u8 reserved;
+	u8 cal_fail_falg; /* pass : 1 fail : etc */
+	u8 cal_fail_cnt; /* history cnt */
 };
+
+static inline u16 sec_tclm_nvdata_tune_fix_ver(const struct sec_tclm_nvdata *n)
+{
+	return ((u16)n->tune_fix_ver[1] << 8) | n->tune_fix_ver[0];
+}
+
+static inline void sec_tclm_nvdata_set_tune_fix_ver(struct sec_tclm_nvdata *n, u16 v)
+{
+	n->tune_fix_ver[0] = v & 0xff;
+	n->tune_fix_ver[1] = (v >> 8) & 0xff;
+}
 
 /* TCLM_CONCEPT  - end */
 struct sec_tclm_data {

@@ -4148,7 +4148,7 @@ int sec_tclm_data_read(struct i2c_client *client, int address)
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 0;
 	u8 buff[4];
-	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT];
+	u8 nbuff[SEC_TS_NVM_TCLM_DATA_SIZE];
 
 	switch (address) {
 	case SEC_TCLM_NVM_OFFSET_IC_FIRMWARE_VER:
@@ -4190,7 +4190,7 @@ int sec_tclm_data_write(struct i2c_client *client, int address)
 {
 	struct sec_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 1;
-	u8 nbuff[SEC_TS_NVM_OFFSET_LENGTH - SEC_TS_NVM_OFFSET_CAL_COUNT];
+	u8 nbuff[SEC_TS_NVM_TCLM_DATA_SIZE];
 
 	memset(nbuff, 0x00, sizeof(struct sec_tclm_nvdata));
 	switch (address) {

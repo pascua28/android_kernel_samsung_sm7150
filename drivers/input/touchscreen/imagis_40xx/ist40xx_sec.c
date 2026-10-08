@@ -4369,8 +4369,9 @@ int ist40xx_tclm_data_read(struct i2c_client *client, int address)
 		data->disassemble_count = nbuff[IST40XX_NVM_OFFSET_DISASSEMBLE_COUNT];
 		data->tdata->nvdata.cal_count =
 			(u8)(nbuff[IST40XX_NVM_OFFSET_CAL_COUNT] & 0xFF);
-		data->tdata->nvdata.tune_fix_ver =
-			(u16)(nbuff[IST40XX_NVM_OFFSET_TUNE_VERSION] & 0xFFFF);
+		sec_tclm_nvdata_set_tune_fix_ver(&data->tdata->nvdata,
+			nbuff[IST40XX_NVM_OFFSET_TUNE_VERSION] |
+			((u16)nbuff[IST40XX_NVM_OFFSET_TUNE_VERSION + 1] << 8));
 		data->tdata->nvdata.cal_position =
 			(u8)(nbuff[IST40XX_NVM_OFFSET_CAL_POSITION] & 0xFF);
 		data->tdata->nvdata.cal_pos_hist_cnt =
@@ -4385,7 +4386,7 @@ int ist40xx_tclm_data_read(struct i2c_client *client, int address)
 
 		input_info(true, &data->client->dev, "%s: %d %X %x %d %d\n",
 			   __func__, data->tdata->nvdata.cal_count,
-			   data->tdata->nvdata.tune_fix_ver,
+			   sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata),
 			   data->tdata->nvdata.cal_position,
 			   data->tdata->nvdata.cal_pos_hist_cnt,
 			   data->tdata->nvdata.cal_pos_hist_lastp);
@@ -4404,7 +4405,7 @@ int ist40xx_tclm_data_write(struct i2c_client *client, int address)
 
 	input_info(true, &data->client->dev,
 		   "%s: write SEC_TCLM_NVM_ALL_DATA: %d %X %x %d %d\n", __func__,
-		   data->tdata->nvdata.cal_count, data->tdata->nvdata.tune_fix_ver,
+		   data->tdata->nvdata.cal_count, sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata),
 		   data->tdata->nvdata.cal_position,
 		   data->tdata->nvdata.cal_pos_hist_cnt,
 		   data->tdata->nvdata.cal_pos_hist_lastp);
@@ -4415,7 +4416,9 @@ int ist40xx_tclm_data_write(struct i2c_client *client, int address)
 	nbuff[IST40XX_NVM_OFFSET_DISASSEMBLE_COUNT] = data->disassemble_count;
 	nbuff[IST40XX_NVM_OFFSET_CAL_COUNT] = (u32)data->tdata->nvdata.cal_count;
 	nbuff[IST40XX_NVM_OFFSET_TUNE_VERSION] =
-		(u32)data->tdata->nvdata.tune_fix_ver;
+		data->tdata->nvdata.tune_fix_ver[0];
+	nbuff[IST40XX_NVM_OFFSET_TUNE_VERSION + 1] =
+		data->tdata->nvdata.tune_fix_ver[1];
 	nbuff[IST40XX_NVM_OFFSET_CAL_POSITION] =
 		(u32)data->tdata->nvdata.cal_position;
 	nbuff[IST40XX_NVM_OFFSET_HISTORY_QUEUE_COUNT] =
@@ -4448,7 +4451,7 @@ void get_pat_information(void *dev_data)
 	sec_cmd_set_default_result(sec);
 
 	snprintf(buf, sizeof(buf), "C%02XT%04X.%4s%s%c%d%c%d%c%d",
-		data->tdata->nvdata.cal_count, data->tdata->nvdata.tune_fix_ver,
+		data->tdata->nvdata.cal_count, sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata),
 		data->tdata->tclm_string[data->tdata->nvdata.cal_position].f_name,
 		(data->tdata->tclm_level == TCLM_LEVEL_LOCKDOWN) ? ".L " : " ",
 		data->tdata->cal_pos_hist_last3[0], data->tdata->cal_pos_hist_last3[1],
@@ -5397,12 +5400,12 @@ static ssize_t read_module_id_show(struct device *dev,
 	input_info(true, &data->client->dev, "%s: IM%04X%02X%02X%02X\n", __func__,
 		   (data->fw.cur.fw_ver & 0xffff), data->test_result.data[0],
 		   data->tdata->nvdata.cal_count,
-		   (data->tdata->nvdata.tune_fix_ver & 0xff));
+		   (data->tdata->nvdata.tune_fix_ver[0]));
 
 	return snprintf(buf, PAGE_SIZE, "IM%04X%02X%02X%02X",
 			(data->fw.cur.fw_ver & 0xffff), data->test_result.data[0],
 			data->tdata->nvdata.cal_count,
-			(data->tdata->nvdata.tune_fix_ver & 0xff));
+			(data->tdata->nvdata.tune_fix_ver[0]));
 #else
 	input_info(true, &data->client->dev, "%s: IM%04X\n", __func__,
 		  (data->fw.cur.fw_ver & 0xffff));

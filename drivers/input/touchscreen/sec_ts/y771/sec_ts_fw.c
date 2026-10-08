@@ -805,8 +805,8 @@ int sec_ts_firmware_update_on_probe(struct sec_ts_data *ts, bool force_update)
 			__func__, ts->tdata->nvdata.tune_fix_ver, ts->tdata->afe_base);
 
 		if ((ts->tdata->tclm_level > TCLM_LEVEL_CLEAR_NV) &&
-			((ts->tdata->nvdata.tune_fix_ver == 0xffff)
-			|| (ts->tdata->afe_base > ts->tdata->nvdata.tune_fix_ver))) {
+			((sec_tclm_nvdata_tune_fix_ver(&ts->tdata->nvdata) == 0xffff)
+			|| (ts->tdata->afe_base > sec_tclm_nvdata_tune_fix_ver(&ts->tdata->nvdata)))) {
 			/* tune version up case */
 			sec_tclm_root_of_cal(ts->tdata, CALPOSITION_TUNEUP);
 			restore_cal = 1;
