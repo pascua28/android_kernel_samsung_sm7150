@@ -674,7 +674,7 @@ static void report_input_data(struct ist40xx_data *data)
 						   data->move_count[id], data->fw.cur.fw_ver,
 						   data->test_result.data[0],
 						   data->tdata->nvdata.cal_count,
-						   data->tdata->nvdata.tune_fix_ver,
+						   sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata),
 						   data->tdata->tclm_string[data->tdata->nvdata.cal_position].f_name,
 						   (data->tdata->tclm_level == TCLM_LEVEL_LOCKDOWN) ? ".L" : " ");
 #else
@@ -711,7 +711,7 @@ static void report_input_data(struct ist40xx_data *data)
 					   data->move_count[i], data->fw.cur.fw_ver,
 					   data->test_result.data[0],
 					   data->tdata->nvdata.cal_count,
-					   data->tdata->nvdata.tune_fix_ver,
+					   sec_tclm_nvdata_tune_fix_ver(&data->tdata->nvdata),
 					   data->tdata->tclm_string[data->tdata->nvdata.cal_position].f_name,
 					   (data->tdata->tclm_level == TCLM_LEVEL_LOCKDOWN) ? ".L" : " ");
 #else
