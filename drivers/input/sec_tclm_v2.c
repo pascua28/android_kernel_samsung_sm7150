@@ -100,7 +100,7 @@ int tclm_test_command(struct sec_tclm_data *data, int test_case, int cmd_param1,
 			cmd_param2 = 0xffff;
 		}
 		data->nvdata.cal_position = data->root_of_calibration;
-		data->nvdata.tune_fix_ver = cmd_param2;
+		sec_tclm_nvdata_set_tune_fix_ver(&data->nvdata, cmd_param2);
 		ret = data->tclm_write(data->client, SEC_TCLM_NVM_ALL_DATA);
 		if (ret < 0) {
 			input_info(true,&data->client->dev, "%s failed\n", __func__);
@@ -209,7 +209,7 @@ int sec_tclm_get_nvm_all(struct sec_tclm_data *data)
 	if (data->nvdata.cal_count == 0xFF || data->nvdata.cal_position >= CALPOSITION_MAX) {
 		data->nvdata.cal_count = 0;
 		data->nvdata.cal_position = 0;
-		data->nvdata.tune_fix_ver = 0;
+		sec_tclm_nvdata_set_tune_fix_ver(&data->nvdata, 0);
 		data->nvdata.cal_pos_hist_cnt = 0;
 		data->nvdata.cal_pos_hist_lastp = 0;
 		input_info(true, &data->client->dev, "%s: cal data is abnormal\n", __func__);
@@ -409,7 +409,7 @@ int sec_execute_tclm_package(struct sec_tclm_data *data, int factory_mode)
 		input_err(true, &data->client->dev, "%s: SEC_TCLM_NVM_OFFSET_IC_FIRMWARE_VER i2c read fail", __func__);
 		goto out;
 	}
-	data->nvdata.tune_fix_ver = ret;
+	sec_tclm_nvdata_set_tune_fix_ver(&data->nvdata, ret);
 
 	while (retry--) {
 		ret = data->tclm_write(data->client, SEC_TCLM_NVM_ALL_DATA);

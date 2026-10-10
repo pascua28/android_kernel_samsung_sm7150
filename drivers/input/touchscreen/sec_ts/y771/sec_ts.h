@@ -381,6 +381,13 @@
 
 #define SEC_TS_CMD_PROX_POWER_OFF	0xBD
 
+static_assert(sizeof(struct sec_tclm_nvdata) ==
+	      SEC_TS_NVM_TCLM_DATA_SIZE);
+
+static_assert(offsetof(struct sec_tclm_nvdata, tune_fix_ver) ==
+	      SEC_TS_NVM_OFFSET_TUNE_VERSION -
+	      SEC_TS_NVM_OFFSET_CAL_COUNT);
+
 enum grip_write_mode {
 	G_NONE				= 0,
 	G_SET_EDGE_HANDLER		= 1,

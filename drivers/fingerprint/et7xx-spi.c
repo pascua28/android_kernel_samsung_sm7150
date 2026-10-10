@@ -86,16 +86,15 @@ int etspi_Interrupt_Init(
 	}
 
 	if (etspi->drdy_irq_flag == DRDY_IRQ_DISABLE) {
-		if (request_irq
-			(gpio_irq, etspi_fingerprint_interrupt
-			, int_ctrl, "etspi_irq", etspi) < 0) {
-			pr_err("%s drdy request_irq failed\n", __func__);
-			status = -EBUSY;
+		int ret = request_irq(gpio_irq, etspi_fingerprint_interrupt,
+				      int_ctrl, "etspi_irq", etspi);
+		if (ret < 0) {
+			pr_err("%s request_irq failed (%d)\n", __func__, ret);
+			status = ret;
 			goto done;
-		} else {
-			enable_irq_wake(gpio_irq);
-			etspi->drdy_irq_flag = DRDY_IRQ_ENABLE;
 		}
+		etspi->drdy_irq_flag = DRDY_IRQ_ENABLE;
+		enable_irq_wake(gpio_irq);
 	}
 done:
 	return status;
@@ -909,23 +908,32 @@ void etspi_platformUninit(struct etspi_data *etspi)
 {
 	pr_info("%s\n", __func__);
 
-	if (etspi != NULL) {
+	if (!etspi)
+		return;
+
+	if (etspi->drdy_irq_flag == DRDY_IRQ_ENABLE) {
 		disable_irq_wake(gpio_irq);
 		disable_irq(gpio_irq);
-		etspi_pin_control(etspi, false);
 		free_irq(gpio_irq, etspi);
 		etspi->drdy_irq_flag = DRDY_IRQ_DISABLE;
-		if (etspi->regulator_3p3)
-			regulator_put(etspi->regulator_3p3);
-		else if (etspi->ldo_pin)
-			gpio_free(etspi->ldo_pin);
-		gpio_free(etspi->sleepPin);
-		gpio_free(etspi->drdyPin);
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-		wake_lock_destroy(&etspi->fp_spi_lock);
-#endif
-		wake_lock_destroy(&etspi->fp_signal_lock);
 	}
+
+	etspi_pin_control(etspi, false);
+
+	if (etspi->regulator_3p3)
+		regulator_put(etspi->regulator_3p3);
+	else if (etspi->ldo_pin)
+		gpio_free(etspi->ldo_pin);
+
+	if (etspi->sleepPin)
+		gpio_free(etspi->sleepPin);
+	if (etspi->drdyPin)
+		gpio_free(etspi->drdyPin);
+
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	wake_lock_destroy(&etspi->fp_spi_lock);
+#endif
+	wake_lock_destroy(&etspi->fp_signal_lock);
 }
 
 static int etspi_parse_dt(struct device *dev, struct etspi_data *data)
@@ -1210,89 +1218,94 @@ static struct class *etspi_class;
 
 /*-------------------------------------------------------------------------*/
 
+static struct device *etspi_device_create(struct etspi_data *etspi)
+{
+	struct device_node *saved_of_node;
+	struct device *dev;
+
+	/*
+	 *
+	 * The driver already reaches the class device via etspi->spi->dev.of_node
+	 * so prevent device_add() from inheriting it from the parent.
+	 */
+	saved_of_node = etspi->spi->dev.of_node;
+	etspi->spi->dev.of_node = NULL;
+
+	dev = device_create(etspi_class, &etspi->spi->dev,
+			    etspi->devt, etspi, "esfp0");
+
+	etspi->spi->dev.of_node = saved_of_node;
+	return dev;
+}
+
 static int etspi_probe(struct spi_device *spi)
 {
 	struct etspi_data *etspi;
 	int status;
 	unsigned long minor;
-#ifndef ENABLE_SENSORS_FPRINT_SECURE
-	int retry = 0;
-#endif
 
 	pr_info("%s\n", __func__);
 
-	/* Allocate driver data */
 	etspi = kzalloc(sizeof(*etspi), GFP_KERNEL);
 	if (!etspi)
 		return -ENOMEM;
 
-	/* device tree call */
 	if (spi->dev.of_node) {
 		status = etspi_parse_dt(&spi->dev, etspi);
 		if (status) {
 			pr_err("%s - Failed to parse DT\n", __func__);
-			goto etspi_probe_parse_dt_failed;
+			goto err_free_etspi;
 		}
+	} else {
+		pr_err("%s: No device tree node\n", __func__);
+		status = -ENODEV;
+		goto err_free_etspi;
 	}
 
-	/* Initialize the driver data */
 	etspi->spi = spi;
 	g_data = etspi;
 
 	spin_lock_init(&etspi->spi_lock);
 	mutex_init(&etspi->buf_lock);
 	mutex_init(&device_list_lock);
-
 	INIT_LIST_HEAD(&etspi->device_entry);
 
-	/* platform init */
 	status = etspi_platformInit(etspi);
-	if (status != 0) {
-		pr_err("%s platforminit failed\n", __func__);
-		goto etspi_probe_platformInit_failed;
+	if (status) {
+		pr_err("%s platformInit failed\n", __func__);
+		goto err_free_etspi;
 	}
 
 	spi->bits_per_word = 8;
-	spi->max_speed_hz = SLOW_BAUD_RATE;
-	spi->mode = SPI_MODE_0;
-	spi->chip_select = 0;
-#ifndef ENABLE_SENSORS_FPRINT_SECURE
-	status = spi_setup(spi);
-	if (status != 0) {
-		pr_err("%s spi_setup() is failed. status : %d\n",
-			__func__, status);
-		return status;
-	}
-#endif
-	etspi->spi_value = 0;
+	spi->max_speed_hz   = SLOW_BAUD_RATE;
+	spi->mode           = SPI_MODE_0;
+	spi->chip_select    = 0;
+	etspi->spi_value    = 0;
+
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 	etspi->sensortype = SENSOR_UNKNOWN;
+	etspi->tz_mode    = true;
 #else
-	/* sensor hw type check */
-	do {
-		status = etspi_type_check(etspi);
-		pr_info("%s type (%u), retry (%d)\n"
-			, __func__, etspi->sensortype, retry);
-	} while (!etspi->sensortype && ++retry < 3);
+	{
+		int retry = 0;
+		do {
+			status = etspi_type_check(etspi);
+			pr_info("%s type (%u), retry (%d)\n",
+				__func__, etspi->sensortype, retry);
+		} while (!etspi->sensortype && ++retry < 3);
 
-	if (status == -ENODEV)
-		pr_info("%s type check fail\n", __func__);
+		if (status == -ENODEV)
+			pr_info("%s type check fail\n", __func__);
+	}
 #endif
 
-#ifdef ENABLE_SENSORS_FPRINT_SECURE
-	etspi->tz_mode = true;
-#endif
-	/* If we can allocate a minor number, hook up this device.
-	 * Reusing minors is fine so long as udev or mdev is working.
-	 */
 	mutex_lock(&device_list_lock);
 	minor = find_first_zero_bit(minors, N_SPI_MINORS);
 	if (minor < N_SPI_MINORS) {
 		struct device *dev;
 
 		etspi->devt = MKDEV(ET7XX_MAJOR, minor);
-		dev = device_create(etspi_class, &spi->dev,
-				etspi->devt, etspi, "esfp0");
+		dev = etspi_device_create(etspi);
 		status = IS_ERR(dev) ? PTR_ERR(dev) : 0;
 	} else {
 		dev_dbg(&spi->dev, "no minor number available!\n");
@@ -1304,39 +1317,43 @@ static int etspi_probe(struct spi_device *spi)
 	}
 	mutex_unlock(&device_list_lock);
 
-	if (status == 0)
-		spi_set_drvdata(spi, etspi);
-	else
-		goto etspi_create_failed;
+	if (status)
+		goto err_platform_uninit;
+
+	spi_set_drvdata(spi, etspi);
 
 	status = fingerprint_register(etspi->fp_device,
-		etspi, fp_attrs, "fingerprint");
+				      etspi, fp_attrs, "fingerprint");
 	if (status) {
 		pr_err("%s sysfs register failed\n", __func__);
-		goto etspi_register_failed;
+		goto err_del_device;
 	}
 
 	status = etspi_set_timer(etspi);
 	if (status)
-		goto etspi_sysfs_failed;
+		goto err_unregister_fp;
+
 	etspi_enable_debug_timer();
 	pr_info("%s is successful\n", __func__);
+	return 0;
 
-	return status;
-
-etspi_sysfs_failed:
+err_unregister_fp:
 	fingerprint_unregister(etspi->fp_device, fp_attrs);
 
-etspi_register_failed:
+err_del_device:
+	mutex_lock(&device_list_lock);
+	list_del(&etspi->device_entry);
+	clear_bit(MINOR(etspi->devt), minors);
 	device_destroy(etspi_class, etspi->devt);
-	class_destroy(etspi_class);
-etspi_create_failed:
-	etspi_platformUninit(etspi);
-etspi_probe_platformInit_failed:
-etspi_probe_parse_dt_failed:
-	kfree(etspi);
-	pr_err("%s is failed\n", __func__);
+	mutex_unlock(&device_list_lock);
+	spi_set_drvdata(spi, NULL);
 
+err_platform_uninit:
+	etspi_platformUninit(etspi);
+
+err_free_etspi:
+	kfree(etspi);
+	pr_err("%s is failed, status=%d\n", __func__, status);
 	return status;
 }
 
