@@ -11,13 +11,30 @@
  */
 
 #include "sm6150-thermal-overlay.dtsi"
-#include "sm6150-camera-sensor-idp.dtsi"
+/*#include "sm6150-camera-sensor-idp.dtsi"*/
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/input/input.h>
 #include "sm6150-sde-display.dtsi"
 #include <dt-bindings/clock/qcom,gcc-sm6150.h>
 
+&soc {
+	i2c_13: 12c@13 {
+		status  = "ok";
+
+		cell-index = <13>;
+		compatible = "i2c-gpio";
+		gpios = <&tlmm 114 0 /*sda*/
+			&tlmm 113 0 /*scl*/
+			>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&smb1390_i2c_active>;
+		#include "smb1390.dtsi"
+	};
+};
+#if 0
 &qupv3_se3_i2c {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -26,6 +43,7 @@
 	#include "smb1390.dtsi"
 	#include "smb1355.dtsi"
 };
+#endif
 
 &pm6150l_gpios {
 	key_vol_up {
@@ -179,6 +197,7 @@
 	vcc-supply = <&pm6150l_l11>;
 	vcc-voltage-level = <2950000 2960000>;
 	vccq2-supply = <&pm6150_l12>;
+	vccq2-voltage-level = <1800000 1800000>;
 	vcc-max-microamp = <600000>;
 	vccq2-max-microamp = <600000>;
 
@@ -239,6 +258,8 @@
 
 &sdhc_1 {
 	vdd-supply = <&pm6150l_l11>;
+	qcom,vdd-always-on;
+	qcom,vdd-lpm-sup;
 	qcom,vdd-voltage-level = <2950000 2950000>;
 	qcom,vdd-current-level = <0 570000>;
 
@@ -252,7 +273,7 @@
 	pinctrl-0 = <&sdc1_clk_on &sdc1_cmd_on &sdc1_data_on &sdc1_rclk_on>;
 	pinctrl-1 = <&sdc1_clk_off &sdc1_cmd_off &sdc1_data_off &sdc1_rclk_off>;
 
-	status = "ok";
+	status = "disabled";
 };
 
 &sdhc_2 {
@@ -286,14 +307,12 @@
 		      <&pm6150_vadc ADC_USB_IN_I>,
 		      <&pm6150_vadc ADC_CHG_TEMP>,
 		      <&pm6150_vadc ADC_DIE_TEMP>,
-		      <&pm6150_vadc ADC_AMUX_THM4_PU2>,
 		      <&pm6150_vadc ADC_SBUx>,
 		      <&pm6150_vadc ADC_VPH_PWR>;
 	io-channel-names = "usb_in_voltage",
 			   "usb_in_current",
 			   "chg_temp",
 			   "die_temp",
-			   "conn_temp",
 			   "sbux_res",
 			   "vph_voltage";
 	qcom,battery-data = <&mtp_batterydata>;
@@ -326,6 +345,7 @@
 	status = "ok";
 };
 
+#if 0 /* block for smb1390 + sm6150 */
 &smb1355 {
 	/delete-property/ interrupts;
 	interrupts = <0x0 0xc2 0x0 IRQ_TYPE_LEVEL_LOW>;
@@ -335,6 +355,7 @@
 &smb1355_charger {
 	status = "ok";
 };
+#endif
 
 &dsi_sim_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;

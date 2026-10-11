@@ -273,7 +273,6 @@ static int tsens2xxx_get_temp(struct tsens_sensor *sensor, int *temp)
 				TSENS_DBG(tmdev, "%s cnt:%d\n",
 					"Re-try TSENS scm call", scm_cnt);
 			}
-
 			tmdev->tsens_reinit_cnt++;
 			atomic_set(&in_tsens_reinit, 0);
 
@@ -286,8 +285,10 @@ static int tsens2xxx_get_temp(struct tsens_sensor *sensor, int *temp)
 
 		} else {
 			pr_err("%s: tsens controller got reset\n", __func__);
+
 			BUG();
 		}
+
 		return -EAGAIN;
 	}
 
@@ -727,11 +728,9 @@ static int tsens2xxx_hw_sensor_en(struct tsens_device *tmdev,
 static int tsens2xxx_hw_init(struct tsens_device *tmdev)
 {
 	int rc = 0;
-
 	rc = __tsens2xxx_hw_init(tmdev);
 	if (rc)
 		return rc;
-
 	spin_lock_init(&tmdev->tsens_crit_lock);
 	spin_lock_init(&tmdev->tsens_upp_low_lock);
 

@@ -5029,6 +5029,7 @@ int ipa3_cfg_ep_ctrl(u32 clnt_hdl, const struct ipa_ep_cfg_ctrl *ep_ctrl)
 		WARN_ON(1);
 		return -EPERM;
 	}
+	
 
 	if (ipa3_ctx->ipa_endp_delay_wa) {
 		IPAERR("pipe setting delay is not supported\n");
@@ -6368,8 +6369,16 @@ int ipa3_alloc_counter_id(struct ipa_ioc_flt_rt_counter_alloc *header)
 	int i, unused_cnt, unused_max, unused_start_id;
 	struct ipa_ioc_flt_rt_counter_alloc *counter;
 
+	counter = kmem_cache_zalloc(ipa3_ctx->fnr_stats_cache, GFP_KERNEL);
+	if (!counter) {
+		IPAERR_RL("failed to alloc fnr stats counter object\n");
+		spin_unlock(&ipa3_ctx->flt_rt_counters.hdl_lock);
+		return -ENOMEM;
+	}
+
 	idr_preload(GFP_KERNEL);
 	spin_lock(&ipa3_ctx->flt_rt_counters.hdl_lock);
+	memcpy(counter, header, sizeof(struct ipa_ioc_flt_rt_counter_alloc));
 
 	counter = kmem_cache_zalloc(ipa3_ctx->fnr_stats_cache, GFP_KERNEL);
 	if (!counter) {

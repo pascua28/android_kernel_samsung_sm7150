@@ -18,6 +18,7 @@ enum msm_ion_heap_types {
 	ION_HEAP_TYPE_SYSTEM_SECURE,
 	ION_HEAP_TYPE_HYP_CMA,
 	ION_HEAP_TYPE_SECURE_CARVEOUT,
+	ION_HEAP_TYPE_RBIN,
 };
 
 /**
@@ -49,7 +50,7 @@ enum ion_heap_ids {
 #define ION_SECURE_CARVEOUT_HEAP_ID	14
 #define ION_QSECOM_TA_HEAP_ID		19
 #define ION_AUDIO_HEAP_ID		28
-#define ION_CAMERA_HEAP_ID		20
+#define ION_CAMERA_HEAP_ID		30
 #define ION_USER_CONTIG_HEAP_ID		26
 /**
  * Flags to be used when allocating from the secure heap for

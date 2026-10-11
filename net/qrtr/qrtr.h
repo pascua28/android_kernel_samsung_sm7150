@@ -34,4 +34,22 @@ void qrtr_endpoint_unregister(struct qrtr_endpoint *ep);
 int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len);
 
 int qrtr_peek_pkt_size(const void *data);
+
+#ifndef __IPC_SUB_IOCTL
+#define __IPC_SUB_IOCTL
+
+#define IPC_SUB_IOCTL_MAGIC (0xC8)
+#define IPC_SUB_IOCTL_SUBSYS_GET_RESTART \
+	_IOR(IPC_SUB_IOCTL_MAGIC, 0, struct msm_ipc_subsys_request)
+
+enum {
+	SUBSYS_CR_REQ = 0,
+	SUBSYS_RES_REQ,
+};
+
+struct msm_ipc_subsys_request {
+	char name[32];
+	int request_id;
+};
+#endif
 #endif

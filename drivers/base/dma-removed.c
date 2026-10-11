@@ -273,4 +273,54 @@ static int __init removed_dma_setup(struct reserved_mem *rmem)
 	return 0;
 }
 RESERVEDMEM_OF_DECLARE(dma, "removed-dma-pool", removed_dma_setup);
+
+#ifdef CONFIG_CP_DYNAMIC_MEM_RESERVE
+static unsigned int reserve_mem_region;
+static int __init sec_reserved_mem_setup(char *str)
+{
+	get_option(&str, &reserve_mem_region);
+	return 1;
+}
+early_param("androidboot.reserve_mem_region", sec_reserved_mem_setup);
+
+unsigned int sec_reserved_mem(void)
+{
+	return reserve_mem_region;
+}
+EXPORT_SYMBOL(sec_reserved_mem);
+
+#define RESERVE_MEM_LEVEL1_MASK	(1u << 2)
+#define RESERVE_MEM_LEVEL2_MASK	(1u << 3)
+#define RESERVE_MEM_LEVEL2_SIZE	0x02000000
+#define RESERVE_MEM_FREE_BASE	0x02000000
+#define RESERVE_MEM_FREE_SIZE	0x04000000
+#define RESERVE_MEM_LEVEL1_SIZE	0x06000000
+
+static int __init modem_removed_dma_setup(struct reserved_mem *remem)
+{
+	remem->ops = &removed_mem_ops;
+
+	if (reserve_mem_region & RESERVE_MEM_LEVEL1_MASK) {
+		pr_info("%s: memory reserved: paddr=%pa, t_size=%ld MiB\n",
+				__func__, &remem->base, (unsigned long)remem->size / SZ_1M);
+	} else if(reserve_mem_region & RESERVE_MEM_LEVEL2_MASK) {
+		memblock_add(remem->base + RESERVE_MEM_FREE_BASE, RESERVE_MEM_FREE_SIZE);
+		remem->size = RESERVE_MEM_LEVEL2_SIZE;
+		pr_info("%s: memory add to memblock: paddr=%pa + 0x%x, t_size=%ld MiB\n",
+				__func__, &remem->base,  RESERVE_MEM_FREE_BASE,
+				(unsigned long)RESERVE_MEM_FREE_SIZE / SZ_1M);
+		pr_info("%s: memory reserved: paddr=%pa, t_size=%ld MiB\n",
+				__func__, &remem->base, (unsigned long)remem->size / SZ_1M);
+	} else {
+		memblock_add(remem->base, remem->size);
+		pr_info("%s: memory add to memblock: paddr=%pa, t_size=%ld MiB\n",
+				__func__, &remem->base, (unsigned long)remem->size / SZ_1M);
+		remem->size = 0;
+	}
+
+	return 0;
+}
+RESERVEDMEM_OF_DECLARE(modem_dma, "modem-removed-dma-pool", modem_removed_dma_setup);
 #endif
+#endif
+

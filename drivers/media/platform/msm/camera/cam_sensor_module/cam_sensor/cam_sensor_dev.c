@@ -370,6 +370,9 @@ static struct i2c_driver cam_sensor_driver_i2c = {
 	.remove = cam_sensor_driver_i2c_remove,
 	.driver = {
 		.name = SENSOR_DRIVER_I2C,
+		.owner = THIS_MODULE,
+		.of_match_table = cam_sensor_driver_dt_match,
+		.suppress_bind_attrs = true,	
 	},
 };
 

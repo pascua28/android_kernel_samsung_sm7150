@@ -822,7 +822,14 @@ static void send_file_work(struct work_struct *data)
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
 
+	
+	
+	if (count < 0) {
+		dev->xfer_result = -EINVAL;
+		return;
+	}
 	mtp_log("(%lld %lld)\n", offset, count);
+	
 
 	if (dev->xfer_send_header) {
 		hdr_size = sizeof(struct mtp_data_header);
@@ -936,7 +943,13 @@ static void receive_file_work(struct work_struct *data)
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
 
+	
 	mtp_log("(%lld)\n", count);
+	if (count < 0) {
+		dev->xfer_result = -EINVAL;
+		return;
+	}
+
 	if (!IS_ALIGNED(count, dev->ep_out->maxpacket))
 		mtp_log("- count(%lld) not multiple of mtu(%d)\n",
 						count, dev->ep_out->maxpacket);

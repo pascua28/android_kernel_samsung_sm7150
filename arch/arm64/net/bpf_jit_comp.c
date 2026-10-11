@@ -23,7 +23,6 @@
 #include <linux/printk.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
-
 #include <asm/byteorder.h>
 #include <asm/cacheflush.h>
 #include <asm/debug-monitors.h>

@@ -127,6 +127,12 @@ enum {
 	UPIU_CMD_FLAGS_READ	= 0x40,
 };
 
+/* UPIU Command Priority flags */
+enum {
+	UPIU_CMD_PRIO_NONE	= 0x00,
+	UPIU_CMD_PRIO_HIGH	= 0x04,
+};
+
 /* UPIU Task Attributes */
 enum {
 	UPIU_TASK_ATTR_SIMPLE	= 0x00,
@@ -141,19 +147,35 @@ enum {
 	UPIU_QUERY_FUNC_STANDARD_WRITE_REQUEST          = 0x81,
 };
 
+enum {
+	UPIU_QUERY_FUNC_VENDOR_TOSHIBA_FATALMODE        = 0xC2,
+};
+
 enum desc_header_offset {
 	QUERY_DESC_LENGTH_OFFSET	= 0x00,
 	QUERY_DESC_DESC_TYPE_OFFSET	= 0x01,
 };
 
 enum ufs_desc_def_size {
+#if IS_ENABLED(CONFIG_BLK_TURBO_WRITE)
+	QUERY_DESC_DEVICE_DEF_SIZE		= 0x59,
+	QUERY_DESC_CONFIGURATION_DEF_SIZE	= 0xE2,
+	QUERY_DESC_UNIT_DEF_SIZE		= 0x2D,
+	QUERY_DESC_GEOMETRY_DEF_SIZE		= 0x58,
+#else
 	QUERY_DESC_DEVICE_DEF_SIZE		= 0x40,
 	QUERY_DESC_CONFIGURATION_DEF_SIZE	= 0x90,
 	QUERY_DESC_UNIT_DEF_SIZE		= 0x23,
-	QUERY_DESC_INTERCONNECT_DEF_SIZE	= 0x06,
 	QUERY_DESC_GEOMETRY_DEF_SIZE		= 0x48,
+#endif
+	QUERY_DESC_INTERCONNECT_DEF_SIZE	= 0x06,
 	QUERY_DESC_POWER_DEF_SIZE		= 0x62,
-	QUERY_DESC_HEALTH_DEF_SIZE		= 0x25,
+	/*
+	 * Max. 126 UNICODE characters (2 bytes per character) plus 2 bytes
+	 * of descriptor header.
+	 */
+	QUERY_DESC_STRING_MAX_SIZE		= 0xFE,
+	QUERY_DESC_HEALTH_DEF_SIZE		= 0x25
 };
 
 /* Unit descriptor parameters offsets in bytes*/
@@ -174,6 +196,9 @@ enum unit_desc_param {
 	UNIT_DESC_PARAM_PHY_MEM_RSRC_CNT	= 0x18,
 	UNIT_DESC_PARAM_CTX_CAPABILITIES	= 0x20,
 	UNIT_DESC_PARAM_LARGE_UNIT_SIZE_M1	= 0x22,
+#if IS_ENABLED(CONFIG_BLK_TURBO_WRITE)
+	UNIT_DESC_PARAM_WB_BUF_ALLOC_UNITS	= 0x29,
+#endif
 };
 
 /* Device descriptor parameters offsets in bytes*/
@@ -205,6 +230,7 @@ enum device_desc_param {
 	DEVICE_DESC_PARAM_UD_LEN		= 0x1B,
 	DEVICE_DESC_PARAM_RTT_CAP		= 0x1C,
 	DEVICE_DESC_PARAM_FRQ_RTC		= 0x1D,
+	DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP   = 0x4F,
 };
 
 /* Health descriptor parameters offsets in bytes*/
@@ -255,7 +281,12 @@ enum power_desc_param_offset {
 
 /* Exception event mask values */
 enum {
+#if IS_ENABLED(CONFIG_BLK_TURBO_WRITE)
+	/* disable tw event [bit 5] as default */
+	MASK_EE_STATUS		= 0xFFDF,
+#else
 	MASK_EE_STATUS		= 0xFFFF,
+#endif
 	MASK_EE_URGENT_BKOPS	= (1 << 2),
 };
 
@@ -515,8 +546,10 @@ struct ufs_dev_info {
 	/* device descriptor info */
 	u8	b_device_sub_class;
 	u16	w_manufacturer_id;
+	u16	w_manufacturer_date;
 	u8	i_product_name;
 	u16	w_spec_version;
+	u8	i_lt;
 
 	/* query flags */
 	bool f_power_on_wp_en;
@@ -541,6 +574,9 @@ struct ufs_dev_desc {
 	u16 wmanufacturerid;
 	char model[MAX_MODEL_LEN + 1];
 	u16 wspecversion;
+#if IS_ENABLED(CONFIG_BLK_TURBO_WRITE)
+	u32 dextfeatsupport;
+#endif
 };
 
 #endif /* End of Header */

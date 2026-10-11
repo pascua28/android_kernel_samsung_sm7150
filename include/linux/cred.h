@@ -19,6 +19,7 @@
 #include <linux/uidgid.h>
 #include <linux/sched.h>
 #include <linux/sched/user.h>
+#include <linux/security.h>
 
 struct cred;
 struct inode;
@@ -248,7 +249,7 @@ static inline const struct cred *get_cred(const struct cred *cred)
 	if (!cred)
 		return cred;
 	validate_creds(cred);
-	nonconst_cred->non_rcu = 0;
+		nonconst_cred->non_rcu = 0;
 	return get_new_cred(nonconst_cred);
 }
 

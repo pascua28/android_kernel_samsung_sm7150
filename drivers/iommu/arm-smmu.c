@@ -76,6 +76,9 @@
  * using r31 (i.e. XZR/WZR) as the source register.
  */
 #define QCOM_DUMMY_VAL -1
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
 
 #define ARM_MMU500_ACTLR_CPRE		(1 << 1)
 
@@ -1662,6 +1665,45 @@ static phys_addr_t arm_smmu_verify_fault(struct iommu_domain *domain,
 	return (phys == 0 ? phys_post_tlbiall : phys);
 }
 
+static char* arm_smmu_get_devname(struct arm_smmu_domain *smmu_domain, u32 sid)
+{
+	struct iommu_fwspec *fwspec = NULL;
+	struct device* dev = NULL;
+	u32 i;
+	char *colon, *comma, *dot, *ch = NULL;
+
+	if (smmu_domain->dev)
+		fwspec = smmu_domain->dev->iommu_fwspec;
+
+	for (i = 0; fwspec && i < fwspec->num_ids; i++) {
+		if ((fwspec->ids[i] & smmu_domain->smmu->streamid_mask) == sid) {
+			dev = smmu_domain->dev;
+			break;
+		}
+	}
+
+	if (dev) {
+		if (dev_is_pci(dev))
+			return (char *)dev_name(dev);
+			
+		colon = strrchr(dev_name(dev), ':');
+		comma = strrchr(dev_name(dev), ',');
+		dot = strrchr(dev_name(dev), '.');
+
+		if (colon == NULL && comma == NULL && dot == NULL)
+			return (char *)dev_name(dev);
+		
+		if (colon > comma)
+			ch = colon;
+		else
+			ch = comma;
+
+		return dot > ch ? dot + 1 : ch + 1;
+	}
+
+	return "No Device";
+}
+
 static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 {
 	int flags, ret, tmp;
@@ -1699,6 +1741,9 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 	if (fatal_asf && (fsr & FSR_ASF)) {
 		dev_err(smmu->dev,
 			"Took an address size fault.  Refusing to recover.\n");
+
+		sec_debug_save_smmu_info_asf_fatal();
+
 		BUG();
 	}
 
@@ -1728,11 +1773,12 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 		ret = IRQ_HANDLED;
 		resume = RESUME_TERMINATE;
 	} else {
-		if (__ratelimit(&_rs)) {
-			phys_addr_t phys_atos;
+		phys_addr_t phys_atos = arm_smmu_verify_fault(domain,
+							      iova,
+							      fsr);
 
+		if (__ratelimit(&_rs)) {
 			print_ctx_regs(smmu, cfg, fsr);
-			phys_atos = arm_smmu_verify_fault(domain, iova, fsr);
 			dev_err(smmu->dev,
 				"Unhandled context fault: iova=0x%08lx, cb=%d, fsr=0x%x, fsynr0=0x%x, fsynr1=0x%x\n",
 				iova, cfg->cbndx, fsr, fsynr0, fsynr1);
@@ -1760,7 +1806,10 @@ static irqreturn_t arm_smmu_context_fault(int irq, void *dev)
 		if (!non_fatal_fault) {
 			dev_err(smmu->dev,
 				"Unhandled arm-smmu context fault!\n");
-			BUG();
+
+			sec_debug_save_smmu_info_fatal();
+			// BUG();
+			panic("%s SMMU Fault - SID=0x%x", arm_smmu_get_devname(smmu_domain, frsynra), frsynra);
 		}
 	}
 

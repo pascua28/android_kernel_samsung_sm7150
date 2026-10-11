@@ -55,4 +55,9 @@
 #define QG_SOC_FULL	10000
 #define BATT_SOC_32BIT	GENMASK(31, 0)
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+#define MAX_VFLOAT_ENTRIES		8
+#define MAX_CYCLE_COUNT			0xFFFF
+#endif
+
 #endif /* __QG_DEFS_H__ */

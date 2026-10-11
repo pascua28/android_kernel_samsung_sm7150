@@ -133,6 +133,11 @@ static void sde_rotator_get_config_from_ctx(struct sde_rotator_ctx *ctx,
 	config->output.comp_ratio.numer = 1;
 	config->output.comp_ratio.denom = 1;
 
+#if defined(CONFIG_DISPLAY_SAMSUNG)
+	if(config->input.width * config->input.height >= ((3840-100)*(2160-100)))
+		config->frame_rate = 60;
+#endif
+
 	/*
 	 * Use compression ratio of the first buffer to estimate
 	 * performance requirement of the session. If core layer does

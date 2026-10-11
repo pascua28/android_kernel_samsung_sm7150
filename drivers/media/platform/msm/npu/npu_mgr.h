@@ -26,7 +26,7 @@
  * Defines
  * -------------------------------------------------------------------------
  */
-#define NW_CMD_TIMEOUT_MS (1000 * 60 * 5) /* set for 5 minutes */
+#define NW_CMD_TIMEOUT_MS (1000 * 5) /* set for 5 seconds */
 #define NW_CMD_TIMEOUT msecs_to_jiffies(NW_CMD_TIMEOUT_MS)
 #define NW_DEBUG_TIMEOUT_MS (1000 * 60 * 30) /* set for 30 minutes */
 #define NW_DEBUG_TIMEOUT msecs_to_jiffies(NW_DEBUG_TIMEOUT_MS)

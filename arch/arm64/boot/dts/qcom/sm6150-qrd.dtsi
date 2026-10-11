@@ -15,7 +15,7 @@
 #include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/input/input.h>
 #include "sm6150-sde-display.dtsi"
-#include "sm6150-camera-sensor-qrd.dtsi"
+/*#include "sm6150-camera-sensor-qrd.dtsi"*/
 
 &qupv3_se3_i2c {
 	#address-cells = <1>;
@@ -124,14 +124,12 @@
 		      <&pm6150_vadc ADC_USB_IN_I>,
 		      <&pm6150_vadc ADC_CHG_TEMP>,
 		      <&pm6150_vadc ADC_DIE_TEMP>,
-		      <&pm6150_vadc ADC_AMUX_THM4_PU2>,
 		      <&pm6150_vadc ADC_SBUx>,
 		      <&pm6150_vadc ADC_VPH_PWR>;
 	io-channel-names = "usb_in_voltage",
 			   "usb_in_current",
 			   "chg_temp",
 			   "die_temp",
-			   "conn_temp",
 			   "sbux_res",
 			   "vph_voltage";
 	qcom,battery-data = <&mtp_batterydata>;

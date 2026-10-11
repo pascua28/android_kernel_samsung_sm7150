@@ -348,6 +348,23 @@ int get_effective_result(struct votable *votable)
 	return value;
 }
 
+#if defined(CONFIG_BATTERY_SAMSUNG_USING_QC)
+void get_setanytype_effective_client(struct votable *votable)
+{
+	int i = 0;
+
+	lock_votable(votable);
+	for (i = 0; i < votable->num_clients; i++) {
+		if (votable->client_strs[i] && votable->votes[i].enabled) {
+			pr_info("sec_bat_monitor_work: %s: %s\n", votable->name, votable->client_strs[i]);
+			unlock_votable(votable);
+			return;
+		}
+	}
+	unlock_votable(votable);
+	return;
+}
+#endif
 /**
  * get_effective_client() -
  * get_effective_client_locked() -
@@ -445,7 +462,7 @@ int vote(struct votable *votable, const char *client_str, bool enabled, int val)
 
 	if ((votable->votes[client_id].enabled == enabled) &&
 		(votable->votes[client_id].value == val)) {
-		pr_debug("%s: %s,%d same vote %s of val=%d\n",
+		pr_info("%s: %s,%d same vote %s of val=%d\n",
 				votable->name,
 				client_str, client_id,
 				enabled ? "on" : "off",
@@ -457,13 +474,13 @@ int vote(struct votable *votable, const char *client_str, bool enabled, int val)
 	votable->votes[client_id].value = val;
 
 	if (similar_vote && votable->voted_on) {
-		pr_debug("%s: %s,%d Ignoring similar vote %s of val=%d\n",
+		pr_info("%s: %s,%d Ignoring similar vote %s of val=%d\n",
 			votable->name,
 			client_str, client_id, enabled ? "on" : "off", val);
 		goto out;
 	}
 
-	pr_debug("%s: %s,%d voting %s of val=%d\n",
+	pr_info("%s: %s,%d voting %s of val=%d\n",
 		votable->name,
 		client_str, client_id, enabled ? "on" : "off", val);
 	switch (votable->type) {
@@ -489,7 +506,7 @@ int vote(struct votable *votable, const char *client_str, bool enabled, int val)
 			|| (effective_result != votable->effective_result)) {
 		votable->effective_client_id = effective_id;
 		votable->effective_result = effective_result;
-		pr_debug("%s: effective vote is now %d voted by %s,%d\n",
+		pr_info("%s: effective vote is now %d voted by %s,%d\n",
 			votable->name, effective_result,
 			get_client_str(votable, effective_id),
 			effective_id);

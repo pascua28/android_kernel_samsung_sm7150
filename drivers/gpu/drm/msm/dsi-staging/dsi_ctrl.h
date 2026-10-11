@@ -59,6 +59,11 @@
 /* max size supported for dsi cmd transfer using TPG */
 #define DSI_CTRL_MAX_CMD_FIFO_STORE_SIZE 64
 
+#if defined(CONFIG_DISPLAY_SAMSUNG) || defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+/* max size supported for dsi cmd transfer using DMA */
+#define DSI_CTRL_MAX_CMD_FET_MEMORY_SIZE 200
+#endif
+
 /**
  * enum dsi_power_state - defines power states for dsi controller.
  * @DSI_CTRL_POWER_VREG_OFF:    Digital and analog supplies for DSI controller

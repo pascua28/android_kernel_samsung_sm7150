@@ -34,8 +34,10 @@ int fscrypt_file_open(struct inode *inode, struct file *filp)
 	struct dentry *dir;
 
 	err = fscrypt_require_key(inode);
-	if (err)
+	if (err) {
+		printk(KERN_ERR "%s: failed to get encryption info (%d)", __func__, err);
 		return err;
+	}
 
 	dir = dget_parent(file_dentry(filp));
 	if (IS_ENCRYPTED(d_inode(dir)) &&

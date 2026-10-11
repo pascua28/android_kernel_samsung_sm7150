@@ -22,6 +22,10 @@
 #include "sde_hw_catalog_format.h"
 #include "sde_kms.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include "ss_dsi_panel_common.h"
+#endif
+
 /*************************************************************
  * MACRO DEFINITION
  *************************************************************/
@@ -4124,6 +4128,27 @@ struct sde_mdss_cfg *sde_hw_catalog_init(struct drm_device *dev, u32 hw_rev)
 	rc = sde_parse_dt(np, sde_cfg);
 	if (rc)
 		goto end;
+
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	{
+		/* sde_hw_catalog_init() be called once for dual dsi,
+		 * and two vdds share same sde_kms pointer.
+		 * get sde_kms from primary vdd, then call ss_callback
+		 * for primary and secondary vdd, respectively.
+		 */
+		struct samsung_display_driver_data *vdd = ss_get_vdd(PRIMARY_DISPLAY_NDX);
+		int i;
+
+		if (IS_ERR_OR_NULL(vdd))
+			goto done;
+
+		for (i = PRIMARY_DISPLAY_NDX; i <= SECONDARY_DISPLAY_NDX; i++) {
+			vdd = ss_get_vdd(i);
+			ss_pba_config(vdd, (void *)sde_cfg);
+		}
+	}
+done:
+#endif
 
 	rc = sde_perf_parse_dt(np, sde_cfg);
 	if (rc)

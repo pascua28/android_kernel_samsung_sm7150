@@ -340,3 +340,13 @@ config PM_GENERIC_DOMAINS_OF
 
 config CPU_PM
 	bool
+
+config CPU_FREQ_LIMIT_USERSPACE
+	bool "User space cpufreq limit interface"
+	depends on CPU_FREQ_LIMIT
+	default n
+	help
+	  Add sysfs to limit CPU frequency for a userspace program.
+	  /sys/power/cpufreq_min_limit
+	  /sys/power/cpufreq_max_limit
+	  /sys/power/cpufreq_table

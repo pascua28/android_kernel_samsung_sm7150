@@ -257,6 +257,10 @@ struct fsxattr {
 #define FS_IOC_FSGETXATTR		_IOR ('X', 31, struct fsxattr)
 #define FS_IOC_FSSETXATTR		_IOW ('X', 32, struct fsxattr)
 
+#if defined(CONFIG_SDP) && !defined(CONFIG_FSCRYPT_SDP)
+#define FS_IOC_INVAL_MAPPING		_IO('f', 13)	/* CONFIG_EPM FMP */
+#endif
+
 /*
  * Inode flags (FS_IOC_GETFLAGS / FS_IOC_SETFLAGS)
  *

@@ -53,6 +53,8 @@
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
 
+#include <linux/netlog.h>
+
 struct netpoll_info;
 struct device;
 struct phy_device;

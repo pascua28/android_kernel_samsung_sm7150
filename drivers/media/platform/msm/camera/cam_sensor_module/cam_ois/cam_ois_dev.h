@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,10 +27,50 @@
 #include <cam_mem_mgr.h>
 #include <cam_subdev.h>
 #include "cam_soc_util.h"
-#include "cam_context.h"
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+#include <linux/wait.h>
+#include <linux/freezer.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#endif
 
 #define DEFINE_MSM_MUTEX(mutexname) \
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
+
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+#define MAX_BRIDGE_COUNT (1) /* R5 uses only one OIS device */
+#define OIS_VER_SIZE  (8)
+#define NUM_AF_POSITION (512)
+
+struct cam_ois_shift_table_t {
+	bool ois_shift_used;
+	int16_t ois_shift_x[NUM_AF_POSITION];
+	int16_t ois_shift_y[NUM_AF_POSITION];
+};
+
+enum cam_ois_thread_msg_type {
+	CAM_OIS_THREAD_MSG_START,
+	CAM_OIS_THREAD_MSG_APPLY_SETTING,
+	CAM_OIS_THREAD_MSG_MAX
+};
+
+struct cam_ois_thread_msg_t {
+	struct list_head list;
+	int msg_type;
+	uint16_t ois_mode;
+	struct i2c_settings_array *i2c_reg_settings;
+};
+
+typedef struct sysboot_info_type_t{
+  uint32_t ver;
+  uint32_t id;
+} sysboot_info_type;
+
+struct ois_sensor_interface {
+	void *core;
+	void (*ois_func)(void *);
+};
+#endif
 
 enum cam_ois_state {
 	CAM_OIS_INIT,
@@ -91,7 +131,6 @@ struct cam_ois_intf_params {
 
 /**
  * struct cam_ois_ctrl_t - OIS ctrl private data
- * @device_name     :   ois device_name
  * @pdev            :   platform device
  * @ois_mutex       :   ois mutex
  * @soc_info        :   ois soc related info
@@ -104,6 +143,7 @@ struct cam_ois_intf_params {
  * @i2c_calib_data  :   ois i2c calib settings
  * @ois_device_type :   ois device type
  * @cam_ois_state   :   ois_device_state
+ * @ois_name        :   ois name
  * @ois_fw_flag     :   flag for firmware download
  * @is_ois_calib    :   flag for Calibration data
  * @opcode          :   ois opcode
@@ -111,7 +151,6 @@ struct cam_ois_intf_params {
  *
  */
 struct cam_ois_ctrl_t {
-	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
 	struct platform_device *pdev;
 	struct mutex ois_mutex;
 	struct cam_hw_soc_info soc_info;
@@ -119,16 +158,52 @@ struct cam_ois_ctrl_t {
 	enum cci_i2c_master_t cci_i2c_master;
 	enum cci_device_num cci_num;
 	struct cam_subdev v4l2_dev_str;
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	struct cam_ois_intf_params bridge_intf[MAX_BRIDGE_COUNT];
+	int bridge_cnt;
+#else
 	struct cam_ois_intf_params bridge_intf;
+#endif
 	struct i2c_settings_array i2c_init_data;
 	struct i2c_settings_array i2c_calib_data;
 	struct i2c_settings_array i2c_mode_data;
 	enum msm_camera_device_type_t ois_device_type;
 	enum cam_ois_state cam_ois_state;
+	char device_name[20];
 	char ois_name[32];
 	uint8_t ois_fw_flag;
 	uint8_t is_ois_calib;
 	struct cam_ois_opcode opcode;
+#if defined(CONFIG_SAMSUNG_OIS_RUMBA_S4)
+	int start_cnt;
+	bool is_power_up;
+	bool is_servo_on;
+	bool is_config;
+	char cal_ver[OIS_VER_SIZE + 1];
+	char module_ver[OIS_VER_SIZE + 1];
+	char phone_ver[OIS_VER_SIZE + 1];
+	char load_fw_name[256];
+	struct cam_ois_shift_table_t shift_tbl[2];
+	uint16_t module;
+	uint16_t ois_mode;
+	uint32_t x_center;
+	uint32_t y_center;
+	uint32_t err_reg;
+	struct mutex ois_mode_mutex;
+	struct task_struct *ois_thread;
+	bool is_thread_started;
+	struct cam_ois_thread_msg_t list_head_thread;
+	spinlock_t thread_spinlock;
+	wait_queue_head_t wait;
+	struct mutex i2c_init_data_mutex;
+	struct mutex i2c_mode_data_mutex;
+
+	uint32_t slave_addr;
+	uint32_t slave_id;
+	sysboot_info_type info;
+	uint32_t reset_ctrl_gpio;
+	uint32_t boot0_ctrl_gpio;
+#endif
 };
 
 #endif /*_CAM_OIS_DEV_H_ */

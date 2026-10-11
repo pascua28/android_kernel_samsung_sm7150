@@ -751,6 +751,26 @@ config LEDS_QPNP_VIBRATOR_LDO
 	  This option enables device driver support for the vibrator-ldo
 	  peripheral found on Qualcomm Technologies, Inc. QPNP PMICs.
 	  The vibrator-ldo peripheral is capable of driving ERM vibrators.
+	  
+config LEDS_SM5714
+	bool "LED support for the SM5714"
+	depends on LEDS_CLASS
+	help
+	This option enables support for the LEDs on the SM5714.
+
+config LEDS_S2MU107_FLASH
+	bool "FLASH LED support for the S2MU107"
+	depends on (MFD_S2MU107) && I2C
+	help
+	  If you say yes here you will get support for
+          the LEDS_S2MU107_FLASH led chip.
+
+config LEDS_S2MU106_FLASH
+	bool "FLASH LED support for the S2MU106"
+	depends on (MFD_S2MU106) && I2C
+	help
+	  If you say yes here you will get support for
+          the LEDS_S2MU106_FLASH led chip.
 
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"

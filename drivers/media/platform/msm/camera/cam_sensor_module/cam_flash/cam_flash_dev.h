@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,7 +36,6 @@
 #include "cam_debug_util.h"
 #include "cam_sensor_io.h"
 #include "cam_flash_core.h"
-#include "cam_context.h"
 
 #define CAMX_FLASH_DEV_NAME "cam-flash-dev"
 
@@ -150,6 +149,7 @@ struct cam_flash_private_soc {
 	uint32_t     torch_op_current[CAM_FLASH_MAX_LED_TRIGGERS];
 	uint32_t     torch_max_current[CAM_FLASH_MAX_LED_TRIGGERS];
 	bool         is_wled_flash;
+	uint32_t     record_op_current[CAM_FLASH_MAX_LED_TRIGGERS];
 };
 
 struct cam_flash_func_tbl {
@@ -162,7 +162,6 @@ struct cam_flash_func_tbl {
 
 /**
  *  struct cam_flash_ctrl
- * @device_name         : Device name
  * @soc_info            : Soc related information
  * @pdev                : Platform device
  * @per_frame[]         : Per_frame setting array
@@ -188,7 +187,6 @@ struct cam_flash_func_tbl {
  * @last_flush_req      : last request to flush
  */
 struct cam_flash_ctrl {
-	char device_name[CAM_CTX_DEV_NAME_MAX_LENGTH];
 	struct cam_hw_soc_info              soc_info;
 	struct platform_device             *pdev;
 	struct cam_sensor_power_ctrl_t      power_info;
@@ -220,6 +218,7 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg);
 int cam_flash_pmic_apply_setting(struct cam_flash_ctrl *fctrl, uint64_t req_id);
 int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl, uint64_t req_id);
 int cam_flash_off(struct cam_flash_ctrl *fctrl);
+int cam_torch_off(struct cam_flash_ctrl *flash_ctrl);
 int cam_flash_pmic_power_ops(struct cam_flash_ctrl *fctrl,
 	bool regulator_enable);
 int cam_flash_i2c_power_ops(struct cam_flash_ctrl *fctrl,

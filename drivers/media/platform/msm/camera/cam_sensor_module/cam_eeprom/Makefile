@@ -5,6 +5,4 @@ ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera/cam_sensor_module/ca
 ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera/cam_req_mgr
 ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera/cam_sensor_module/cam_cci
 ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera/cam_smmu/
-ccflags-y += -I$(srctree)/drivers/media/platform/msm/camera/cam_core
-
 obj-$(CONFIG_SPECTRA_CAMERA) += cam_eeprom_dev.o cam_eeprom_core.o cam_eeprom_soc.o

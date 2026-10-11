@@ -23,6 +23,10 @@
 #include "sde_dbg.h"
 #include "sde_trace.h"
 
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+#include <linux/sched/clock.h>
+#endif
+
 #define SDE_EVTLOG_FILTER_STRSIZE	64
 
 struct sde_evtlog_filter {
@@ -110,7 +114,11 @@ exit:
 static bool _sde_evtlog_dump_calc_range(struct sde_dbg_evtlog *evtlog,
 		bool update_last_entry, bool full_dump)
 {
+#if defined(CONFIG_DISPLAY_SAMSUNG_LEGO)
+	int max_entries = full_dump ? SDE_EVTLOG_ENTRY : (SDE_EVTLOG_PRINT_ENTRY * 2);
+#else
 	int max_entries = full_dump ? SDE_EVTLOG_ENTRY : SDE_EVTLOG_PRINT_ENTRY;
+#endif
 
 	if (!evtlog)
 		return false;

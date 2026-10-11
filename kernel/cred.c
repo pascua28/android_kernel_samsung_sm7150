@@ -41,7 +41,7 @@ struct group_info init_groups = { .usage = ATOMIC_INIT(2) };
 /*
  * The initial credentials for the initial task
  */
-struct cred init_cred = {
+struct cred init_cred __kdp_ro = {
 	.usage			= ATOMIC_INIT(4),
 #ifdef CONFIG_DEBUG_CREDENTIALS
 	.subscribers		= ATOMIC_INIT(2),
@@ -378,6 +378,7 @@ int copy_creds(struct task_struct *p, unsigned long clone_flags)
 	p->cred = p->real_cred = get_cred(new);
 	alter_cred_subscribers(new, 2);
 	validate_creds(new);
+
 	return 0;
 
 error_put:
@@ -542,19 +543,9 @@ const struct cred *override_creds(const struct cred *new)
 	validate_creds(old);
 	validate_creds(new);
 
-	/*
-	 * NOTE! This uses 'get_new_cred()' rather than 'get_cred()'.
-	 *
-	 * That means that we do not clear the 'non_rcu' flag, since
-	 * we are only installing the cred into the thread-synchronous
-	 * '->cred' pointer, not the '->real_cred' pointer that is
-	 * visible to other threads under RCU.
-	 *
-	 * Also note that we did validate_creds() manually, not depending
-	 * on the validation in 'get_cred()'.
-	 */
-	get_new_cred((struct cred *)new);
+	get_cred(new);
 	alter_cred_subscribers(new, 1);
+
 	rcu_assign_pointer(current->cred, new);
 	alter_cred_subscribers(old, -1);
 

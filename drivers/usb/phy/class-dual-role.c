@@ -174,7 +174,7 @@ device_add_failed:
 wakeup_init_failed:
 dev_set_name_failed:
 	put_device(dev);
-	kfree(dual_role);
+//	kfree(dual_role);
 
 	return ERR_PTR(rc);
 }

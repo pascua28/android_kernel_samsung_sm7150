@@ -25,6 +25,8 @@
 #include <linux/module.h>
 #include <linux/syscore_ops.h>
 
+#include <linux/sec_debug.h>
+
 #define MSM_DUMP_TABLE_VERSION		MSM_DUMP_MAKE_VERSION(2, 0)
 
 #define SCM_CMD_DEBUG_LAR_UNLOCK	0x4
@@ -42,6 +44,14 @@ struct msm_memory_dump {
 
 static struct msm_memory_dump memdump;
 static struct msm_mem_dump_vaddr_tbl vaddr_tbl;
+
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+void summary_set_msm_memdump_info(struct sec_debug_summary_data_apss *apss)
+{
+	apss->msm_memdump_paddr = (uint64_t)memdump.table_phys;
+	pr_info("%s : 0x%llx\n", __func__, apss->msm_memdump_paddr);
+}
+#endif
 
 uint32_t msm_dump_table_version(void)
 {
@@ -361,3 +371,11 @@ static int __init mem_dump_init(void)
 }
 
 pure_initcall(mem_dump_init);
+
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+void sec_debug_summary_set_msm_memdump_info(struct sec_debug_summary_data_apss *apss)
+{
+	apss->msm_memdump_paddr = (uint64_t)memdump.table_phys;
+	pr_info("%s : 0x%llx\n", __func__, apss->msm_memdump_paddr);
+}
+#endif

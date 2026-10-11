@@ -129,10 +129,20 @@ static int32_t cam_get_source_node_info(
 					rc);
 				rc = 0;
 			}
+
+			/* Read video operational-current */
+			rc = of_property_read_u32(flash_src_node,
+				"qcom,record-current-ma",
+				&soc_private->record_op_current[i]);
+			if (rc) {
+				CAM_INFO(CAM_FLASH, "record-op-current: read failed");
+				rc = 0;
+			}
+
 			of_node_put(flash_src_node);
 
-			CAM_DBG(CAM_FLASH, "MainFlashMaxCurrent[%d]: %d",
-				i, soc_private->flash_max_current[i]);
+			CAM_INFO(CAM_FLASH, "MainFlashMaxCurrent[%d]: %d flash_op_current=%d record_op_current=%d",
+				i, soc_private->flash_max_current[i], soc_private->flash_op_current[i], soc_private->record_op_current[i]);
 		}
 	}
 
@@ -208,8 +218,8 @@ static int32_t cam_get_source_node_info(
 
 			of_node_put(torch_src_node);
 
-			CAM_DBG(CAM_FLASH, "TorchMaxCurrent[%d]: %d",
-				i, soc_private->torch_max_current[i]);
+			CAM_INFO(CAM_FLASH, "TorchMaxCurrent[%d]: %d soc_private->torch_op_current[%d]=%d",
+				i, soc_private->torch_max_current[i], i, soc_private->torch_op_current[i]);
 		}
 	}
 
